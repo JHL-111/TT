@@ -6,7 +6,10 @@
 #include <gp_Dir.hxx>
 #include <Standard_Real.hxx>
 #include <cmath>
-
+#include <BRepBuilderAPI_GTransform.hxx> 
+#include <gp_GTrsf.hxx>
+#include <gp_Mat.hxx>
+#include <gp_XYZ.hxx>
 namespace cad_core {
 
 // =============================================================================
@@ -25,28 +28,28 @@ bool TransformCommand::Execute() {
     try {
         // 创建变换矩阵
         gp_Trsf transformation = CreateTransformation();
-        
+
         // 对每个形状应用变换
         m_transformedShapes.clear();
         m_transformedShapes.reserve(m_originalShapes.size());
-        
+
         for (const auto& shape : m_originalShapes) {
             if (!shape || !shape->IsValid()) {
                 continue;
             }
-            
+
             // 应用变换
             BRepBuilderAPI_Transform transformer(shape->GetOCCTShape(), transformation);
-            
+
             if (!transformer.IsDone()) {
                 return false;
             }
-            
+
             // 创建变换后的形状
             auto transformedShape = std::make_shared<Shape>(transformer.Shape());
             m_transformedShapes.push_back(transformedShape);
         }
-        
+
         m_executed = true;
         return true;
     }
@@ -82,15 +85,15 @@ std::vector<ShapePtr> TransformCommand::GetTransformedShapes() const {
         // 为预览创建临时变换形状
         std::vector<ShapePtr> previewShapes;
         previewShapes.reserve(m_originalShapes.size());
-        
+
         try {
             gp_Trsf transformation = CreateTransformation();
-            
+
             for (const auto& shape : m_originalShapes) {
                 if (!shape || !shape->IsValid()) {
                     continue;
                 }
-                
+
                 BRepBuilderAPI_Transform transformer(shape->GetOCCTShape(), transformation);
                 if (transformer.IsDone()) {
                     auto previewShape = std::make_shared<Shape>(transformer.Shape());
@@ -101,10 +104,10 @@ std::vector<ShapePtr> TransformCommand::GetTransformedShapes() const {
         catch (const std::exception& e) {
             // 返回空vector如果变换失败
         }
-        
+
         return previewShapes;
     }
-    
+
     return m_transformedShapes;
 }
 

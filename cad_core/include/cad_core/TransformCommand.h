@@ -35,7 +35,7 @@ public:
     const char* GetName() const override;
 
     // 获取变换后的形状（用于预览）
-    std::vector<ShapePtr> GetTransformedShapes() const;
+    virtual std::vector<ShapePtr> GetTransformedShapes() const;
     
     // 设置变换参数（由派生类具体实现）
     virtual void SetTransformParameters() = 0;
@@ -113,6 +113,8 @@ public:
     void SetScaleCenter(const Point& centerPoint);
     void SetUniformScale(double scaleFactor);
     void SetNonUniformScale(double scaleX, double scaleY, double scaleZ);
+    bool Execute() override;
+    std::vector<ShapePtr> GetTransformedShapes() const override;
 
 protected:
     gp_Trsf CreateTransformation() const override;
