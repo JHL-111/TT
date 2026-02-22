@@ -210,6 +210,7 @@ ScaleCommand::ScaleCommand(const std::vector<ShapePtr>& shapes,
       m_scaleZ(scaleZ), m_isUniform(false) {
 }
 
+
 void ScaleCommand::SetTransformParameters() {
     // 在对话框中设置参数时调用
 }
@@ -228,6 +229,106 @@ void ScaleCommand::SetNonUniformScale(double scaleX, double scaleY, double scale
     m_scaleY = scaleY;
     m_scaleZ = scaleZ;
     m_isUniform = false;
+}
+
+bool ScaleCommand::Execute() {
+    if (m_executed) {
+        return true;
+    }
+
+    try {
+        m_transformedShapes.clear();
+        m_transformedShapes.reserve(m_originalShapes.size());
+
+        if (m_isUniform) {
+            // 【均匀缩放】走标准路线
+            gp_Trsf transformation = CreateTransformation();
+            for (const auto& shape : m_originalShapes) {
+                if (!shape || !shape->IsValid()) continue;
+                BRepBuilderAPI_Transform transformer(shape->GetOCCTShape(), transformation);
+                if (transformer.IsDone()) {
+                    m_transformedShapes.push_back(std::make_shared<Shape>(transformer.Shape()));
+                }
+            }
+        }
+        else {
+            // 【非均匀缩放】走广义变换路线 (gp_GTrsf)
+            gp_GTrsf gTrsf;
+
+            // 1. 设置缩放矩阵 (对角矩阵)
+            gp_Mat mat(m_scaleX, 0.0, 0.0,
+                0.0, m_scaleY, 0.0,
+                0.0, 0.0, m_scaleZ);
+            gTrsf.SetVectorialPart(mat);
+
+            // 2. 处理缩放中心点偏移
+            // 变换公式: P' = Center + Mat * (P - Center) = Mat * P + (Center - Mat * Center)
+            gp_XYZ center(m_centerPoint.X(), m_centerPoint.Y(), m_centerPoint.Z());
+            gp_XYZ transPart = center - (mat * center);
+            gTrsf.SetTranslationPart(transPart);
+
+            // 3. 应用广义变换
+            for (const auto& shape : m_originalShapes) {
+                if (!shape || !shape->IsValid()) continue;
+
+                // 使用 BRepBuilderAPI_GTransform，Standard_True 表示生成新的形状而不破坏原几何特征
+                BRepBuilderAPI_GTransform transformer(shape->GetOCCTShape(), gTrsf, Standard_True);
+                if (transformer.IsDone()) {
+                    m_transformedShapes.push_back(std::make_shared<Shape>(transformer.Shape()));
+                }
+            }
+        }
+
+        m_executed = true;
+        return true;
+    }
+    catch (const std::exception& e) {
+        return false;
+    }
+}
+
+std::vector<ShapePtr> ScaleCommand::GetTransformedShapes() const {
+    if (!m_executed) {
+        std::vector<ShapePtr> previewShapes;
+        previewShapes.reserve(m_originalShapes.size());
+
+        try {
+            if (m_isUniform) {
+                gp_Trsf transformation = CreateTransformation();
+                for (const auto& shape : m_originalShapes) {
+                    if (!shape || !shape->IsValid()) continue;
+                    BRepBuilderAPI_Transform transformer(shape->GetOCCTShape(), transformation);
+                    if (transformer.IsDone()) {
+                        previewShapes.push_back(std::make_shared<Shape>(transformer.Shape()));
+                    }
+                }
+            }
+            else {
+                gp_GTrsf gTrsf;
+                gp_Mat mat(m_scaleX, 0.0, 0.0,
+                    0.0, m_scaleY, 0.0,
+                    0.0, 0.0, m_scaleZ);
+                gTrsf.SetVectorialPart(mat);
+
+                gp_XYZ center(m_centerPoint.X(), m_centerPoint.Y(), m_centerPoint.Z());
+                gp_XYZ transPart = center - (mat * center);
+                gTrsf.SetTranslationPart(transPart);
+
+                for (const auto& shape : m_originalShapes) {
+                    if (!shape || !shape->IsValid()) continue;
+                    BRepBuilderAPI_GTransform transformer(shape->GetOCCTShape(), gTrsf, Standard_True);
+                    if (transformer.IsDone()) {
+                        previewShapes.push_back(std::make_shared<Shape>(transformer.Shape()));
+                    }
+                }
+            }
+        }
+        catch (const std::exception& e) {
+            // 返回空
+        }
+        return previewShapes;
+    }
+    return m_transformedShapes;
 }
 
 gp_Trsf ScaleCommand::CreateTransformation() const {
