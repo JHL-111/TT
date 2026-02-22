@@ -101,6 +101,7 @@ private slots:
     void OnViewOrthographic();
     void OnViewPerspective();
     void OnSetTransparency();
+    void OnSetShapeTransparency();
     
     void OnCreateBox();
     void OnCreateCylinder();
@@ -289,6 +290,7 @@ private:
     QAction* m_showGridAction;
     QAction* m_showAxesAction;
     QAction* m_setTransparencyAction;
+    QAction* m_setShapeTransparencyAction;
     QAction* m_darkThemeAction;
     QAction* m_lightThemeAction;
     
@@ -303,7 +305,8 @@ private:
     // Document tab management
     QtOccView* GetCurrentViewer() const;
     void UpdateCurrentDocument();
-  
+
+
 };
 
 } // namespace cad_ui

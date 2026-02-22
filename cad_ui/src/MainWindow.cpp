@@ -199,6 +199,11 @@ void MainWindow::CreateActions() {
     m_setTransparencyAction->setShortcut(QKeySequence("T"));
     m_setTransparencyAction->setStatusTip("Set all models to 50% transparency");
     
+    // Shape transparency action
+    m_setShapeTransparencyAction = new QAction("Set Selected Transparency", this);
+    m_setShapeTransparencyAction->setStatusTip("Set transparency for the selected shape");
+
+
     m_projectionModeGroup = new QActionGroup(this);
     m_projectionModeGroup->addAction(m_viewOrthographicAction);
     m_projectionModeGroup->addAction(m_viewPerspectiveAction);
@@ -317,6 +322,7 @@ void MainWindow::CreateMenus() {
     viewMenu->addAction(m_viewPerspectiveAction);
     viewMenu->addSeparator();
     viewMenu->addAction(m_setTransparencyAction);
+    viewMenu->addAction(m_setShapeTransparencyAction);
     
     // Create menu
     QMenu* createMenu = menuBar()->addMenu("&Create");
@@ -746,6 +752,12 @@ void MainWindow::CreateToolBars() {
     transparencyBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     viewControlsButtonsLayout->addWidget(transparencyBtn);
     
+    QToolButton* shapeTransparencyBtn = new QToolButton();
+    shapeTransparencyBtn->setDefaultAction(m_setShapeTransparencyAction);
+    shapeTransparencyBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    viewControlsButtonsLayout->addWidget(shapeTransparencyBtn);
+
+
     viewControlsLayout->addLayout(viewControlsButtonsLayout);
     viewLayout->addWidget(viewControlsFrame);
     
@@ -871,7 +883,8 @@ void MainWindow::ConnectSignals() {
     connect(m_viewOrthographicAction, &QAction::triggered, this, &MainWindow::OnViewOrthographic);
     connect(m_viewPerspectiveAction, &QAction::triggered, this, &MainWindow::OnViewPerspective);
     connect(m_setTransparencyAction, &QAction::triggered, this, &MainWindow::OnSetTransparency);
-    
+    connect(m_setShapeTransparencyAction, &QAction::triggered, this, &MainWindow::OnSetShapeTransparency);
+
     // Create actions
     connect(m_createBoxAction, &QAction::triggered, this, &MainWindow::OnCreateBox);
     connect(m_createCylinderAction, &QAction::triggered, this, &MainWindow::OnCreateCylinder);
@@ -1109,6 +1122,36 @@ void MainWindow::OnViewPerspective() {
 void MainWindow::OnSetTransparency() {
     if (m_viewer) {
         m_viewer->SetAllTransparency(0.5); // Set to 50% transparency
+    }
+}
+
+void MainWindow::OnSetShapeTransparency() {
+    if (!m_viewer) return;
+
+    // 1. 获取当前选中的物体
+    cad_core::ShapePtr selectedShape = m_viewer->GetCurrentSelectedShape();
+
+    if (!selectedShape) {
+        // UI使用英文提示，未选择物体
+        QMessageBox::information(this, "Information", "Please select a shape in the view first.");
+        return;
+    }
+
+    // 2. 弹出对话框让用户输入透明度
+    bool ok;
+    double transparency = QInputDialog::getDouble(this,
+        "Set Transparency",
+        "Enter transparency (0.0 = opaque, 1.0 = fully transparent):",
+        0.5,   // Default value
+        0.0,   // Min value
+        1.0,   // Max value
+        2,     // Decimals
+        &ok);
+
+    // 3. 如果用户点击了确定，则应用透明度
+    if (ok) {
+        m_viewer->SetShapeTransparency(selectedShape, transparency);
+        statusBar()->showMessage(QString("Transparency set to %1").arg(transparency), 2000);
     }
 }
 

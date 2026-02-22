@@ -430,6 +430,37 @@ void QtOccView::SetAllTransparency(double transparency) {
     m_view->Redraw();
 }
 
+// 获取当前选中的形状
+cad_core::ShapePtr QtOccView::GetCurrentSelectedShape() const {
+    return m_currentSelectedShape;
+}
+
+// 设置特定形状的透明度
+void QtOccView::SetShapeTransparency(const cad_core::ShapePtr& shape, double transparency) {
+    if (!shape || m_context.IsNull()) return;
+
+    // 限制透明度在 0.0 到 1.0 之间 (Clamp transparency value)
+    transparency = std::max(0.0, std::min(1.0, transparency));
+
+    // 在映射表中查找对应的 AIS_Shape
+    auto it = m_shapeToAIS.find(shape);
+    if (it != m_shapeToAIS.end()) {
+        Handle(AIS_Shape) aisShape = it->second;
+        if (!aisShape.IsNull()) {
+            // 应用透明度
+            if (transparency > 0.0) {
+                m_context->SetTransparency(aisShape, transparency, Standard_False);
+            }
+            else {
+                m_context->UnsetTransparency(aisShape, Standard_False);
+            }
+            // 更新视图
+            m_context->UpdateCurrentViewer();
+            m_view->Redraw();
+        }
+    }
+}
+
 void QtOccView::paintEvent(QPaintEvent* event) {
     Q_UNUSED(event);
     

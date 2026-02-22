@@ -92,7 +92,9 @@ public:
     
     // 透明度控制
     void SetAllTransparency(double transparency);
-    
+    void SetShapeTransparency(const cad_core::ShapePtr& shape, double transparency);
+    cad_core::ShapePtr GetCurrentSelectedShape() const;
+
     // 草图模式支持
     bool IsInSketchMode() const;
     void EnterSketchMode(const TopoDS_Face& face);
