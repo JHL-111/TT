@@ -77,7 +77,6 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
-    void resizeEvent(QResizeEvent* event) override;
 
 private slots:
     void OnNewDocument();
@@ -304,31 +303,7 @@ private:
     // Document tab management
     QtOccView* GetCurrentViewer() const;
     void UpdateCurrentDocument();
-
-protected:
-    // Window management for frameless window
-    void mousePressEvent(QMouseEvent* event) override;
-    void mouseMoveEvent(QMouseEvent* event) override;
-    void mouseReleaseEvent(QMouseEvent* event) override;
-
-private:
-    // Window dragging
-    bool m_isDragging;
-    QPoint m_dragStartPosition;
-    
-    // Custom title bar
-    QWidget* m_titleBar;
-    QLabel* m_titleLabel;
-    QPushButton* m_minimizeButton;
-    QPushButton* m_maximizeButton;
-    QPushButton* m_closeButton;
-    
-    void CreateTitleBar();
-    
-private slots:
-    void OnMinimizeWindow();
-    void OnMaximizeWindow();
-    void OnCloseWindow();
+  
 };
 
 } // namespace cad_ui

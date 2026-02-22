@@ -25,11 +25,11 @@ void FilletChamferDialog::setupUI() {
     m_mainLayout->setContentsMargins(12, 12, 12, 12);
     
     // Edge selection group
-    m_selectionGroup = new QGroupBox("边选择", this);
+    m_selectionGroup = new QGroupBox("Edgeselect", this);
     m_selectionLayout = new QGridLayout(m_selectionGroup);
     m_selectionLayout->setSpacing(8);
     
-    m_edgeLabel = new QLabel("选择要处理的边:", this);
+    m_edgeLabel = new QLabel("Select the edges to be processed:", this);
     m_edgeLabel->setStyleSheet("font-weight: bold; color: #333333;");
     m_selectionLayout->addWidget(m_edgeLabel, 0, 0, 1, 2);
     
@@ -45,12 +45,12 @@ void FilletChamferDialog::setupUI() {
     m_edgeFrameLayout = new QHBoxLayout(m_edgeFrame);
     m_edgeFrameLayout->setContentsMargins(8, 4, 8, 4);
     
-    m_edgeCount = new QLabel("请选择边", this);
+    m_edgeCount = new QLabel("Select an edge", this);
     m_edgeCount->setStyleSheet("color: #666666; font-style: italic;");
     m_edgeFrameLayout->addWidget(m_edgeCount);
     m_edgeFrameLayout->addStretch();
     
-    m_edgeSelectButton = new QPushButton("选择", this);
+    m_edgeSelectButton = new QPushButton("select", this);
     m_edgeSelectButton->setMinimumSize(60, 24);
     m_edgeSelectButton->setStyleSheet(
         "QPushButton { background-color: #009999; color: white; border: none; border-radius: 3px; font-weight: bold; }"
@@ -75,7 +75,7 @@ void FilletChamferDialog::setupUI() {
     m_mainLayout->addWidget(m_selectionGroup);
     
     // Parameters group
-    m_parametersGroup = new QGroupBox("参数设置", this);
+    m_parametersGroup = new QGroupBox("parameter", this);
     m_parametersLayout = new QGridLayout(m_parametersGroup);
     m_parametersLayout->setSpacing(8);
     
@@ -83,7 +83,7 @@ void FilletChamferDialog::setupUI() {
     
     if (m_operationType == FilletChamferType::Fillet) {
         // Fillet radius
-        m_radiusLabel = new QLabel("圆角半径:", this);
+        m_radiusLabel = new QLabel("fillet radius:", this);
         m_radiusLabel->setStyleSheet("font-weight: bold; color: #333333;");
         m_parametersLayout->addWidget(m_radiusLabel, row, 0);
         
@@ -107,13 +107,13 @@ void FilletChamferDialog::setupUI() {
         
     } else { // Chamfer
         // Symmetric chamfer checkbox
-        m_symmetricCheckBox = new QCheckBox("对称倒角", this);
+        m_symmetricCheckBox = new QCheckBox("Symmetrical chamfer", this);
         m_symmetricCheckBox->setChecked(true);
         m_symmetricCheckBox->setStyleSheet("font-weight: bold; color: #333333;");
         m_parametersLayout->addWidget(m_symmetricCheckBox, row++, 0, 1, 2);
         
         // Distance 1
-        m_chamferDistance1Label = new QLabel("距离1:", this);
+        m_chamferDistance1Label = new QLabel("Distance 1:", this);
         m_chamferDistance1Label->setStyleSheet("font-weight: bold; color: #333333;");
         m_parametersLayout->addWidget(m_chamferDistance1Label, row, 0);
         
@@ -129,7 +129,7 @@ void FilletChamferDialog::setupUI() {
         m_parametersLayout->addWidget(m_chamferDistance1SpinBox, row++, 1);
         
         // Distance 2 (only for asymmetric)
-        m_chamferDistance2Label = new QLabel("距离2:", this);
+        m_chamferDistance2Label = new QLabel("Distance 2:", this);
         m_chamferDistance2Label->setStyleSheet("font-weight: bold; color: #333333;");
         m_parametersLayout->addWidget(m_chamferDistance2Label, row, 0);
         
@@ -160,17 +160,17 @@ void FilletChamferDialog::setupUI() {
     m_buttonLayout = new QHBoxLayout();
     m_buttonLayout->setSpacing(8);
     
-    m_previewButton = new QPushButton("预览", this);
+    m_previewButton = new QPushButton("preview", this);
     m_previewButton->setMinimumSize(80, 32);
     m_previewButton->setEnabled(false);
     
     m_buttonLayout->addWidget(m_previewButton);
     m_buttonLayout->addStretch();
     
-    m_cancelButton = new QPushButton("取消", this);
+    m_cancelButton = new QPushButton("cancel", this);
     m_cancelButton->setMinimumSize(80, 32);
     
-    m_okButton = new QPushButton("确定", this);
+    m_okButton = new QPushButton("confirm", this);
     m_okButton->setMinimumSize(80, 32);
     m_okButton->setDefault(true);
     m_okButton->setEnabled(false);
@@ -225,14 +225,14 @@ void FilletChamferDialog::setupUI() {
 void FilletChamferDialog::onEdgeSelectionClicked() {
     m_selectingEdges = true;
     
-    m_edgeSelectButton->setText("完成");
+    m_edgeSelectButton->setText("Finish");
     m_edgeSelectButton->setStyleSheet(
         "QPushButton { background-color: #FF6B35; color: white; border: none; border-radius: 3px; font-weight: bold; }"
         "QPushButton:hover { background-color: #FF8C5A; }"
     );
     
-    QString prompt = QString("请在3D视图中选择要进行%1的边，完成后点击'完成'按钮")
-                    .arg(m_operationType == FilletChamferType::Fillet ? "圆角" : "倒角");
+    QString prompt = QString("Please select the edges for %1 in the 3D view, and then click 'Finish' button.")
+                    .arg(m_operationType == FilletChamferType::Fillet ? "Fillet" : "Chamfer");
     
     emit selectionModeChanged(true, prompt);
     
@@ -252,7 +252,7 @@ void FilletChamferDialog::onSelectionFinished() {
     m_selectingEdges = false;
     
     // Reset button
-    m_edgeSelectButton->setText("选择");
+    m_edgeSelectButton->setText("select");
     m_edgeSelectButton->setStyleSheet(
         "QPushButton { background-color: #009999; color: white; border: none; border-radius: 3px; font-weight: bold; }"
         "QPushButton:hover { background-color: #00CCCC; }"
@@ -276,9 +276,9 @@ void FilletChamferDialog::onSymmetricChanged(bool symmetric) {
         m_chamferDistance2SpinBox->setVisible(!symmetric);
         
         if (symmetric) {
-            m_chamferDistance1Label->setText("倒角距离:");
+            m_chamferDistance1Label->setText("chamferDistance:");
         } else {
-            m_chamferDistance1Label->setText("距离1:");
+            m_chamferDistance1Label->setText("Distance 1:");
         }
     }
 }
@@ -303,16 +303,16 @@ void FilletChamferDialog::onParameterChanged() {
 
 void FilletChamferDialog::updateSelectionDisplay() {
     if (!m_selectedEdges.empty()) {
-        m_edgeCount->setText(QString("已选择 %1 条边").arg(m_selectedEdges.size()));
+        m_edgeCount->setText(QString("%1 edges have been selected").arg(m_selectedEdges.size()));
         m_edgeCount->setStyleSheet("color: #009999; font-weight: bold;");
         m_edgeList->setVisible(true);
         
         m_edgeList->clear();
         for (size_t i = 0; i < m_selectedEdges.size(); ++i) {
-            m_edgeList->addItem(QString("边 %1").arg(i + 1));
+            m_edgeList->addItem(QString("edge %1").arg(i + 1));
         }
     } else {
-        m_edgeCount->setText("请选择边");
+        m_edgeCount->setText("Please select the side.");
         m_edgeCount->setStyleSheet("color: #666666; font-style: italic;");
         m_edgeList->setVisible(false);
     }
@@ -321,7 +321,7 @@ void FilletChamferDialog::updateSelectionDisplay() {
 }
 
 QString FilletChamferDialog::getOperationTitle() const {
-    return m_operationType == FilletChamferType::Fillet ? "圆角操作" : "倒角操作";
+    return m_operationType == FilletChamferType::Fillet ? "Fillet" : "Chamfer";
 }
 
 void FilletChamferDialog::syncWithViewerEdgeSelection() {

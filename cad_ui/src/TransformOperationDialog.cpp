@@ -20,7 +20,7 @@ TransformOperationDialog::TransformOperationDialog(QWidget* parent)
     setModal(false);
     setWindowFlags(Qt::Dialog | Qt::WindowStaysOnTopHint);
     resize(450, 600);
-    setWindowTitle("变换操作");
+    setWindowTitle("TransformOperation");
 }
 
 void TransformOperationDialog::setupUI() {
@@ -29,7 +29,7 @@ void TransformOperationDialog::setupUI() {
     m_mainLayout->setContentsMargins(12, 12, 12, 12);
     
     // 对象选择区域
-    m_selectionGroup = new QGroupBox("选择对象", this);
+    m_selectionGroup = new QGroupBox("Select object", this);
     m_selectionLayout = new QGridLayout(m_selectionGroup);
     m_selectionLayout->setSpacing(8);
     
@@ -45,12 +45,12 @@ void TransformOperationDialog::setupUI() {
     m_objectFrameLayout = new QHBoxLayout(m_objectFrame);
     m_objectFrameLayout->setContentsMargins(8, 4, 8, 4);
     
-    m_objectCount = new QLabel("请选择要变换的对象", this);
+    m_objectCount = new QLabel("Select object to be transformed.", this);
     m_objectCount->setStyleSheet("color: #666666; font-style: italic;");
     m_objectFrameLayout->addWidget(m_objectCount);
     m_objectFrameLayout->addStretch();
     
-    m_objectSelectButton = new QPushButton("选择", this);
+    m_objectSelectButton = new QPushButton("Select", this);
     m_objectSelectButton->setFixedSize(60, 30);
     m_objectSelectButton->setStyleSheet(
         "QPushButton { background-color: #009999; color: white; border: none; border-radius: 4px; font-weight: bold; }"
@@ -92,7 +92,7 @@ void TransformOperationDialog::setupUI() {
     m_buttonLayout = new QHBoxLayout();
     m_buttonLayout->setSpacing(8);
     
-    m_previewButton = new QPushButton("预览", this);
+    m_previewButton = new QPushButton("Preview", this);
     m_previewButton->setFixedSize(80, 35);
     m_previewButton->setStyleSheet(
         "QPushButton { background-color: #4CAF50; color: white; border: none; border-radius: 4px; font-weight: bold; }"
@@ -100,14 +100,14 @@ void TransformOperationDialog::setupUI() {
         "QPushButton:disabled { background-color: #CCCCCC; }"
     );
     
-    m_resetButton = new QPushButton("重置", this);
+    m_resetButton = new QPushButton("Reset", this);
     m_resetButton->setFixedSize(80, 35);
     m_resetButton->setStyleSheet(
         "QPushButton { background-color: #FF9800; color: white; border: none; border-radius: 4px; font-weight: bold; }"
         "QPushButton:hover { background-color: #E68900; }"
     );
     
-    m_okButton = new QPushButton("确定", this);
+    m_okButton = new QPushButton("Confirm", this);
     m_okButton->setFixedSize(80, 35);
     m_okButton->setStyleSheet(
         "QPushButton { background-color: #2196F3; color: white; border: none; border-radius: 4px; font-weight: bold; }"
@@ -115,7 +115,7 @@ void TransformOperationDialog::setupUI() {
         "QPushButton:disabled { background-color: #CCCCCC; }"
     );
     
-    m_cancelButton = new QPushButton("取消", this);
+    m_cancelButton = new QPushButton("Cancel", this);
     m_cancelButton->setFixedSize(80, 35);
     m_cancelButton->setStyleSheet(
         "QPushButton { background-color: #F44336; color: white; border: none; border-radius: 4px; font-weight: bold; }"
@@ -145,12 +145,12 @@ void TransformOperationDialog::setupUI() {
 
 void TransformOperationDialog::setupTranslationTab() {
     m_translateTab = new QWidget();
-    m_translationGroup = new QGroupBox("平移参数", m_translateTab);
+    m_translationGroup = new QGroupBox("translation parameters", m_translateTab);
     m_translationLayout = new QGridLayout(m_translationGroup);
     m_translationLayout->setSpacing(8);
     
     // X方向平移
-    m_translationLayout->addWidget(new QLabel("X方向:", m_translateTab), 0, 0);
+    m_translationLayout->addWidget(new QLabel("X-direction:", m_translateTab), 0, 0);
     m_translateX = new QDoubleSpinBox(m_translateTab);
     m_translateX->setRange(-999999.0, 999999.0);
     m_translateX->setDecimals(3);
@@ -159,7 +159,7 @@ void TransformOperationDialog::setupTranslationTab() {
     m_translationLayout->addWidget(m_translateX, 0, 1);
     
     // Y方向平移
-    m_translationLayout->addWidget(new QLabel("Y方向:", m_translateTab), 1, 0);
+    m_translationLayout->addWidget(new QLabel("Y-direction:", m_translateTab), 1, 0);
     m_translateY = new QDoubleSpinBox(m_translateTab);
     m_translateY->setRange(-999999.0, 999999.0);
     m_translateY->setDecimals(3);
@@ -168,7 +168,7 @@ void TransformOperationDialog::setupTranslationTab() {
     m_translationLayout->addWidget(m_translateY, 1, 1);
     
     // Z方向平移
-    m_translationLayout->addWidget(new QLabel("Z方向:", m_translateTab), 2, 0);
+    m_translationLayout->addWidget(new QLabel("Z-direction:", m_translateTab), 2, 0);
     m_translateZ = new QDoubleSpinBox(m_translateTab);
     m_translateZ->setRange(-999999.0, 999999.0);
     m_translateZ->setDecimals(3);
@@ -180,7 +180,7 @@ void TransformOperationDialog::setupTranslationTab() {
     translateTabLayout->addWidget(m_translationGroup);
     translateTabLayout->addStretch();
     
-    m_transformTabs->addTab(m_translateTab, "平移");
+    m_transformTabs->addTab(m_translateTab, "translation");
     
     // 连接信号槽
     connect(m_translateX, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -197,7 +197,7 @@ void TransformOperationDialog::setupRotationTab() {
     rotateTabLayout->setSpacing(8);
     
     // 旋转轴点
-    m_axisPointGroup = new QGroupBox("旋转轴点", m_rotateTab);
+    m_axisPointGroup = new QGroupBox("axisPoint", m_rotateTab);
     QGridLayout* axisPointLayout = new QGridLayout(m_axisPointGroup);
     
     axisPointLayout->addWidget(new QLabel("X:", m_rotateTab), 0, 0);
@@ -224,17 +224,17 @@ void TransformOperationDialog::setupRotationTab() {
     rotateTabLayout->addWidget(m_axisPointGroup);
     
     // 旋转轴方向
-    m_axisDirectionGroup = new QGroupBox("旋转轴方向", m_rotateTab);
+    m_axisDirectionGroup = new QGroupBox("axisDirection", m_rotateTab);
     QVBoxLayout* axisDirectionLayout = new QVBoxLayout(m_axisDirectionGroup);
     
     // 预设轴方向
     QHBoxLayout* axisPresetLayout = new QHBoxLayout();
     m_axisPresetGroup = new QButtonGroup(m_rotateTab);
     
-    m_axisXButton = new QRadioButton("X轴", m_rotateTab);
-    m_axisYButton = new QRadioButton("Y轴", m_rotateTab);
-    m_axisZButton = new QRadioButton("Z轴", m_rotateTab);
-    m_axisCustomButton = new QRadioButton("自定义", m_rotateTab);
+    m_axisXButton = new QRadioButton("X-axis", m_rotateTab);
+    m_axisYButton = new QRadioButton("Y-axis", m_rotateTab);
+    m_axisZButton = new QRadioButton("Z-axis", m_rotateTab);
+    m_axisCustomButton = new QRadioButton("Custom", m_rotateTab);
     
     m_axisZButton->setChecked(true); // 默认Z轴
     
@@ -281,12 +281,12 @@ void TransformOperationDialog::setupRotationTab() {
     rotateTabLayout->addWidget(m_axisDirectionGroup);
     
     // 旋转角度
-    m_angleGroup = new QGroupBox("旋转角度", m_rotateTab);
+    m_angleGroup = new QGroupBox("angle", m_rotateTab);
     QVBoxLayout* angleLayout = new QVBoxLayout(m_angleGroup);
     
     QHBoxLayout* angleUnitLayout = new QHBoxLayout();
-    m_angleDegrees = new QRadioButton("度", m_rotateTab);
-    m_angleRadians = new QRadioButton("弧度", m_rotateTab);
+    m_angleDegrees = new QRadioButton("Degrees", m_rotateTab);
+    m_angleRadians = new QRadioButton("Radians", m_rotateTab);
     m_angleDegrees->setChecked(true); // 默认使用度
     
     angleUnitLayout->addWidget(m_angleDegrees);
@@ -297,14 +297,14 @@ void TransformOperationDialog::setupRotationTab() {
     m_rotationAngle = new QDoubleSpinBox(m_rotateTab);
     m_rotationAngle->setRange(-360.0, 360.0);
     m_rotationAngle->setDecimals(2);
-    m_rotationAngle->setSuffix("°");
+    m_rotationAngle->setSuffix(QChar(0x00B0));
     m_rotationAngle->setValue(90.0);
     angleLayout->addWidget(m_rotationAngle);
     
     rotateTabLayout->addWidget(m_angleGroup);
     rotateTabLayout->addStretch();
     
-    m_transformTabs->addTab(m_rotateTab, "旋转");
+    m_transformTabs->addTab(m_rotateTab, "rotate");
     
     // 连接信号槽
     connect(m_axisPresetGroup, QOverload<int>::of(&QButtonGroup::buttonClicked),
@@ -371,13 +371,13 @@ void TransformOperationDialog::setupScaleTab() {
     scaleTabLayout->setSpacing(8);
     
     // 缩放中心
-    m_scaleCenterGroup = new QGroupBox("缩放中心", m_scaleTab);
+    m_scaleCenterGroup = new QGroupBox("scaleCenter", m_scaleTab);
     QVBoxLayout* scaleCenterLayout = new QVBoxLayout(m_scaleCenterGroup);
     
     // 快速设置按钮
     QHBoxLayout* centerButtonsLayout = new QHBoxLayout();
-    m_centerAtOriginButton = new QPushButton("原点", m_scaleTab);
-    m_centerAtBoundingBoxButton = new QPushButton("包围盒中心", m_scaleTab);
+    m_centerAtOriginButton = new QPushButton("centerAtOrigin", m_scaleTab);
+    m_centerAtBoundingBoxButton = new QPushButton("centerAtBoundingBox", m_scaleTab);
     centerButtonsLayout->addWidget(m_centerAtOriginButton);
     centerButtonsLayout->addWidget(m_centerAtBoundingBoxButton);
     centerButtonsLayout->addStretch();
@@ -410,17 +410,17 @@ void TransformOperationDialog::setupScaleTab() {
     scaleTabLayout->addWidget(m_scaleCenterGroup);
     
     // 缩放因子
-    m_scaleFactorGroup = new QGroupBox("缩放因子", m_scaleTab);
+    m_scaleFactorGroup = new QGroupBox("scaleFactor", m_scaleTab);
     QVBoxLayout* scaleFactorLayout = new QVBoxLayout(m_scaleFactorGroup);
     
     // 均匀缩放选项
-    m_uniformScaleCheckBox = new QCheckBox("均匀缩放", m_scaleTab);
+    m_uniformScaleCheckBox = new QCheckBox("uniformScale", m_scaleTab);
     m_uniformScaleCheckBox->setChecked(true);
     scaleFactorLayout->addWidget(m_uniformScaleCheckBox);
     
     // 均匀缩放因子
     QHBoxLayout* uniformScaleLayout = new QHBoxLayout();
-    uniformScaleLayout->addWidget(new QLabel("缩放因子:", m_scaleTab));
+    uniformScaleLayout->addWidget(new QLabel("uniformScale:", m_scaleTab));
     m_scaleFactorUniform = new QDoubleSpinBox(m_scaleTab);
     m_scaleFactorUniform->setRange(0.001, 1000.0);
     m_scaleFactorUniform->setDecimals(3);
@@ -432,7 +432,7 @@ void TransformOperationDialog::setupScaleTab() {
     // 非均匀缩放因子
     QGridLayout* nonUniformScaleLayout = new QGridLayout();
     
-    nonUniformScaleLayout->addWidget(new QLabel("X因子:", m_scaleTab), 0, 0);
+    nonUniformScaleLayout->addWidget(new QLabel("X Factor:", m_scaleTab), 0, 0);
     m_scaleFactorX = new QDoubleSpinBox(m_scaleTab);
     m_scaleFactorX->setRange(0.001, 1000.0);
     m_scaleFactorX->setDecimals(3);
@@ -440,7 +440,7 @@ void TransformOperationDialog::setupScaleTab() {
     m_scaleFactorX->setEnabled(false);
     nonUniformScaleLayout->addWidget(m_scaleFactorX, 0, 1);
     
-    nonUniformScaleLayout->addWidget(new QLabel("Y因子:", m_scaleTab), 1, 0);
+    nonUniformScaleLayout->addWidget(new QLabel("Y Factor:", m_scaleTab), 1, 0);
     m_scaleFactorY = new QDoubleSpinBox(m_scaleTab);
     m_scaleFactorY->setRange(0.001, 1000.0);
     m_scaleFactorY->setDecimals(3);
@@ -448,7 +448,7 @@ void TransformOperationDialog::setupScaleTab() {
     m_scaleFactorY->setEnabled(false);
     nonUniformScaleLayout->addWidget(m_scaleFactorY, 1, 1);
     
-    nonUniformScaleLayout->addWidget(new QLabel("Z因子:", m_scaleTab), 2, 0);
+    nonUniformScaleLayout->addWidget(new QLabel("Z Factor:", m_scaleTab), 2, 0);
     m_scaleFactorZ = new QDoubleSpinBox(m_scaleTab);
     m_scaleFactorZ->setRange(0.001, 1000.0);
     m_scaleFactorZ->setDecimals(3);
@@ -460,7 +460,7 @@ void TransformOperationDialog::setupScaleTab() {
     scaleTabLayout->addWidget(m_scaleFactorGroup);
     scaleTabLayout->addStretch();
     
-    m_transformTabs->addTab(m_scaleTab, "缩放");
+    m_transformTabs->addTab(m_scaleTab, "scale");
     
     // 连接信号槽
     connect(m_uniformScaleCheckBox, &QCheckBox::toggled, [this](bool checked) {
@@ -484,10 +484,7 @@ void TransformOperationDialog::setupScaleTab() {
         onScaleParameterChanged();
     });
     
-    connect(m_centerAtBoundingBoxButton, &QPushButton::clicked, [this]() {
-        // TODO: 计算选中对象的包围盒中心
-        QMessageBox::information(this, "提示", "包围盒中心计算功能待实现");
-    });
+    
     
     // 连接缩放参数变化信号
     connect(m_scaleCenterX, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
@@ -513,13 +510,13 @@ void TransformOperationDialog::onObjectSelectionClicked() {
     } else {
         // 开始选择模式
         m_selectingObjects = true;
-        m_objectSelectButton->setText("完成");
+        m_objectSelectButton->setText("Finish");
         m_objectSelectButton->setStyleSheet(
             "QPushButton { background-color: #FF5722; color: white; border: none; border-radius: 4px; font-weight: bold; }"
             "QPushButton:hover { background-color: #E64A19; }"
         );
         
-        emit selectionModeChanged(true, "请选择要变换的对象，然后点击'完成'");
+        emit selectionModeChanged(true, "Please select the object you want to transform, and then click 'Finish'.");
     }
 }
 
@@ -548,7 +545,7 @@ void TransformOperationDialog::onSelectionFinished() {
     }
     
     m_selectingObjects = false;
-    m_objectSelectButton->setText("选择");
+    m_objectSelectButton->setText("select");
     m_objectSelectButton->setStyleSheet(
         "QPushButton { background-color: #009999; color: white; border: none; border-radius: 4px; font-weight: bold; }"
         "QPushButton:hover { background-color: #007777; }"
@@ -569,14 +566,14 @@ void TransformOperationDialog::onPreviewClicked() {
     if (m_previewActive) {
         // 取消预览
         emit resetRequested();
-        m_previewButton->setText("预览");
+        m_previewButton->setText("Preview");
         m_previewActive = false;
     } else {
         // 显示预览
         auto command = getCurrentTransformCommand();
         if (command) {
             emit previewRequested(command);
-            m_previewButton->setText("取消预览");
+            m_previewButton->setText("CancelPreview");
             m_previewActive = true;
         }
     }
@@ -585,7 +582,7 @@ void TransformOperationDialog::onPreviewClicked() {
 void TransformOperationDialog::onResetClicked() {
     if (m_previewActive) {
         emit resetRequested();
-        m_previewButton->setText("预览");
+        m_previewButton->setText("Preview");
         m_previewActive = false;
     }
     
@@ -631,14 +628,14 @@ void TransformOperationDialog::updateSelectionDisplay() {
     m_objectList->clear();
     
     if (m_selectedObjects.empty()) {
-        m_objectCount->setText("请选择要变换的对象");
+        m_objectCount->setText("Please select the object to be transformed.");
         m_objectCount->setStyleSheet("color: #666666; font-style: italic;");
     } else {
-        m_objectCount->setText(QString("已选择 %1 个对象").arg(m_selectedObjects.size()));
+        m_objectCount->setText(QString("%1 objects have been selected").arg(m_selectedObjects.size()));
         m_objectCount->setStyleSheet("color: #009999; font-weight: bold;");
         
         for (size_t i = 0; i < m_selectedObjects.size(); ++i) {
-            m_objectList->addItem(QString("对象 %1").arg(i + 1));
+            m_objectList->addItem(QString("object %1").arg(i + 1));
         }
     }
 }
@@ -734,7 +731,7 @@ void TransformOperationDialog::accept() {
         emit transformRequested(command);
         QDialog::accept();
     } else {
-        QMessageBox::warning(this, "警告", "请选择对象并设置有效的变换参数");
+        QMessageBox::warning(this, "Warning", "Select a object and set a valid transformation parameters");
     }
 }
 

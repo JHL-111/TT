@@ -34,31 +34,10 @@
 namespace cad_ui {
 
 MainWindow::MainWindow(QWidget* parent) 
-    : QMainWindow(parent), m_tabWidget(nullptr), m_documentModified(false), 
-      m_isDragging(false), m_dragStartPosition(), m_titleBar(nullptr),
-      m_titleLabel(nullptr), m_minimizeButton(nullptr), m_maximizeButton(nullptr),
-      m_closeButton(nullptr), m_currentBooleanDialog(nullptr), m_currentFilletChamferDialog(nullptr),
+    : QMainWindow(parent), m_tabWidget(nullptr), m_documentModified(false), m_currentBooleanDialog(nullptr), m_currentFilletChamferDialog(nullptr),
       m_currentTransformDialog(nullptr), m_previewActive(false), 
       m_waitingForFaceSelection(false) {
-    
-    // Load modern flat stylesheet
-    QFile styleFile(":/resources/styles.qss");
-    if (styleFile.open(QFile::ReadOnly | QFile::Text)) {
-        QTextStream stream(&styleFile);
-        QString style = stream.readAll();
-        this->setStyleSheet(style);
-        qDebug() << "Stylesheet loaded successfully from QRC, length:" << style.length();
-    } else {
-        qDebug() << "Failed to load stylesheet from QRC resources";
-        // Fallback: try to load from file system for development
-        QFile fallbackFile("");
-        if (fallbackFile.open(QFile::ReadOnly | QFile::Text)) {
-            QTextStream fallbackStream(&fallbackFile);
-            QString fallbackStyle = fallbackStream.readAll();
-            this->setStyleSheet(fallbackStyle);
-            qDebug() << "Fallback stylesheet loaded, length:" << fallbackStyle.length();
-        }
-    }
+ 
     
     // Initialize managers
     m_commandManager = std::make_unique<cad_core::CommandManager>();
@@ -75,7 +54,7 @@ MainWindow::MainWindow(QWidget* parent)
     CreateToolBars();
     CreateStatusBar();
     CreateDockWidgets();
-    CreateTitleBar();
+    //CreateTitleBar();
     CreateConsole();
     
     // Create multi-document tab interface
@@ -114,13 +93,10 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_tabWidget, &QTabWidget::currentChanged, this, &MainWindow::OnTabChanged);
     
     // Set window properties - frameless window
-    setWindowTitle("Ander CAD");
-    setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
+    setWindowTitle("JLi CAD");
     setMinimumSize(800, 600);
     resize(1200, 800);
     
-    // Enable mouse tracking for window moving
-    setMouseTracking(true);
     
     // Update UI
     UpdateActions();
@@ -229,59 +205,41 @@ void MainWindow::CreateActions() {
     
     // Create actions with 30x30 icons (icon-only display)
     m_createBoxAction = new QAction("", this);
-    QIcon boxIcon(":/icons/icons/Prim-Box.svg");
-    boxIcon.addPixmap(QPixmap(":/icons/icons/Prim-Box.svg").scaled(30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    m_createBoxAction->setIcon(boxIcon);
+    m_createBoxAction->setText("Box");
     m_createBoxAction->setStatusTip("Create a box");
     
     m_createCylinderAction = new QAction("", this);
-    QIcon cylinderIcon(":/icons/icons/Prim-Cylinder.svg");
-    cylinderIcon.addPixmap(QPixmap(":/icons/icons/Prim-Cylinder.svg").scaled(30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    m_createCylinderAction->setIcon(cylinderIcon);
+    m_createCylinderAction->setText("Cylinder");
     m_createCylinderAction->setStatusTip("Create a cylinder");
     
     m_createSphereAction = new QAction("", this);
-    QIcon sphereIcon(":/icons/icons/Prim-Sphere.svg");
-    sphereIcon.addPixmap(QPixmap(":/icons/icons/Prim-Sphere.svg").scaled(30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    m_createSphereAction->setIcon(sphereIcon);
+    m_createSphereAction->setText("Sphere");
     m_createSphereAction->setStatusTip("Create a sphere");
     
     m_createExtrudeAction = new QAction("", this);
-    QIcon extrudeIcon(":/icons/icons/Form-Extrude.svg");
-    extrudeIcon.addPixmap(QPixmap(":/icons/icons/Form-Extrude.svg").scaled(30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    m_createExtrudeAction->setIcon(extrudeIcon);
+    m_createExtrudeAction->setText("Extrude");
     m_createExtrudeAction->setStatusTip("Create an extrude feature");
     
     // Boolean operations with 30x30 icons (icon-only display)
     m_booleanUnionAction = new QAction("", this);
-    QIcon fuseIcon(":/icons/icons/Boolean-Fuse.svg");
-    fuseIcon.addPixmap(QPixmap(":/icons/icons/Boolean-Fuse.svg").scaled(30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    m_booleanUnionAction->setIcon(fuseIcon);
+    m_booleanUnionAction->setText("Union");
     m_booleanUnionAction->setStatusTip("Merge the selected shapes");
     
     m_booleanIntersectionAction = new QAction("", this);
-    QIcon commonIcon(":/icons/icons/Boolean-Common.svg");
-    commonIcon.addPixmap(QPixmap(":/icons/icons/Boolean-Common.svg").scaled(30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    m_booleanIntersectionAction->setIcon(commonIcon);
+    m_booleanIntersectionAction->setText("Intersection");
     m_booleanIntersectionAction->setStatusTip("Get the intersection of the selected shapes");
     
     m_booleanDifferenceAction = new QAction("", this);
-    QIcon cutIcon(":/icons/icons/Boolean-Cut.svg");
-    cutIcon.addPixmap(QPixmap(":/icons/icons/Boolean-Cut.svg").scaled(30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    m_booleanDifferenceAction->setIcon(cutIcon);
+    m_booleanDifferenceAction->setText("Difference");
     m_booleanDifferenceAction->setStatusTip("Subtract one shape from another shape");
     
     // Fillet and chamfer operations with 30x30 icons (icon-only display)
     m_filletAction = new QAction("", this);
-    QIcon filletIcon(":/icons/icons/Mod-Fillet.svg");
-    filletIcon.addPixmap(QPixmap(":/icons/icons/Mod-Fillet.svg").scaled(30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    m_filletAction->setIcon(filletIcon);
+    m_filletAction->setText("Fillet");
     m_filletAction->setStatusTip("Add fillet to selected edges");
     
     m_chamferAction = new QAction("", this);
-    QIcon chamferIcon(":/icons/icons/Mod-Chamfer.svg");
-    chamferIcon.addPixmap(QPixmap(":/icons/icons/Mod-Chamfer.svg").scaled(30, 30, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    m_chamferAction->setIcon(chamferIcon);
+    m_chamferAction->setText("Chamfer");
     m_chamferAction->setStatusTip("Add chamfer to selected edges");
     
     // Transform actions
@@ -512,10 +470,9 @@ void MainWindow::CreateToolBars() {
     QVBoxLayout* boxLayout = new QVBoxLayout();
     QToolButton* boxBtn = new QToolButton();
     boxBtn->setDefaultAction(m_createBoxAction);
-    boxBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    boxBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     boxBtn->setIconSize(QSize(30, 30));
     boxBtn->setFixedSize(30, 30);
-    boxBtn->setStyleSheet("QToolButton { border-radius: 8px; border: 1px solid #ccc; background-color: #f0f0f0; } QToolButton:hover { background-color: #e0e0e0; } QToolButton:pressed { background-color: #d0d0d0; }");
     QLabel* boxLabel = new QLabel("Box");
     boxLabel->setAlignment(Qt::AlignCenter);
     boxLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
@@ -529,10 +486,9 @@ void MainWindow::CreateToolBars() {
     QVBoxLayout* cylinderLayout = new QVBoxLayout();
     QToolButton* cylinderBtn = new QToolButton();
     cylinderBtn->setDefaultAction(m_createCylinderAction);
-    cylinderBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    cylinderBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     cylinderBtn->setIconSize(QSize(30, 30));
     cylinderBtn->setFixedSize(30, 30);
-    cylinderBtn->setStyleSheet("QToolButton { border-radius: 8px; border: 1px solid #ccc; background-color: #f0f0f0; } QToolButton:hover { background-color: #e0e0e0; } QToolButton:pressed { background-color: #d0d0d0; }");
     QLabel* cylinderLabel = new QLabel("Cylinder");
     cylinderLabel->setAlignment(Qt::AlignCenter);
     cylinderLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
@@ -546,10 +502,9 @@ void MainWindow::CreateToolBars() {
     QVBoxLayout* sphereLayout = new QVBoxLayout();
     QToolButton* sphereBtn = new QToolButton();
     sphereBtn->setDefaultAction(m_createSphereAction);
-    sphereBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    sphereBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     sphereBtn->setIconSize(QSize(30, 30));
     sphereBtn->setFixedSize(30, 30);
-    sphereBtn->setStyleSheet("QToolButton { border-radius: 8px; border: 1px solid #ccc; background-color: #f0f0f0; } QToolButton:hover { background-color: #e0e0e0; } QToolButton:pressed { background-color: #d0d0d0; }");
     QLabel* sphereLabel = new QLabel("Sphere");
     sphereLabel->setAlignment(Qt::AlignCenter);
     sphereLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
@@ -579,10 +534,9 @@ void MainWindow::CreateToolBars() {
     QVBoxLayout* extrudeLayout = new QVBoxLayout();
     QToolButton* extrudeBtn = new QToolButton();
     extrudeBtn->setDefaultAction(m_createExtrudeAction);
-    extrudeBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    extrudeBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     extrudeBtn->setIconSize(QSize(30, 30));
     extrudeBtn->setFixedSize(30, 30);
-    extrudeBtn->setStyleSheet("QToolButton { border-radius: 8px; border: 1px solid #ccc; background-color: #f0f0f0; } QToolButton:hover { background-color: #e0e0e0; } QToolButton:pressed { background-color: #d0d0d0; }");
     QLabel* extrudeLabel = new QLabel("extrude");
     extrudeLabel->setAlignment(Qt::AlignCenter);
     extrudeLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
@@ -621,10 +575,9 @@ void MainWindow::CreateToolBars() {
     QVBoxLayout* unionLayout = new QVBoxLayout();
     QToolButton* unionBtn = new QToolButton();
     unionBtn->setDefaultAction(m_booleanUnionAction);
-    unionBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    unionBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     unionBtn->setIconSize(QSize(30, 30));
     unionBtn->setFixedSize(30, 30);
-    unionBtn->setStyleSheet("QToolButton { border-radius: 8px; border: 1px solid #ccc; background-color: #f0f0f0; } QToolButton:hover { background-color: #e0e0e0; } QToolButton:pressed { background-color: #d0d0d0; }");
     QLabel* unionLabel = new QLabel("Union");
     unionLabel->setAlignment(Qt::AlignCenter);
     unionLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
@@ -638,10 +591,9 @@ void MainWindow::CreateToolBars() {
     QVBoxLayout* intersectionLayout = new QVBoxLayout();
     QToolButton* intersectionBtn = new QToolButton();
     intersectionBtn->setDefaultAction(m_booleanIntersectionAction);
-    intersectionBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    intersectionBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     intersectionBtn->setIconSize(QSize(30, 30));
     intersectionBtn->setFixedSize(30, 30);
-    intersectionBtn->setStyleSheet("QToolButton { border-radius: 8px; border: 1px solid #ccc; background-color: #f0f0f0; } QToolButton:hover { background-color: #e0e0e0; } QToolButton:pressed { background-color: #d0d0d0; }");
     QLabel* intersectionLabel = new QLabel("Intersection");
     intersectionLabel->setAlignment(Qt::AlignCenter);
     intersectionLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
@@ -655,10 +607,9 @@ void MainWindow::CreateToolBars() {
     QVBoxLayout* differenceLayout = new QVBoxLayout();
     QToolButton* differenceBtn = new QToolButton();
     differenceBtn->setDefaultAction(m_booleanDifferenceAction);
-    differenceBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    differenceBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     differenceBtn->setIconSize(QSize(30, 30));
     differenceBtn->setFixedSize(30, 30);
-    differenceBtn->setStyleSheet("QToolButton { border-radius: 8px; border: 1px solid #ccc; background-color: #f0f0f0; } QToolButton:hover { background-color: #e0e0e0; } QToolButton:pressed { background-color: #d0d0d0; }");
     QLabel* differenceLabel = new QLabel("Difference");
     differenceLabel->setAlignment(Qt::AlignCenter);
     differenceLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
@@ -688,10 +639,9 @@ void MainWindow::CreateToolBars() {
     QVBoxLayout* filletLayout = new QVBoxLayout();
     QToolButton* filletBtn = new QToolButton();
     filletBtn->setDefaultAction(m_filletAction);
-    filletBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    filletBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     filletBtn->setIconSize(QSize(30, 30));
     filletBtn->setFixedSize(30, 30);
-    filletBtn->setStyleSheet("QToolButton { border-radius: 8px; border: 1px solid #ccc; background-color: #f0f0f0; } QToolButton:hover { background-color: #e0e0e0; } QToolButton:pressed { background-color: #d0d0d0; }");
     QLabel* filletLabel = new QLabel("fillet");
     filletLabel->setAlignment(Qt::AlignCenter);
     filletLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
@@ -705,10 +655,9 @@ void MainWindow::CreateToolBars() {
     QVBoxLayout* chamferLayout = new QVBoxLayout();
     QToolButton* chamferBtn = new QToolButton();
     chamferBtn->setDefaultAction(m_chamferAction);
-    chamferBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    chamferBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     chamferBtn->setIconSize(QSize(30, 30));
     chamferBtn->setFixedSize(30, 30);
-    chamferBtn->setStyleSheet("QToolButton { border-radius: 8px; border: 1px solid #ccc; background-color: #f0f0f0; } QToolButton:hover { background-color: #e0e0e0; } QToolButton:pressed { background-color: #d0d0d0; }");
     QLabel* chamferLabel = new QLabel("Chamfer");
     chamferLabel->setAlignment(Qt::AlignCenter);
     chamferLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
@@ -722,9 +671,8 @@ void MainWindow::CreateToolBars() {
     QVBoxLayout* transformLayout = new QVBoxLayout();
     QToolButton* transformBtn = new QToolButton();
     transformBtn->setDefaultAction(m_transformAction);
-    transformBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    transformBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
     transformBtn->setFixedSize(30, 30);
-    transformBtn->setStyleSheet("QToolButton { border-radius: 8px; border: 1px solid #ccc; background-color: #f0f0f0; } QToolButton:hover { background-color: #e0e0e0; } QToolButton:pressed { background-color: #d0d0d0; }");
     QLabel* transformLabel = new QLabel("Transform");
     transformLabel->setAlignment(Qt::AlignCenter);
     transformLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
@@ -1038,21 +986,6 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         event->accept();
     } else {
         event->ignore();
-    }
-}
-
-void MainWindow::resizeEvent(QResizeEvent* event) {
-    QMainWindow::resizeEvent(event);
-    
-    // Adjust title bar size
-    if (m_titleBar) {
-        m_titleBar->resize(width(), 40);
-    }
-    
-    // Adjust menu bar position to be below title bar
-    if (menuBar()) {
-        menuBar()->move(0, 40);
-        menuBar()->resize(width(), menuBar()->height());
     }
 }
 
@@ -1589,108 +1522,8 @@ void MainWindow::UpdateCurrentDocument() {
     UpdateWindowTitle();
 }
 
-// Window dragging implementation for frameless window
-void MainWindow::mousePressEvent(QMouseEvent* event) {
-    if (event->button() == Qt::LeftButton) {
-        // Check if click is in the title bar area
-        QWidget* widget = childAt(event->pos());
-        if (widget == m_titleBar || widget == m_titleLabel) {
-            m_isDragging = true;
-            m_dragStartPosition = event->globalPos() - frameGeometry().topLeft();
-            event->accept();
-            return;
-        }
-    }
-    QMainWindow::mousePressEvent(event);
-}
 
-void MainWindow::mouseMoveEvent(QMouseEvent* event) {
-    if (event->buttons() & Qt::LeftButton && m_isDragging) {
-        move(event->globalPos() - m_dragStartPosition);
-        event->accept();
-        return;
-    }
-    QMainWindow::mouseMoveEvent(event);
-}
 
-void MainWindow::mouseReleaseEvent(QMouseEvent* event) {
-    if (event->button() == Qt::LeftButton) {
-        m_isDragging = false;
-        event->accept();
-        return;
-    }
-    QMainWindow::mouseReleaseEvent(event);
-}
-
-// Create custom title bar for frameless window
-void MainWindow::CreateTitleBar() {
-    m_titleBar = new QWidget(this);
-    m_titleBar->setObjectName("titleBar");
-    m_titleBar->setFixedHeight(40);
-    
-    // Create title label
-    m_titleLabel = new QLabel("Ander CAD", m_titleBar);
-    m_titleLabel->setObjectName("titleLabel");
-    
-    // Create window control buttons
-	// 最小化按钮、最大化按钮、关闭按钮
-    m_minimizeButton = new QPushButton("−", m_titleBar);
-    m_minimizeButton->setObjectName("minimizeButton");
-    m_minimizeButton->setFixedSize(40, 40);
-    m_minimizeButton->setToolTip("Minimize");
-    
-    m_maximizeButton = new QPushButton("□", m_titleBar);
-    m_maximizeButton->setObjectName("maximizeButton");
-    m_maximizeButton->setFixedSize(40, 40);
-    m_maximizeButton->setToolTip("Maximize");
-    
-    m_closeButton = new QPushButton("✕", m_titleBar);
-    m_closeButton->setObjectName("closeButton");
-    m_closeButton->setFixedSize(40, 40);
-    m_closeButton->setToolTip("Close");
-    
-    
-    // Layout for title bar
-    QHBoxLayout* titleLayout = new QHBoxLayout(m_titleBar);
-    titleLayout->setContentsMargins(8, 0, 0, 0);
-    titleLayout->setSpacing(0);
-    titleLayout->addWidget(m_titleLabel);
-    titleLayout->addStretch();
-    titleLayout->addWidget(m_minimizeButton);
-    titleLayout->addWidget(m_maximizeButton);
-    titleLayout->addWidget(m_closeButton);
-    
-    // Connect buttons to slots
-    connect(m_minimizeButton, &QPushButton::clicked, this, &MainWindow::OnMinimizeWindow);
-    connect(m_maximizeButton, &QPushButton::clicked, this, &MainWindow::OnMaximizeWindow);
-    connect(m_closeButton, &QPushButton::clicked, this, &MainWindow::OnCloseWindow);
-    
-    // Position title bar at the top of the window
-    m_titleBar->setParent(this);
-    m_titleBar->move(0, 0);
-    m_titleBar->resize(width(), 40);
-}
-
-// Window control slots
-void MainWindow::OnMinimizeWindow() {
-    showMinimized();
-}
-
-void MainWindow::OnMaximizeWindow() {
-    if (isMaximized()) {
-        showNormal();
-        m_maximizeButton->setText("□");
-        m_maximizeButton->setToolTip("Maximize");
-    } else {
-        showMaximized();
-        m_maximizeButton->setText("◱");
-        m_maximizeButton->setToolTip("Restore");
-    }
-}
-
-void MainWindow::OnCloseWindow() {
-    close();
-}
 
 void MainWindow::CreateSelectionModeCombo() {
     // Create the combo box

@@ -21,7 +21,7 @@ void BooleanOperationDialog::setupUI() {
     m_mainLayout->setContentsMargins(12, 12, 12, 12);
     
     // Selection group
-    m_selectionGroup = new QGroupBox("对象选择", this);
+    m_selectionGroup = new QGroupBox("selectobject", this);
     m_selectionLayout = new QGridLayout(m_selectionGroup);
     m_selectionLayout->setSpacing(8);
     
@@ -42,12 +42,12 @@ void BooleanOperationDialog::setupUI() {
     m_targetFrameLayout = new QHBoxLayout(m_targetFrame);
     m_targetFrameLayout->setContentsMargins(8, 4, 8, 4);
     
-    m_targetCount = new QLabel("请选择对象", this);
+    m_targetCount = new QLabel("please select an object", this);
     m_targetCount->setStyleSheet("color: #666666; font-style: italic;");
     m_targetFrameLayout->addWidget(m_targetCount);
     m_targetFrameLayout->addStretch();
     
-    m_targetSelectButton = new QPushButton("选择", this);
+    m_targetSelectButton = new QPushButton("select", this);
     m_targetSelectButton->setMinimumSize(60, 24);
     m_targetSelectButton->setStyleSheet(
         "QPushButton { background-color: #009999; color: white; border: none; border-radius: 3px; font-weight: bold; }"
@@ -92,12 +92,12 @@ void BooleanOperationDialog::setupUI() {
         m_toolFrameLayout = new QHBoxLayout(m_toolFrame);
         m_toolFrameLayout->setContentsMargins(8, 4, 8, 4);
         
-        m_toolCount = new QLabel("请选择对象", this);
+        m_toolCount = new QLabel("please select an object", this);
         m_toolCount->setStyleSheet("color: #666666; font-style: italic;");
         m_toolFrameLayout->addWidget(m_toolCount);
         m_toolFrameLayout->addStretch();
         
-        m_toolSelectButton = new QPushButton("选择", this);
+        m_toolSelectButton = new QPushButton("select", this);
         m_toolSelectButton->setMinimumSize(60, 24);
         m_toolSelectButton->setStyleSheet(
             "QPushButton { background-color: #009999; color: white; border: none; border-radius: 3px; font-weight: bold; }"
@@ -134,17 +134,17 @@ void BooleanOperationDialog::setupUI() {
     m_buttonLayout = new QHBoxLayout();
     m_buttonLayout->setSpacing(8);
     
-    m_previewButton = new QPushButton("预览", this);
+    m_previewButton = new QPushButton("preview", this);
     m_previewButton->setMinimumSize(80, 32);
     m_previewButton->setEnabled(false);
     
     m_buttonLayout->addWidget(m_previewButton);
     m_buttonLayout->addStretch();
     
-    m_cancelButton = new QPushButton("取消", this);
+    m_cancelButton = new QPushButton("cancel", this);
     m_cancelButton->setMinimumSize(80, 32);
     
-    m_okButton = new QPushButton("确定", this);
+    m_okButton = new QPushButton("confirm", this);
     m_okButton->setMinimumSize(80, 32);
     m_okButton->setDefault(true);
     m_okButton->setEnabled(false);
@@ -183,7 +183,7 @@ void BooleanOperationDialog::onTargetSelectionClicked() {
     m_selectingTargets = true;
     m_selectingTools = false;
     
-    m_targetSelectButton->setText("完成");
+    m_targetSelectButton->setText("Finish");
     m_targetSelectButton->setStyleSheet(
         "QPushButton { background-color: #FF6B35; color: white; border: none; border-radius: 3px; font-weight: bold; }"
         "QPushButton:hover { background-color: #FF8C5A; }"
@@ -194,8 +194,8 @@ void BooleanOperationDialog::onTargetSelectionClicked() {
     }
     
     QString prompt = (m_operationType == BooleanOperationType::Union) ? 
-                    "请在3D视图中选择要合并的对象，完成后点击'完成'按钮" :
-                    "请在3D视图中选择操作对象，完成后点击'完成'按钮";
+                    "Please select the objects you want to merge in the 3D view, and then click the 'Finish' button." :
+                    "Please select the operation object in the 3D view, and then click the 'Finish' button.";
     
     emit selectionModeChanged(true, prompt);
     
@@ -210,7 +210,7 @@ void BooleanOperationDialog::onToolSelectionClicked() {
     m_selectingTargets = false;
     m_selectingTools = true;
     
-    m_toolSelectButton->setText("完成");
+    m_toolSelectButton->setText("Finish");
     m_toolSelectButton->setStyleSheet(
         "QPushButton { background-color: #FF6B35; color: white; border: none; border-radius: 3px; font-weight: bold; }"
         "QPushButton:hover { background-color: #FF8C5A; }"
@@ -218,7 +218,7 @@ void BooleanOperationDialog::onToolSelectionClicked() {
     
     m_targetSelectButton->setEnabled(false);
     
-    QString prompt = "请在3D视图中选择工具对象，完成后点击'完成'按钮";
+    QString prompt = "Please select the tool object in the 3D view, and then click the 'Finish' button.";
     emit selectionModeChanged(true, prompt);
     
     // Change button to finish selection
@@ -240,7 +240,7 @@ void BooleanOperationDialog::onSelectionFinished() {
     m_selectingTools = false;
     
     // Reset target button
-    m_targetSelectButton->setText("选择");
+    m_targetSelectButton->setText("select");
     m_targetSelectButton->setStyleSheet(
         "QPushButton { background-color: #009999; color: white; border: none; border-radius: 3px; font-weight: bold; }"
         "QPushButton:hover { background-color: #00CCCC; }"
@@ -250,7 +250,7 @@ void BooleanOperationDialog::onSelectionFinished() {
     
     // Reset tool button
     if (m_toolSelectButton) {
-        m_toolSelectButton->setText("选择");
+        m_toolSelectButton->setText("select");
         m_toolSelectButton->setStyleSheet(
             "QPushButton { background-color: #009999; color: white; border: none; border-radius: 3px; font-weight: bold; }"
             "QPushButton:hover { background-color: #00CCCC; }"
@@ -275,16 +275,16 @@ void BooleanOperationDialog::onSelectionFinished() {
 void BooleanOperationDialog::updateSelectionDisplay() {
     // Update target display
     if (!m_targetObjects.empty()) {
-        m_targetCount->setText(QString("已选择 %1 个对象").arg(m_targetObjects.size()));
+        m_targetCount->setText(QString("%1 objects have been selected").arg(m_targetObjects.size()));
         m_targetCount->setStyleSheet("color: #009999; font-weight: bold;");
         m_targetList->setVisible(true);
         
         m_targetList->clear();
         for (size_t i = 0; i < m_targetObjects.size(); ++i) {
-            m_targetList->addItem(QString("对象 %1").arg(i + 1));
+            m_targetList->addItem(QString("object %1").arg(i + 1));
         }
     } else {
-        m_targetCount->setText("请选择对象");
+        m_targetCount->setText("please select an object");
         m_targetCount->setStyleSheet("color: #666666; font-style: italic;");
         m_targetList->setVisible(false);
     }
@@ -292,16 +292,16 @@ void BooleanOperationDialog::updateSelectionDisplay() {
     // Update tool display
     if (m_toolCount && m_toolList) {
         if (!m_toolObjects.empty()) {
-            m_toolCount->setText(QString("已选择 %1 个对象").arg(m_toolObjects.size()));
+            m_toolCount->setText(QString("%1 objects have been selected").arg(m_toolObjects.size()));
             m_toolCount->setStyleSheet("color: #009999; font-weight: bold;");
             m_toolList->setVisible(true);
             
             m_toolList->clear();
             for (size_t i = 0; i < m_toolObjects.size(); ++i) {
-                m_toolList->addItem(QString("工具对象 %1").arg(i + 1));
+                m_toolList->addItem(QString("toolobject %1").arg(i + 1));
             }
         } else {
-            m_toolCount->setText("请选择对象");
+            m_toolCount->setText("please select an object");
             m_toolCount->setStyleSheet("color: #666666; font-style: italic;");
             m_toolList->setVisible(false);
         }
@@ -324,36 +324,36 @@ void BooleanOperationDialog::updateSelectionDisplay() {
 QString BooleanOperationDialog::getOperationTitle() const {
     switch (m_operationType) {
         case BooleanOperationType::Union:
-            return "布尔合并操作";
+            return "Union";
         case BooleanOperationType::Intersection:
-            return "布尔相交操作";
+            return "Intersection";
         case BooleanOperationType::Difference:
-            return "布尔差集操作";
+            return "Difference";
         default:
-            return "布尔操作";
+            return "BooleanOperation";
     }
 }
 
 QString BooleanOperationDialog::getTargetLabel() const {
     switch (m_operationType) {
         case BooleanOperationType::Union:
-            return "要合并的对象:";
+            return "objects:";
         case BooleanOperationType::Intersection:
         case BooleanOperationType::Difference:
-            return "操作对象:";
+            return "object:";
         default:
-            return "目标对象:";
+            return "targetobject:";
     }
 }
 
 QString BooleanOperationDialog::getToolLabel() const {
     switch (m_operationType) {
         case BooleanOperationType::Intersection:
-            return "相交对象:";
+            return "object:";
         case BooleanOperationType::Difference:
-            return "工具对象:";
+            return "toolobject:";
         default:
-            return "工具对象:";
+            return "toolobject:";
     }
 }
 
