@@ -347,7 +347,7 @@ gp_Trsf ScaleCommand::CreateTransformation() const {
         translateToOrigin.SetTranslation(translation);
         
         // OpenCASCADE不直接支持非均匀缩放，需要使用矩阵变换
-        // 这里简化为均匀缩放，实际应用中可能需要更复杂的处理
+        // 这里简化为均匀缩放
         scale.SetScale(gp_Pnt(0, 0, 0), m_scaleX);
         
         gp_Vec translationBack(m_centerPoint.X(), m_centerPoint.Y(), m_centerPoint.Z());

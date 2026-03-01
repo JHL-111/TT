@@ -1908,6 +1908,7 @@ void MainWindow::OnFilletChamferOperationRequested(FilletChamferType type,
 
 void MainWindow::OnTransformObjects() {
     if (m_currentTransformDialog) {
+        m_currentTransformDialog->show();
         m_currentTransformDialog->raise();
         m_currentTransformDialog->activateWindow();
         return;
