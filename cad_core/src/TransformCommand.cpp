@@ -143,7 +143,7 @@ gp_Trsf TranslateCommand::CreateTransformation() const {
 }
 
 const char* TranslateCommand::GetTypeName() const {
-    return "平移";
+    return "translation";
 }
 
 // =============================================================================
@@ -189,7 +189,7 @@ gp_Trsf RotateCommand::CreateTransformation() const {
 }
 
 const char* RotateCommand::GetTypeName() const {
-    return "旋转";
+    return "rotation";
 }
 
 // =============================================================================
@@ -271,7 +271,7 @@ bool ScaleCommand::Execute() {
             for (const auto& shape : m_originalShapes) {
                 if (!shape || !shape->IsValid()) continue;
 
-                // 使用 BRepBuilderAPI_GTransform，Standard_True 表示生成新的形状而不破坏原几何特征
+                // 使用 BRepBuilderAPI_GTransform转化成NURBS
                 BRepBuilderAPI_GTransform transformer(shape->GetOCCTShape(), gTrsf, Standard_True);
                 if (transformer.IsDone()) {
                     m_transformedShapes.push_back(std::make_shared<Shape>(transformer.Shape()));
@@ -333,35 +333,22 @@ std::vector<ShapePtr> ScaleCommand::GetTransformedShapes() const {
 
 gp_Trsf ScaleCommand::CreateTransformation() const {
     gp_Trsf transform;
-    
+
     if (m_isUniform) {
-        // 均匀缩放
+        // 均匀缩放：正常返回矩阵
         gp_Pnt centerPoint(m_centerPoint.X(), m_centerPoint.Y(), m_centerPoint.Z());
         transform.SetScale(centerPoint, m_scaleX);
-    } else {
-        // 非均匀缩放需要组合变换
-        // 先平移到原点，再缩放，再平移回去
-        gp_Trsf translateToOrigin, scale, translateBack;
-        
-        gp_Vec translation(-m_centerPoint.X(), -m_centerPoint.Y(), -m_centerPoint.Z());
-        translateToOrigin.SetTranslation(translation);
-        
-        // OpenCASCADE不直接支持非均匀缩放，需要使用矩阵变换
-        // 这里简化为均匀缩放
-        scale.SetScale(gp_Pnt(0, 0, 0), m_scaleX);
-        
-        gp_Vec translationBack(m_centerPoint.X(), m_centerPoint.Y(), m_centerPoint.Z());
-        translateBack.SetTranslation(translationBack);
-        
-        // 组合变换
-        transform = translateBack * scale * translateToOrigin;
     }
-    
+    else {
+        // 非均匀缩放：抛出异常
+        throw std::logic_error("Non-uniform scale cannot use CreateTransformation!");
+    }
+
     return transform;
 }
 
 const char* ScaleCommand::GetTypeName() const {
-    return "缩放";
+    return "scale";
 }
 
 } // namespace cad_core

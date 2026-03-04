@@ -1456,7 +1456,7 @@ void MainWindow::OnFillet() {
             this, &MainWindow::OnSelectionModeChanged);
     connect(m_currentFilletChamferDialog, &FilletChamferDialog::operationRequested,
             this, &MainWindow::OnFilletChamferOperationRequested);
-    
+
     m_currentFilletChamferDialog->show();
     m_currentFilletChamferDialog->raise();
     m_currentFilletChamferDialog->activateWindow();
@@ -1477,7 +1477,12 @@ void MainWindow::OnChamfer() {
             this, &MainWindow::OnSelectionModeChanged);
     connect(m_currentFilletChamferDialog, &FilletChamferDialog::operationRequested,
             this, &MainWindow::OnFilletChamferOperationRequested);
-    
+
+    connect(m_currentFilletChamferDialog, &FilletChamferDialog::highlightFaceRequested,
+        m_viewer, &QtOccView::ShowOpFace);
+    connect(m_currentFilletChamferDialog, &FilletChamferDialog::clearHighlightRequested,
+        m_viewer, &QtOccView::ClearOpFace);
+
     m_currentFilletChamferDialog->show();
     m_currentFilletChamferDialog->raise();
     m_currentFilletChamferDialog->activateWindow();
@@ -1852,8 +1857,10 @@ void MainWindow::OnFilletChamferOperationRequested(FilletChamferType type,
             cad_core::ShapePtr result;
             if (type == FilletChamferType::Fillet) {
                 result = cad_core::FilletChamferOperations::CreateFillet(baseShape, edges, radius);
-            } else {
-                result = cad_core::FilletChamferOperations::CreateChamfer(baseShape, edges, distance1);
+            }
+            else {
+                // 确保把 distance2 也传递给核心层
+                result = cad_core::FilletChamferOperations::CreateChamfer(baseShape, edges, distance1, distance2);
             }
             
             if (result) {

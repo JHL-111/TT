@@ -1,5 +1,6 @@
 ﻿#include "cad_ui/QtOccView.h"
 #include "cad_ui/SketchMode.h"
+#include "cad_core/FilletChamferOperations.h"
 
 #include <OpenGl_GraphicDriver.hxx>
 #include <Aspect_Handle.hxx>
@@ -1104,6 +1105,49 @@ void QtOccView::UnhighlightAllFaces() {
     m_highlightedFaces.clear();
     m_selectedFaces.clear();
     m_view->Redraw();
+}
+
+void QtOccView::ClearOpFace() {
+    if (!m_previewFaceAIS.IsNull() && !m_context.IsNull()) {
+        m_context->Remove(m_previewFaceAIS, Standard_False);
+        m_previewFaceAIS.Nullify();
+        m_view->Redraw();
+    }
+}
+
+void QtOccView::ShowOpFace(int faceIndex) {
+    ClearOpFace(); // 先清理旧的
+
+    // 确保当前有选中的边以及对应的父实体
+    if (m_selectedEdges.empty() || m_edgeParentShapes.empty()) return;
+
+    TopoDS_Edge currentEdge = m_selectedEdges[0];
+    cad_core::ShapePtr parentShape = m_edgeParentShapes[0]; // 直接使用现有的父形状记录
+
+    if (!parentShape) return;
+
+    std::vector<TopoDS_Face> adjacentFaces = cad_core::FilletChamferOperations::GetAdjacentFaces(parentShape, currentEdge);
+
+    TopoDS_Face faceToHighlight;
+    if (faceIndex == 0 && adjacentFaces.size() > 0) {
+        faceToHighlight = adjacentFaces[0];
+    }
+    else if (faceIndex == 1 && adjacentFaces.size() > 1) {
+        faceToHighlight = adjacentFaces[1];
+    }
+
+    if (!faceToHighlight.IsNull()) {
+        // 复用 HighlightFace 渲染风格
+        Handle(AIS_Shape) aisFace = new AIS_Shape(faceToHighlight);
+        aisFace->SetColor(Quantity_NOC_RED); 
+        aisFace->SetTransparency(0.3);
+        aisFace->SetDisplayMode(AIS_Shaded);
+
+        m_context->Display(aisFace, Standard_False);
+        m_previewFaceAIS = aisFace; 
+
+        m_view->Redraw();
+    }
 }
 
 // =============================================================================

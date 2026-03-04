@@ -130,7 +130,8 @@ private:
     Handle(V3d_View) m_view;
     Handle(AIS_InteractiveContext) m_context;
     Handle(Graphic3d_GraphicDriver) m_driver;
-    
+    Handle(AIS_InteractiveObject) m_previewFaceAIS;
+
     QPoint m_lastMousePos;
     Qt::MouseButton m_currentMouseButton;
     bool m_isInitialized;
@@ -169,7 +170,11 @@ private:
     void InitializeOCC();
     void RedrawView();
     void HandleSelection(const QPoint& point);
-    
+
+ public slots:
+     void ShowOpFace(int faceIndex);
+     void ClearOpFace();
+
 private slots:
     void OnRedrawTimer();
 };

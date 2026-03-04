@@ -1,5 +1,4 @@
 ﻿#pragma once
-
 #include "cad_core/Shape.h"
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
@@ -12,16 +11,11 @@ public:
     // 圆角操作
     static ShapePtr CreateFillet(const ShapePtr& shape, const std::vector<TopoDS_Edge>& edges, double radius);
     static ShapePtr CreateFillet(const ShapePtr& shape, const TopoDS_Edge& edge, double radius);
-    static ShapePtr CreateVariableFillet(const ShapePtr& shape, const TopoDS_Edge& edge, double radius1, double radius2);
     
     // 倒角操作
-    static ShapePtr CreateChamfer(const ShapePtr& shape, const std::vector<TopoDS_Edge>& edges, double distance);
+    static ShapePtr CreateChamfer(const ShapePtr& shape, const std::vector<TopoDS_Edge>& edges, double distance1, double distance2 = -1.0);
     static ShapePtr CreateChamfer(const ShapePtr& shape, const TopoDS_Edge& edge, double distance);
-    static ShapePtr CreateAsymmetricChamfer(const ShapePtr& shape, const TopoDS_Edge& edge, double distance1, double distance2);
-    static ShapePtr CreateChamferByAngle(const ShapePtr& shape, const TopoDS_Edge& edge, double distance, double angle);
     
-    // 面圆角
-    static ShapePtr CreateFaceFillet(const ShapePtr& shape, const std::vector<TopoDS_Face>& faces, double radius);
     
     // 获取形状的边
     static std::vector<TopoDS_Edge> GetEdges(const ShapePtr& shape);

@@ -47,9 +47,16 @@ public slots:
 
 signals:
     void selectionModeChanged(bool enabled, const QString& prompt);
+    
     void operationRequested(FilletChamferType type, 
                           const std::vector<cad_core::ShapePtr>& edges,
                           double radius, double distance1, double distance2);
+    void highlightFaceRequested(int faceIndex);
+    void clearHighlightRequested();
+
+protected:
+    // 事件过滤器声明,为了确认作用于哪个面
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:
     void setupUI();

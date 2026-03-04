@@ -2,6 +2,7 @@
 #include "cad_ui/QtOccView.h"
 #include <QApplication>
 #include <QMessageBox>
+#include <QEvent>
 
 namespace cad_ui {
 
@@ -206,7 +207,12 @@ void FilletChamferDialog::setupUI() {
         connect(m_chamferDistance2SpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
                 this, &FilletChamferDialog::onParameterChanged);
     }
-    
+
+    // highlight when set distance
+    if (m_radiusSpinBox) m_radiusSpinBox->installEventFilter(this);
+    if (m_chamferDistance1SpinBox) m_chamferDistance1SpinBox->installEventFilter(this);
+    if (m_chamferDistance2SpinBox) m_chamferDistance2SpinBox->installEventFilter(this);
+
     // Style the dialog
     setStyleSheet(
         "QDialog { background-color: #F5F5F5; }"
@@ -220,6 +226,7 @@ void FilletChamferDialog::setupUI() {
         "QCheckBox::indicator { width: 16px; height: 16px; border: 2px solid #E0E0E0; border-radius: 3px; }"
         "QCheckBox::indicator:checked { background-color: #009999; border-color: #007777; }"
     );
+
 }
 
 void FilletChamferDialog::onEdgeSelectionClicked() {
@@ -269,6 +276,7 @@ void FilletChamferDialog::onSelectionFinished() {
     syncWithViewerEdgeSelection();
     updateSelectionDisplay();
 }
+
 
 void FilletChamferDialog::onSymmetricChanged(bool symmetric) {
     if (m_chamferDistance2Label && m_chamferDistance2SpinBox) {
@@ -341,6 +349,25 @@ void FilletChamferDialog::syncWithViewerEdgeSelection() {
         auto edgeShape = std::make_shared<cad_core::Shape>();
         m_selectedEdges.push_back(edgeShape);
     }
+}
+
+bool FilletChamferDialog::eventFilter(QObject* obj, QEvent* event) {
+    if (event->type() == QEvent::FocusIn) {
+        // 当输入框获得焦点 (Focus In) 时触发高亮
+        if (obj == m_chamferDistance1SpinBox) {
+            emit highlightFaceRequested(0); // 对应相邻面 adjacentFaces[0]
+        }
+        else if (obj == m_chamferDistance2SpinBox) {
+            emit highlightFaceRequested(1); // 对应相邻面 adjacentFaces[1]
+        }
+    }
+    else if (event->type() == QEvent::FocusOut) {
+        // 当输入框失去焦点 (Focus Out) 时清除高亮
+        emit clearHighlightRequested();
+    }
+
+    // 调用父类的事件过滤器以保持默认行为
+    return QDialog::eventFilter(obj, event);
 }
 
 } // namespace cad_ui

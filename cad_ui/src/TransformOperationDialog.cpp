@@ -33,7 +33,7 @@ void TransformOperationDialog::setupUI() {
     m_selectionLayout = new QGridLayout(m_selectionGroup);
     m_selectionLayout->setSpacing(8);
     
-    // 对象选择框（仿UGNX风格）
+    // 对象选择框
     m_objectFrame = new QFrame(this);
     m_objectFrame->setFrameStyle(QFrame::StyledPanel | QFrame::Sunken);
     m_objectFrame->setMinimumHeight(40);

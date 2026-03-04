@@ -24,29 +24,47 @@ ShapePtr FilletChamferOperations::CreateFillet(const ShapePtr& shape, const Topo
     return PerformFillet(shape, edges, radius);
 }
 
-ShapePtr FilletChamferOperations::CreateVariableFillet(const ShapePtr& shape, const TopoDS_Edge& edge, double radius1, double radius2) {
-    if (!shape || shape->GetOCCTShape().IsNull() || edge.IsNull()) {
+
+ShapePtr FilletChamferOperations::CreateChamfer(const ShapePtr& shape, const std::vector<TopoDS_Edge>& edges, double distance1, double distance2) {
+    if (!shape || shape->GetOCCTShape().IsNull() || edges.empty()) {
         return nullptr;
     }
-    
+
     try {
-        BRepFilletAPI_MakeFillet fillet(shape->GetOCCTShape());
-        fillet.Add(radius1, radius2, edge);
-        fillet.Build();
-        
-        if (fillet.IsDone()) {
-            TopoDS_Shape result = fillet.Shape();
+        BRepFilletAPI_MakeChamfer chamfer(shape->GetOCCTShape());
+
+        // 判断是否为对称倒角 (Symmetric Chamfer)
+        bool isSymmetric = (distance2 <= 0.0 || std::abs(distance1 - distance2) < 1e-6);
+
+        for (const auto& edge : edges) {
+            if (!edge.IsNull() && IsValidEdgeForChamfer(shape, edge)) {
+                if (isSymmetric) {
+                    // 对称倒角：只需距离和边
+                    chamfer.Add(distance1, edge);
+                }
+                else {
+                    // 非对称倒角 ：需要距离1、距离2、边和参考面
+                    std::vector<TopoDS_Face> adjacentFaces = GetAdjacentFaces(shape, edge);
+                    if (adjacentFaces.size() >= 2) {
+                        // 使用 adjacentFaces[0] 作为 distance1 的参考面 
+                        chamfer.Add(distance1, distance2, edge, adjacentFaces[0]);
+                    }
+                }
+            }
+        }
+
+        chamfer.Build();
+
+        if (chamfer.IsDone()) {
+            TopoDS_Shape result = chamfer.Shape();
             return PostProcessResult(result);
         }
-    } catch (const Standard_Failure& e) {
-        // 圆角操作失败
     }
-    
-    return nullptr;
-}
+    catch (const Standard_Failure& e) {
+        // 倒角操作失败处理
+    }
 
-ShapePtr FilletChamferOperations::CreateChamfer(const ShapePtr& shape, const std::vector<TopoDS_Edge>& edges, double distance) {
-    return PerformChamfer(shape, edges, distance);
+    return nullptr;
 }
 
 ShapePtr FilletChamferOperations::CreateChamfer(const ShapePtr& shape, const TopoDS_Edge& edge, double distance) {
@@ -54,82 +72,7 @@ ShapePtr FilletChamferOperations::CreateChamfer(const ShapePtr& shape, const Top
     return PerformChamfer(shape, edges, distance);
 }
 
-ShapePtr FilletChamferOperations::CreateAsymmetricChamfer(const ShapePtr& shape, const TopoDS_Edge& edge, double distance1, double distance2) {
-    if (!shape || shape->GetOCCTShape().IsNull() || edge.IsNull()) {
-        return nullptr;
-    }
-    
-    try {
-        BRepFilletAPI_MakeChamfer chamfer(shape->GetOCCTShape());
-        
-        // 获取相邻面
-        std::vector<TopoDS_Face> adjacentFaces = GetAdjacentFaces(shape, edge);
-        if (adjacentFaces.size() >= 2) {
-            chamfer.Add(distance1, distance2, edge, adjacentFaces[0]);
-            chamfer.Build();
-            
-            if (chamfer.IsDone()) {
-                TopoDS_Shape result = chamfer.Shape();
-                return PostProcessResult(result);
-            }
-        }
-    } catch (const Standard_Failure& e) {
-        // 倒角操作失败
-    }
-    
-    return nullptr;
-}
 
-ShapePtr FilletChamferOperations::CreateChamferByAngle(const ShapePtr& shape, const TopoDS_Edge& edge, double distance, double angle) {
-    if (!shape || shape->GetOCCTShape().IsNull() || edge.IsNull()) {
-        return nullptr;
-    }
-    
-    try {
-        BRepFilletAPI_MakeChamfer chamfer(shape->GetOCCTShape());
-        
-        // 获取相邻面
-        std::vector<TopoDS_Face> adjacentFaces = GetAdjacentFaces(shape, edge);
-        if (adjacentFaces.size() >= 2) {
-            chamfer.AddDA(distance, angle, edge, adjacentFaces[0]);
-            chamfer.Build();
-            
-            if (chamfer.IsDone()) {
-                TopoDS_Shape result = chamfer.Shape();
-                return PostProcessResult(result);
-            }
-        }
-    } catch (const Standard_Failure& e) {
-        // 倒角操作失败
-    }
-    
-    return nullptr;
-}
-
-ShapePtr FilletChamferOperations::CreateFaceFillet(const ShapePtr& shape, const std::vector<TopoDS_Face>& faces, double radius) {
-    if (!shape || shape->GetOCCTShape().IsNull() || faces.empty()) {
-        return nullptr;
-    }
-    
-    try {
-        BRepFilletAPI_MakeFillet fillet(shape->GetOCCTShape());
-        
-        // 面圆角需要使用不同的API
-        // 暂时不实现面圆角，返回原形状
-        return shape;
-        
-        fillet.Build();
-        
-        if (fillet.IsDone()) {
-            TopoDS_Shape result = fillet.Shape();
-            return PostProcessResult(result);
-        }
-    } catch (const Standard_Failure& e) {
-        // 面圆角操作失败
-    }
-    
-    return nullptr;
-}
 
 std::vector<TopoDS_Edge> FilletChamferOperations::GetEdges(const ShapePtr& shape) {
     std::vector<TopoDS_Edge> edges;
@@ -181,6 +124,7 @@ bool FilletChamferOperations::IsValidEdgeForFillet(const ShapePtr& shape, const 
 bool FilletChamferOperations::IsValidEdgeForChamfer(const ShapePtr& shape, const TopoDS_Edge& edge) {
     return IsValidEdgeForFillet(shape, edge); // 同样的验证逻辑
 }
+
 
 std::vector<TopoDS_Face> FilletChamferOperations::GetAdjacentFaces(const ShapePtr& shape, const TopoDS_Edge& edge) {
     std::vector<TopoDS_Face> faces;
@@ -324,7 +268,7 @@ double FilletChamferOperations::GetMinimumRadius(const ShapePtr& shape, const To
         return 0.0;
     }
     
-    // 简化实现：返回边长度的5%
+    // 返回边长度的5%
     double edgeLength = GetEdgeLength(edge);
     return edgeLength * 0.05;
 }
