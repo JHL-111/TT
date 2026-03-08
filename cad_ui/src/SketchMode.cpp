@@ -12,6 +12,13 @@
 #include <Geom_Plane.hxx>
 #include <V3d_View.hxx>
 #include <cmath>
+#include <ElSLib.hxx>
+#include <Standard_ErrorHandler.hxx>
+#include <Precision.hxx>
+#include <gp_Lin.hxx>
+#include <IntAna_IntConicQuad.hxx>
+#include <BRepTools.hxx>
+#include <GeomLProp_SLProps.hxx>
 
 namespace cad_ui {
 
@@ -33,39 +40,33 @@ void SketchRectangleTool::StartDrawing(const QPoint& startPoint) {
 }
 
 void SketchRectangleTool::UpdateDrawing(const QPoint& currentPoint) {
-    if (!m_isDrawing) {
-        return;
-    }
-    
+    if (!m_isDrawing) return;
+
     m_currentPoint = currentPoint;
-    
-    // 创建临时矩形线条用于预览
-    gp_Pnt startPnt = ScreenToSketchPlane(m_startPoint);
-    gp_Pnt currentPnt = ScreenToSketchPlane(m_currentPoint);
-    
-    m_currentLines = CreateRectangleLines(startPnt, currentPnt);
+
+    // 1. 将屏幕鼠标坐标转换为草图平面上的 3D 点
+    gp_Pnt p1 = ScreenToSketchPlane(m_startPoint);
+    gp_Pnt p2 = ScreenToSketchPlane(m_currentPoint);
+
+    // 2. 生成 2D 局部坐标系的线段集合 (SketchLinePtr)
+    // CreateRectangleLines 内部应该处理从 3D Plane 到 2D Local 的投影
+    m_currentLines = CreateRectangleLines(p1, p2);
+
+    // 3. 发出预览信号，这个信号会被 SketchMode 接收，然后转交给 Viewer 渲染
+    emit previewUpdated(m_currentLines);
 }
 
 void SketchRectangleTool::FinishDrawing(const QPoint& endPoint) {
-    if (!m_isDrawing) {
-        return;
-    }
-    
-    m_currentPoint = endPoint;
-    
-    // 创建最终的矩形
-    gp_Pnt startPnt = ScreenToSketchPlane(m_startPoint);
-    gp_Pnt endPnt = ScreenToSketchPlane(m_currentPoint);
-    
-    auto rectangleLines = CreateRectangleLines(startPnt, endPnt);
-    
+    if (!m_isDrawing) return;
+
+    // 最后的更新
+    UpdateDrawing(endPoint);
     m_isDrawing = false;
-    m_currentLines.clear();
-    
-    emit rectangleCreated(rectangleLines);
-    
-    qDebug() << "Rectangle tool: Finished drawing rectangle with" << rectangleLines.size() << "lines";
+
+    // 发出创建确认信号 
+    emit rectangleCreated(m_currentLines);
 }
+
 
 void SketchRectangleTool::CancelDrawing() {
     if (!m_isDrawing) {
@@ -96,45 +97,60 @@ gp_Pnt SketchRectangleTool::ScreenToSketchPlane(const QPoint& screenPoint) {
     if (m_view.IsNull()) {
         return gp_Pnt(0, 0, 0);
     }
-    
-    // 简化处理：直接使用屏幕坐标作为2D草图坐标
-    // 在真实实现中，这里需要复杂的投影计算
-    double scale = 0.1;  // 缩放因子
-    double x = (screenPoint.x() - 400) * scale;  // 中心化并缩放
-    double y = -(screenPoint.y() - 300) * scale; // Y轴反向并中心化
-    double z = 0.0; // 草图平面上Z=0
-    
-    return gp_Pnt(x, y, z);
+
+    // 1. 发射射线：使用 ConvertWithProj 获取从相机穿过鼠标位置的 3D 射线 (起点 + 方向)
+    Standard_Real X, Y, Z, dX, dY, dZ;
+    m_view->ConvertWithProj(screenPoint.x(), screenPoint.y(), X, Y, Z, dX, dY, dZ);
+
+    gp_Pnt rayOrigin(X, Y, Z);
+    gp_Dir rayDir(dX, dY, dZ);
+    gp_Lin ray(rayOrigin, rayDir); // 构建一条 3D 直线(射线)
+
+    // 2. 求交点：计算射线与草图平面 (m_sketchPlane) 的几何交点
+    IntAna_IntConicQuad intersection(ray, m_sketchPlane, Precision::Angular(), Precision::Confusion());
+
+    // 3. 如果求交成功且有交点（视线没有平行于平面）
+    if (intersection.IsDone() && intersection.NbPoints() > 0) {
+        // 返回这唯一的精确交点
+        return intersection.Point(1);
+    }
+
+    // 降级保护
+    return gp_Pnt(0, 0, 0);
 }
 
-std::vector<cad_sketch::SketchLinePtr> SketchRectangleTool::CreateRectangleLines(
-    const gp_Pnt& point1, const gp_Pnt& point2) {
-    
+std::vector<cad_sketch::SketchLinePtr> SketchRectangleTool::CreateRectangleLines(const gp_Pnt& p1, const gp_Pnt& p2) {
     std::vector<cad_sketch::SketchLinePtr> lines;
-    
-    // 创建矩形的四个角点
-    auto bottomLeft = std::make_shared<cad_sketch::SketchPoint>(
-        std::min(point1.X(), point2.X()), 
-        std::min(point1.Y(), point2.Y()));
-    auto bottomRight = std::make_shared<cad_sketch::SketchPoint>(
-        std::max(point1.X(), point2.X()), 
-        std::min(point1.Y(), point2.Y()));
-    auto topRight = std::make_shared<cad_sketch::SketchPoint>(
-        std::max(point1.X(), point2.X()), 
-        std::max(point1.Y(), point2.Y()));
-    auto topLeft = std::make_shared<cad_sketch::SketchPoint>(
-        std::min(point1.X(), point2.X()), 
-        std::max(point1.Y(), point2.Y()));
-    
-    // 创建四条边
-    lines.push_back(std::make_shared<cad_sketch::SketchLine>(bottomLeft, bottomRight)); // 底边
-    lines.push_back(std::make_shared<cad_sketch::SketchLine>(bottomRight, topRight));   // 右边
-    lines.push_back(std::make_shared<cad_sketch::SketchLine>(topRight, topLeft));       // 顶边
-    lines.push_back(std::make_shared<cad_sketch::SketchLine>(topLeft, bottomLeft));     // 左边
-    
+
+    // 检查 4: 零长度检查
+    // Precision::Confusion() 是 OpenCASCADE 定义的默认最小精度 (通常是 1e-7)
+    if (p1.Distance(p2) < Precision::Confusion()) {
+        return lines; // 直接返回空集合，不进行任何 U, V 计算
+    }
+
+    Standard_Real u1, v1, u2, v2;
+    ElSLib::Parameters(m_sketchPlane, p1, u1, v1);
+    ElSLib::Parameters(m_sketchPlane, p2, u2, v2);
+
+    // 检查 5: 投影后的坐标差
+    // 如果鼠标只水平或垂直移动了极小距离，也无法构成矩形
+    if (Abs(u1 - u2) < Precision::PConfusion() || Abs(v1 - v2) < Precision::PConfusion()) {
+        return lines;
+    }
+
+    // 只有通过了以上检查，才创建点和线
+    auto pt1 = std::make_shared<cad_sketch::SketchPoint>(u1, v1);
+    auto pt2 = std::make_shared<cad_sketch::SketchPoint>(u2, v1);
+    auto pt3 = std::make_shared<cad_sketch::SketchPoint>(u2, v2);
+    auto pt4 = std::make_shared<cad_sketch::SketchPoint>(u1, v2);
+
+    lines.push_back(std::make_shared<cad_sketch::SketchLine>(pt1, pt2));
+    lines.push_back(std::make_shared<cad_sketch::SketchLine>(pt2, pt3));
+    lines.push_back(std::make_shared<cad_sketch::SketchLine>(pt3, pt4));
+    lines.push_back(std::make_shared<cad_sketch::SketchLine>(pt4, pt1));
+
     return lines;
 }
-
 // =============================================================================
 // SketchMode Implementation
 // =============================================================================
@@ -146,10 +162,17 @@ SketchMode::SketchMode(QtOccView* viewer, QObject* parent)
     m_rectangleTool = std::make_unique<SketchRectangleTool>(this);
     
     // 连接信号槽
+    // 当矩形正在画（鼠标移动）时，工具发出 2D 线段数据
+    connect(m_rectangleTool.get(), &SketchRectangleTool::previewUpdated,
+        this, &SketchMode::OnPreviewUpdated);
+
+    // 当矩形画完（鼠标抬起）时，工具发出最终数据
     connect(m_rectangleTool.get(), &SketchRectangleTool::rectangleCreated,
-            this, &SketchMode::OnRectangleCreated);
+        this, &SketchMode::OnRectangleCreated);
+
     connect(m_rectangleTool.get(), &SketchRectangleTool::drawingCancelled,
-            this, &SketchMode::OnDrawingCancelled);
+        this, &SketchMode::OnDrawingCancelled);
+
 }
 
 bool SketchMode::EnterSketchMode(const TopoDS_Face& face) {
@@ -178,6 +201,7 @@ bool SketchMode::EnterSketchMode(const TopoDS_Face& face) {
                 m_savedAt = camera->Center();
                 m_savedUp = camera->Up();
                 m_savedScale = camera->Scale();
+                m_savedProjectionType = camera->ProjectionType();
             } else {
                 qDebug() << "Warning: Camera is null, using default values";
                 m_savedEye = gp_Pnt(0, 0, 100);
@@ -197,9 +221,12 @@ bool SketchMode::EnterSketchMode(const TopoDS_Face& face) {
         m_sketchFace = face;
         SetupSketchPlane(face);
         
+        m_isActive = true;
+
         // 创建新的草图
         m_currentSketch = std::make_shared<cad_sketch::Sketch>("Sketch_001");
-        
+    
+
         // 设置草图视图
         SetupSketchView();
         
@@ -208,9 +235,12 @@ bool SketchMode::EnterSketchMode(const TopoDS_Face& face) {
         m_rectangleTool->SetView(m_viewer->GetView());
         
         m_isActive = true;
-        
+
+        if (m_viewer) {
+            m_viewer->HighlightSketchFace(face);
+        }
         emit sketchModeEntered();
-        emit statusMessageChanged("进入草图模式 - 点击\"矩形\"工具开始绘制");
+        emit statusMessageChanged("Enter Sketch Mode - Click the tool to start drawing");
         
         qDebug() << "Entered sketch mode successfully";
         return true;
@@ -237,9 +267,11 @@ void SketchMode::ExitSketchMode() {
     m_sketchFace = TopoDS_Face();
     
     m_isActive = false;
-    
+
+    m_viewer->ClearSketchFaceHighlight();
+
     emit sketchModeExited();
-    emit statusMessageChanged("退出草图模式");
+    emit statusMessageChanged("Exited sketch mode");
     
     qDebug() << "Exited sketch mode";
 }
@@ -250,7 +282,7 @@ void SketchMode::StartRectangleTool() {
     }
     
     StopCurrentTool();
-    emit statusMessageChanged("矩形工具 - 点击并拖拽创建矩形");
+    emit statusMessageChanged("Started rectangle tool");
     
     qDebug() << "Started rectangle tool";
 }
@@ -272,15 +304,13 @@ void SketchMode::HandleMousePress(QMouseEvent* event) {
 }
 
 void SketchMode::HandleMouseMove(QMouseEvent* event) {
-    if (!m_isActive) {
-        return;
-    }
-    
-    if (m_rectangleTool->IsDrawing()) {
+    if (m_rectangleTool && m_rectangleTool->IsDrawing()) {
+        // 工具内部计算 2D 坐标后，会 emit previewUpdated 信号
         m_rectangleTool->UpdateDrawing(event->pos());
-        // 可以在这里触发预览更新
     }
 }
+
+
 
 void SketchMode::HandleMouseRelease(QMouseEvent* event) {
     if (!m_isActive) {
@@ -307,28 +337,64 @@ void SketchMode::HandleKeyPress(QKeyEvent* event) {
 }
 
 void SketchMode::OnRectangleCreated(const std::vector<cad_sketch::SketchLinePtr>& lines) {
-    if (!m_currentSketch) {
-        return;
+    if (m_viewer && m_isActive) {
+        // 1. 先让渲染器清理掉青色的预览线
+        m_viewer->ClearSketchPreview();
+
+        // 2. 调用渲染器显示正式的草图线条（黄色），同样传入坐标系
+        m_viewer->AddSketchLines(lines, m_sketchCS);
+
+        // 3. 业务层逻辑：存入数据模型
+        if (m_currentSketch) {
+            for (const auto& line : lines) {
+                m_currentSketch->AddElement(line);
+                emit sketchElementCreated(line);
+            }
+        }
     }
-    
-    // 将线条添加到草图中
-    for (const auto& line : lines) {
-        m_currentSketch->AddElement(line);
-        emit sketchElementCreated(line);
-    }
-    
-    emit statusMessageChanged(QString("创建了矩形，包含 %1 条线").arg(lines.size()));
-    
-    qDebug() << "Added rectangle with" << lines.size() << "lines to sketch";
+    emit statusMessageChanged(tr("Rectangle created."));
 }
 
 void SketchMode::OnDrawingCancelled() {
-    emit statusMessageChanged("绘制已取消");
+    emit statusMessageChanged("Drawing cancelled");
 }
 
 void SketchMode::SetupSketchPlane(const TopoDS_Face& face) {
-    m_sketchPlane = ExtractPlaneFromFace(face);
-    CreateSketchCoordinateSystem();
+    Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+    Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
+
+    if (!plane.IsNull()) {
+        // 1. 获取面的基础数学平面
+        m_sketchPlane = plane->Pln();
+
+        // 2. 找到这个面在 U 和 V 方向上的边界，计算中心点
+        Standard_Real uMin, uMax, vMin, vMax;
+        BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
+        Standard_Real uMid = (uMin + uMax) / 2.0;
+        Standard_Real vMid = (vMin + vMax) / 2.0;
+
+        // 3. 计算该面上中心点的几何法向量
+        GeomLProp_SLProps props(surface, uMid, vMid, 1, Precision::Confusion());
+        gp_Dir normal = props.Normal();
+
+        // 4. 结合拓扑方向，算出“真正朝外的法线”
+        // 如果面是反向的，说明几何法线指向内部，我们需要把它翻转过来
+        if (face.Orientation() == TopAbs_REVERSED) {
+            normal.Reverse();
+        }
+
+        // 5. 使用算出的向外法线，重新构建草图坐标系 (gp_Ax3)
+        // 参数：原点(Location)，Z轴(朝外的法线 normal)，X轴(保持原平面的X轴不变)
+        gp_Ax3 correctCS(m_sketchPlane.Location(), normal, m_sketchPlane.XAxis().Direction());
+
+        // 将正确的坐标系赋值给草图平面和成员变量
+        m_sketchPlane.SetPosition(correctCS);
+        m_sketchCS = m_sketchPlane.Position();
+
+    }
+    else {
+        emit statusMessageChanged(tr("Selected face is not a plane!"));
+    }
 }
 
 void SketchMode::SetupSketchView() {
@@ -373,7 +439,7 @@ void SketchMode::SetupSketchView() {
         camera->SetEye(eyePosition);
         camera->SetCenter(planeOrigin);
         camera->SetUp(yDir);
-        
+        camera->OrthogonalizeUp();
         // 设置正交投影（对草图更合适）
         camera->SetProjectionType(Graphic3d_Camera::Projection_Orthographic);
         
@@ -389,22 +455,40 @@ void SketchMode::SetupSketchView() {
 }
 
 void SketchMode::RestoreView() {
-    if (m_viewer->GetView().IsNull()) {
+    if (!m_viewer || m_viewer->GetView().IsNull()) {
         return;
     }
-    
+
     Handle(V3d_View) view = m_viewer->GetView();
-    
-    // 恢复透视投影
-    view->Camera()->SetProjectionType(Graphic3d_Camera::Projection_Perspective);
-    
-    // 恢复保存的视图状态
-    view->Camera()->SetEye(m_savedEye);
-    view->Camera()->SetCenter(m_savedAt);
-    view->Camera()->SetUp(m_savedUp);
-    view->Camera()->SetScale(m_savedScale);
-    
-    qDebug() << "Restored view";
+    Handle(Graphic3d_Camera) camera = view->Camera();
+
+    // 1. 恢复原始的投影模式
+    camera->SetProjectionType(m_savedProjectionType);
+
+    // 2. 恢复保存的视图状态
+    camera->SetEye(m_savedEye);
+    camera->SetCenter(m_savedAt);
+    camera->SetUp(m_savedUp);
+
+    // 3. 正交化。告诉 OCC：强制修正 Up 向量，使它与视线方向绝对垂直。如果不做这一步，AIS_ViewCube 读取相机矩阵时会直接失效。
+    camera->OrthogonalizeUp();
+
+    // 4. 恢复缩放比例
+    camera->SetScale(m_savedScale);
+
+    // 5. 重新计算深度剪裁面，防止图形卡在远近平面之外
+    view->AutoZFit();
+    view->Redraw();
+
+    qDebug() << "Restored view successfully";
+}
+
+void SketchMode::OnPreviewUpdated(const std::vector<cad_sketch::SketchLinePtr>& lines) {
+    // 只有当视图指针存在且处于草图模式时才渲染
+    if (m_viewer && m_isActive) {
+        // 调用 QtOccView 的新接口，传入 2D 线段集合和当前平面的坐标系
+        m_viewer->ShowSketchPreviewLines(lines, m_sketchCS);
+    }
 }
 
 void SketchMode::CreateSketchCoordinateSystem() {
@@ -468,4 +552,3 @@ gp_Pln SketchMode::ExtractPlaneFromFace(const TopoDS_Face& face) {
 
 } // namespace cad_ui
 
-#include "SketchMode.moc"

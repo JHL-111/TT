@@ -8,18 +8,23 @@
 #include <QTimer>
 #include <map>
 #include <memory>
+#include <vector>
 
+#include <gp_Ax3.hxx>
 #include <V3d_View.hxx>
 #include <V3d_Viewer.hxx>
 #include <AIS_InteractiveContext.hxx>
 #include <AIS_Shape.hxx>
 #include <AIS_ViewController.hxx>
 #include <Graphic3d_GraphicDriver.hxx>
+#include <AIS_InteractiveObject.hxx>
 
 #include "cad_core/Shape.h"
 #include "cad_core/SelectionManager.h"
+#include "cad_sketch/SketchLine.h"
 
 namespace cad_ui {
+
 
 class QtOccView : public QWidget,protected AIS_ViewController {
     Q_OBJECT
@@ -101,6 +106,16 @@ public:
     void ExitSketchMode();
     void StartRectangleTool();
 
+    // 草图预览与渲染接口
+    void ShowSketchPreviewLines(const std::vector<cad_sketch::SketchLinePtr>& lines, const gp_Ax3& sketchCS);
+    void ClearSketchPreview();
+    void AddSketchLines(const std::vector<cad_sketch::SketchLinePtr>& lines, const gp_Ax3& sketchCS);
+    void ClearSketchObjects();
+
+    // 草图基准面高亮 
+    void HighlightSketchFace(const TopoDS_Face& face);
+    void ClearSketchFaceHighlight();
+
 signals:
     void ShapeSelected(const cad_core::ShapePtr& shape);
     void FaceSelected(const TopoDS_Face& face);
@@ -163,7 +178,13 @@ private:
     
     // 草图模式
     std::unique_ptr<class SketchMode> m_sketchMode;
-    
+    // 存储预览对象（青色）
+    std::vector<Handle(AIS_InteractiveObject)> m_sketchPreviewObjects;
+    // 存储正式草图对象（黄色）
+    std::vector<Handle(AIS_InteractiveObject)> m_sketchObjects;
+    // 高亮显示的草图面
+    Handle(AIS_InteractiveObject) m_highlightedFace;
+
     // 当前选择模式
     int m_currentSelectionMode;
     
@@ -176,7 +197,9 @@ private:
      void ClearOpFace();
 
 private slots:
+
     void OnRedrawTimer();
+    
 };
 
 } // namespace cad_ui

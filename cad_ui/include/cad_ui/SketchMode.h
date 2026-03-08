@@ -1,7 +1,10 @@
-﻿#pragma once
+﻿#ifndef SKETCHMODE_H
+#define SKETCHMODE_H
 
 #include <QObject>
 #include <QWidget>
+#include <QMouseEvent>
+#include <QKeyEvent>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Dir.hxx>
@@ -17,117 +20,127 @@
 
 namespace cad_ui {
 
-// 前向声明
-class QtOccView;
+    // 前向声明
+    class QtOccView;
 
-/**
- * @class SketchRectangleTool
- * @brief 矩形绘制工具
- */
-class SketchRectangleTool : public QObject {
-    Q_OBJECT
+    /**
+     * @class SketchRectangleTool
+     * @brief 矩形绘制工具
+     */
+    class SketchRectangleTool : public QObject {
+        Q_OBJECT
 
-public:
-    explicit SketchRectangleTool(QObject* parent = nullptr);
-    
-    void StartDrawing(const QPoint& startPoint);
-    void UpdateDrawing(const QPoint& currentPoint);
-    void FinishDrawing(const QPoint& endPoint);
-    void CancelDrawing();
-    
-    bool IsDrawing() const { return m_isDrawing; }
-    
-    // 将屏幕坐标转换为草图平面坐标
-    void SetSketchPlane(const gp_Pln& plane);
-    void SetView(Handle(V3d_View) view);
-    
-    // 获取当前绘制的矩形
-    std::vector<cad_sketch::SketchLinePtr> GetCurrentRectangle() const;
+    public:
+        explicit SketchRectangleTool(QObject* parent = nullptr);
 
-signals:
-    void rectangleCreated(const std::vector<cad_sketch::SketchLinePtr>& lines);
-    void drawingCancelled();
+        void StartDrawing(const QPoint& startPoint);
+        void UpdateDrawing(const QPoint& currentPoint);
+        void FinishDrawing(const QPoint& endPoint);
+        void CancelDrawing();
 
-private:
-    bool m_isDrawing;
-    QPoint m_startPoint;
-    QPoint m_currentPoint;
-    gp_Pln m_sketchPlane;
-    Handle(V3d_View) m_view;
-    
-    std::vector<cad_sketch::SketchLinePtr> m_currentLines;
-    
-    // 辅助方法
-    gp_Pnt ScreenToSketchPlane(const QPoint& screenPoint);
-    std::vector<cad_sketch::SketchLinePtr> CreateRectangleLines(const gp_Pnt& point1, const gp_Pnt& point2);
-};
+        bool IsDrawing() const { return m_isDrawing; }
 
-/**
- * @class SketchMode
- * @brief 草图模式管理器
- */
-class SketchMode : public QObject {
-    Q_OBJECT
+        // 将屏幕坐标转换为草图平面坐标
+        void SetSketchPlane(const gp_Pln& plane);
+        void SetView(Handle(V3d_View) view);
 
-public:
-    explicit SketchMode(QtOccView* viewer, QObject* parent = nullptr);
-    ~SketchMode() = default;
-    
-    // 草图模式控制
-    bool EnterSketchMode(const TopoDS_Face& face);
-    void ExitSketchMode();
-    bool IsInSketchMode() const { return m_isActive; }
-    
-    // 获取当前草图信息
-    const cad_sketch::SketchPtr& GetCurrentSketch() const { return m_currentSketch; }
-    const gp_Pln& GetSketchPlane() const { return m_sketchPlane; }
-    const TopoDS_Face& GetSketchFace() const { return m_sketchFace; }
-    
-    // 绘制工具
-    void StartRectangleTool();
-    void StopCurrentTool();
-    
-    // 鼠标事件处理
-    void HandleMousePress(QMouseEvent* event);
-    void HandleMouseMove(QMouseEvent* event);
-    void HandleMouseRelease(QMouseEvent* event);
-    void HandleKeyPress(QKeyEvent* event);
+        // 获取当前绘制的矩形数据（2D 局部坐标）
+        std::vector<cad_sketch::SketchLinePtr> GetCurrentRectangle() const;
 
-signals:
-    void sketchModeEntered();
-    void sketchModeExited();
-    void sketchElementCreated(cad_sketch::SketchElementPtr element);
-    void statusMessageChanged(const QString& message);
+    signals:
+        // 实时预览信号：当矩形尺寸变化时发出，用于 View 层的青色渲染
+        void previewUpdated(const std::vector<cad_sketch::SketchLinePtr>& lines);
+        // 完成信号
+        void rectangleCreated(const std::vector<cad_sketch::SketchLinePtr>& lines);
+        void drawingCancelled();
 
-private slots:
-    void OnRectangleCreated(const std::vector<cad_sketch::SketchLinePtr>& lines);
-    void OnDrawingCancelled();
+    private:
+        bool m_isDrawing;
+        QPoint m_startPoint;
+        QPoint m_currentPoint;
+        gp_Pln m_sketchPlane;
+        Handle(V3d_View) m_view;
 
-private:
-    QtOccView* m_viewer;
-    bool m_isActive;
-    
-    // 草图相关
-    cad_sketch::SketchPtr m_currentSketch;
-    TopoDS_Face m_sketchFace;
-    gp_Pln m_sketchPlane;
-    gp_Ax3 m_sketchCS; // 草图坐标系
-    
-    // 视图保存/恢复
-    gp_Pnt m_savedEye;
-    gp_Pnt m_savedAt;
-    gp_Dir m_savedUp;
-    double m_savedScale;
-    
-    // 绘制工具
-    std::unique_ptr<SketchRectangleTool> m_rectangleTool;
-    
-    // 私有方法
-    void SetupSketchPlane(const TopoDS_Face& face);
-    void SetupSketchView();
-    void RestoreView();
-    void CreateSketchCoordinateSystem();
-    gp_Pln ExtractPlaneFromFace(const TopoDS_Face& face);
-};
+        std::vector<cad_sketch::SketchLinePtr> m_currentLines;
+
+        // 辅助方法
+        gp_Pnt ScreenToSketchPlane(const QPoint& screenPoint);
+        std::vector<cad_sketch::SketchLinePtr> CreateRectangleLines(const gp_Pnt& point1, const gp_Pnt& point2);
+    };
+
+    /**
+     * @class SketchMode
+     * @brief 草图模式管理器
+     */
+    class SketchMode : public QObject {
+        Q_OBJECT
+
+    public:
+        explicit SketchMode(QtOccView* viewer, QObject* parent = nullptr);
+        ~SketchMode() = default;
+
+        // 草图模式控制
+        bool EnterSketchMode(const TopoDS_Face& face);
+        void ExitSketchMode();
+        bool IsInSketchMode() const { return m_isActive; }
+
+        // 获取当前草图信息
+        const cad_sketch::SketchPtr& GetCurrentSketch() const { return m_currentSketch; }
+        const gp_Pln& GetSketchPlane() const { return m_sketchPlane; }
+        const gp_Ax3& GetSketchCoordinateSystem() const { return m_sketchCS; } // 新增接口
+        const TopoDS_Face& GetSketchFace() const { return m_sketchFace; }
+
+        // 绘制工具启动/停止
+        void StartRectangleTool();
+        void StopCurrentTool();
+
+        // 鼠标/键盘事件处理 (由 QtOccView 转发)
+        void HandleMousePress(QMouseEvent* event);
+        void HandleMouseMove(QMouseEvent* event);
+        void HandleMouseRelease(QMouseEvent* event);
+        void HandleKeyPress(QKeyEvent* event);
+
+    signals:
+        void sketchModeEntered();
+        void sketchModeExited();
+        void sketchElementCreated(cad_sketch::SketchElementPtr element);
+        void statusMessageChanged(const QString& message);
+
+    private slots:
+        // 核心解耦点：接收工具信号，并把 2D 数据 + m_sketchCS 传给 Viewer
+        void OnPreviewUpdated(const std::vector<cad_sketch::SketchLinePtr>& lines);
+        void OnRectangleCreated(const std::vector<cad_sketch::SketchLinePtr>& lines);
+        void OnDrawingCancelled();
+
+    private:
+        QtOccView* m_viewer;
+        bool m_isActive;
+
+        // 草图核心数据
+        cad_sketch::SketchPtr m_currentSketch;
+        TopoDS_Face m_sketchFace;
+        gp_Pln m_sketchPlane;
+        gp_Ax3 m_sketchCS; // 草图坐标系 (LCS: Local Coordinate System)
+
+        // 视图保存/恢复 (用于进入/退出草图时的视口切换)
+        gp_Pnt m_savedEye;
+        gp_Pnt m_savedAt;
+        gp_Dir m_savedUp;
+        double m_savedScale;
+        // 保存进入草图前的相机投影模式
+        Graphic3d_Camera::Projection m_savedProjectionType;
+
+        // 绘制工具实例
+        std::unique_ptr<SketchRectangleTool> m_rectangleTool;
+
+        // 私有辅助方法
+        void SetupSketchPlane(const TopoDS_Face& face);
+        void SetupSketchView();
+        void RestoreView();
+        void CreateSketchCoordinateSystem();
+        gp_Pln ExtractPlaneFromFace(const TopoDS_Face& face);
+    };
 
 } // namespace cad_ui
+
+#endif // SKETCHMODE_H

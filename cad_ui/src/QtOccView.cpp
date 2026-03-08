@@ -22,6 +22,12 @@
 #include <Prs3d_LineAspect.hxx>
 #include <Quantity_Color.hxx>
 #include <algorithm>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <AIS_Shape.hxx>
+#include <Quantity_NameOfColor.hxx>
+#include <ElSLib.hxx>
+#include <Graphic3d_MaterialAspect.hxx>
+
 
 #ifdef _WIN32
 #include <WNT_Window.hxx>
@@ -32,6 +38,7 @@
 #endif
 
 namespace cad_ui {
+
 
 QtOccView::QtOccView(QWidget* parent) 
     : QWidget(parent), m_isInitialized(false), m_currentMouseButton(Qt::NoButton),
@@ -271,9 +278,14 @@ void QtOccView::RemoveShape(const cad_core::ShapePtr& shape) {
 
 void QtOccView::ClearShapes() {
     if (m_context.IsNull()) return;
-    
-    m_context->RemoveAll(Standard_False);
-    m_shapeToAIS.clear(); // Clear the mapping
+
+    for (auto& pair : m_shapeToAIS) {
+        if (!pair.second.IsNull()) {
+            m_context->Remove(pair.second, Standard_False);
+        }
+    }
+
+    m_shapeToAIS.clear();
     m_view->Redraw();
 }
 
@@ -1153,6 +1165,40 @@ void QtOccView::ShowOpFace(int faceIndex) {
 // =============================================================================
 // Sketch Mode Implementation
 // =============================================================================
+namespace {
+    /**
+     * @brief 将草图局部 2D 点转换为世界 3D 点
+     */
+    static gp_Pnt Sketch2DToWorld(const cad_sketch::SketchPointPtr& pt, const gp_Ax3& cs)
+    {
+        if (!pt) return gp_Pnt(0, 0, 0);
+
+        gp_Pnt origin = cs.Location();
+        gp_Dir xDir = cs.XDirection();
+        gp_Dir yDir = cs.YDirection();
+
+        return origin.Translated(
+            gp_Vec(xDir) * pt->GetX() +
+            gp_Vec(yDir) * pt->GetY()
+        );
+    }
+
+    /**
+     * @brief 根据草图线段和坐标系创建 OpenCASCADE 边 (TopoDS_Edge)
+     */
+    TopoDS_Edge MakeEdgeFromSketchLine(const cad_sketch::SketchLinePtr& line, const gp_Ax3& cs)
+    {
+        if (!line || !line->GetStartPoint() || !line->GetEndPoint()) {
+            return TopoDS_Edge();
+        }
+
+        gp_Pnt p1 = Sketch2DToWorld(line->GetStartPoint(), cs);
+        gp_Pnt p2 = Sketch2DToWorld(line->GetEndPoint(), cs);
+
+        return BRepBuilderAPI_MakeEdge(p1, p2);
+    }
+}
+
 
 bool QtOccView::IsInSketchMode() const {
     return m_sketchMode && m_sketchMode->IsInSketchMode();
@@ -1216,6 +1262,108 @@ void QtOccView::StartRectangleTool() {
     
     m_sketchMode->StartRectangleTool();
     qDebug() << "Started rectangle tool";
+}
+
+// 高亮选中的草图面
+void QtOccView::HighlightSketchFace(const TopoDS_Face& face) {
+    if (m_context.IsNull() || face.IsNull()) return;
+
+    // 1. 清理可能存在的旧高亮
+    ClearSketchFaceHighlight();
+
+    // 2. 将选中的拓扑面包装成可显示的 AIS_Shape
+    Handle(AIS_Shape) aisFace = new AIS_Shape(face);
+
+    // 3. 设置视觉效果 (浅蓝色 + 半透明)
+    aisFace->SetColor(Quantity_NOC_LIGHTSKYBLUE1); // 浅天蓝色
+    aisFace->SetTransparency(0.6);                
+
+    // 4. 强化面的边界线 (Boundary Draw)，让边缘更清晰
+    Handle(Prs3d_Drawer) drawer = aisFace->Attributes();
+    drawer->SetFaceBoundaryDraw(Standard_True);
+    drawer->FaceBoundaryAspect()->SetColor(Quantity_NOC_BLUE1); // 边界线用深蓝色
+    drawer->FaceBoundaryAspect()->SetWidth(2.0);                // 稍微加粗
+
+    // 5. 为了防止与原模型发生严重的深度冲突，将其提至顶层
+    aisFace->SetZLayer(Graphic3d_ZLayerId_Topmost);
+
+    // 6. 显示并保存引用
+    m_context->Display(aisFace, Standard_False);
+    m_highlightedFace = aisFace;
+
+    m_view->Redraw();
+}
+
+void QtOccView::ClearSketchFaceHighlight() {
+    if (m_context.IsNull() || m_highlightedFace.IsNull()) return;
+
+    m_context->Remove(m_highlightedFace, Standard_False);
+    m_highlightedFace.Nullify(); // 清空句柄
+    m_view->Redraw();
+}
+
+// 显示预览线（通常用于鼠标移动时的青色反馈）
+void QtOccView::ShowSketchPreviewLines(const std::vector<cad_sketch::SketchLinePtr>& lines, const gp_Ax3& sketchCS){
+    if (m_context.IsNull()) return;
+
+    // 清理之前的预览对象 (Preview Objects)
+    ClearSketchPreview();
+
+    for (const auto& line : lines) {
+        TopoDS_Edge edge = MakeEdgeFromSketchLine(line, sketchCS);
+        if (edge.IsNull()) continue;
+
+        Handle(AIS_Shape) aisLine = new AIS_Shape(edge);
+        aisLine->SetColor(Quantity_NOC_CYAN1); // 青色反馈 (Cyan Feedback)
+        aisLine->SetWidth(2.0);
+        aisLine->SetZLayer(Graphic3d_ZLayerId_Topmost);
+
+        m_context->Display(aisLine, Standard_False);
+        m_sketchPreviewObjects.push_back(aisLine);
+    }
+
+    m_view->Redraw();
+}
+
+// 添加正式草图线（点击完成后确认留在屏幕上的线条）
+void QtOccView::AddSketchLines(const std::vector<cad_sketch::SketchLinePtr>& lines, const gp_Ax3& sketchCS) {
+    if (m_context.IsNull()) return;
+
+    for (const auto& line : lines) {
+        TopoDS_Edge edge = MakeEdgeFromSketchLine(line, sketchCS);
+        if (edge.IsNull()) continue;
+
+        Handle(AIS_Shape) aisLine = new AIS_Shape(edge);
+        aisLine->SetColor(Quantity_NOC_YELLOW); // 正式颜色 (Yellow)
+        aisLine->SetWidth(2.0);
+        aisLine->SetZLayer(Graphic3d_ZLayerId_Topmost);
+
+        m_context->Display(aisLine, Standard_False);
+        m_sketchObjects.push_back(aisLine);
+    }
+
+    m_view->Redraw();
+}
+
+// 仅清理预览对象
+void QtOccView::ClearSketchPreview() {
+    if (m_context.IsNull()) return;
+
+    for (auto& obj : m_sketchPreviewObjects) {
+        m_context->Remove(obj, Standard_False);
+    }
+    m_sketchPreviewObjects.clear();
+}
+
+// 4. 清理所有正式草图几何体
+void QtOccView::ClearSketchObjects() {
+    if (m_context.IsNull()) return;
+
+    for (auto& obj : m_sketchObjects) {
+        m_context->Remove(obj, Standard_False);
+    }
+    m_sketchObjects.clear();
+    m_view->Redraw();
 }
 
 } // namespace cad_ui
