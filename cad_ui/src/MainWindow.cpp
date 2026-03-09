@@ -267,6 +267,11 @@ void MainWindow::CreateActions() {
     m_sketchRectangleAction->setStatusTip("Draw rectangle in sketch mode");
     m_sketchRectangleAction->setEnabled(false);  // 初始禁用
     
+    m_sketchLineAction = new QAction("&Line", this);
+    m_sketchLineAction->setShortcut(QKeySequence("L")); 
+    m_sketchLineAction->setStatusTip("Draw line in sketch mode");
+    m_sketchLineAction->setEnabled(false);  // 初始禁用
+
     // Selection mode now handled by combo box - old actions commented out for testing
     
     // Selection mode group now handled by combo box
@@ -351,7 +356,8 @@ void MainWindow::CreateMenus() {
     sketchMenu->addAction(m_exitSketchAction);
     sketchMenu->addSeparator();
     sketchMenu->addAction(m_sketchRectangleAction);
-    
+    sketchMenu->addAction(m_sketchLineAction);
+
     // Selection menu - now handled by combo box in toolbar
     
     // Tools menu
@@ -814,6 +820,11 @@ void MainWindow::CreateToolBars() {
     rectangleBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     sketchToolsButtonsLayout->addWidget(rectangleBtn);
     
+    QToolButton* lineBtn = new QToolButton();
+    lineBtn->setDefaultAction(m_sketchLineAction);
+    lineBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    sketchToolsButtonsLayout->addWidget(lineBtn);
+
     sketchToolsLayout->addLayout(sketchToolsButtonsLayout);
     sketchLayout->addWidget(sketchToolsFrame);
     
@@ -907,7 +918,8 @@ void MainWindow::ConnectSignals() {
     connect(m_enterSketchAction, &QAction::triggered, this, &MainWindow::OnEnterSketchMode);
     connect(m_exitSketchAction, &QAction::triggered, this, &MainWindow::OnExitSketchMode);
     connect(m_sketchRectangleAction, &QAction::triggered, this, &MainWindow::OnSketchRectangleTool);
-    
+    connect(m_sketchLineAction, &QAction::triggered, this, &MainWindow::OnSketchLineTool);
+
     // Selection mode combo box connected in CreateSelectionModeCombo()
     
     // Theme actions
@@ -2119,6 +2131,7 @@ void MainWindow::OnExitSketchMode() {
     m_viewer->ExitSketchMode();
 }
 
+// 草图工具槽函数
 void MainWindow::OnSketchRectangleTool() {
     if (!m_viewer || !m_viewer->IsInSketchMode()) {
         return;
@@ -2127,6 +2140,16 @@ void MainWindow::OnSketchRectangleTool() {
     m_viewer->StartRectangleTool();
     statusBar()->showMessage("The rectangle tool is activated - click and drag to create a rectangle");
 }
+
+void MainWindow::OnSketchLineTool() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) {
+        return;
+    }
+    // 告诉视图层启动直线工具
+    m_viewer->StartLineTool();
+    statusBar()->showMessage("The line tool is activated - click and move to create a line");
+}
+
 
 void MainWindow::OnFaceSelected(const TopoDS_Face& face) {
     if (!m_waitingForFaceSelection) {
@@ -2203,6 +2226,7 @@ void MainWindow::OnSketchModeEntered() {
     m_enterSketchAction->setEnabled(false);
     m_exitSketchAction->setEnabled(true);
     m_sketchRectangleAction->setEnabled(true);
+    m_sketchLineAction->setEnabled(true);
     
     // Reset selection mode
     m_viewer->SetSelectionMode(0);  // Shape selection mode
@@ -2217,6 +2241,7 @@ void MainWindow::OnSketchModeExited() {
     m_enterSketchAction->setEnabled(true);
     m_exitSketchAction->setEnabled(false);
     m_sketchRectangleAction->setEnabled(false);
+    m_sketchLineAction->setEnabled(false);
     
     // Reset any waiting states
     m_waitingForFaceSelection = false;

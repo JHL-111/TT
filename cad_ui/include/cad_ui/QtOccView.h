@@ -105,6 +105,7 @@ public:
     void EnterSketchMode(const TopoDS_Face& face);
     void ExitSketchMode();
     void StartRectangleTool();
+    void StartLineTool();
 
     // 草图预览与渲染接口
     void ShowSketchPreviewLines(const std::vector<cad_sketch::SketchLinePtr>& lines, const gp_Ax3& sketchCS);

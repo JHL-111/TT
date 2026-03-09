@@ -1254,6 +1254,7 @@ void QtOccView::ExitSketchMode() {
     }
 }
 
+// 启动草图工具
 void QtOccView::StartRectangleTool() {
     if (!m_sketchMode || !m_sketchMode->IsInSketchMode()) {
         qDebug() << "Cannot start rectangle tool: not in sketch mode";
@@ -1263,6 +1264,14 @@ void QtOccView::StartRectangleTool() {
     m_sketchMode->StartRectangleTool();
     qDebug() << "Started rectangle tool";
 }
+
+void QtOccView::StartLineTool() {
+    if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
+        m_sketchMode->StartLineTool();
+    }
+}
+
+
 
 // 高亮选中的草图面
 void QtOccView::HighlightSketchFace(const TopoDS_Face& face) {
@@ -1314,7 +1323,7 @@ void QtOccView::ShowSketchPreviewLines(const std::vector<cad_sketch::SketchLineP
         if (edge.IsNull()) continue;
 
         Handle(AIS_Shape) aisLine = new AIS_Shape(edge);
-        aisLine->SetColor(Quantity_NOC_CYAN1); // 青色反馈 (Cyan Feedback)
+        aisLine->SetColor(Quantity_NOC_CYAN1);  
         aisLine->SetWidth(2.0);
         aisLine->SetZLayer(Graphic3d_ZLayerId_Topmost);
 
@@ -1334,9 +1343,8 @@ void QtOccView::AddSketchLines(const std::vector<cad_sketch::SketchLinePtr>& lin
         if (edge.IsNull()) continue;
 
         Handle(AIS_Shape) aisLine = new AIS_Shape(edge);
-        aisLine->SetColor(Quantity_NOC_YELLOW); // 正式颜色 (Yellow)
+        aisLine->SetColor(Quantity_NOC_RED); 
         aisLine->SetWidth(2.0);
-        aisLine->SetZLayer(Graphic3d_ZLayerId_Topmost);
 
         m_context->Display(aisLine, Standard_False);
         m_sketchObjects.push_back(aisLine);

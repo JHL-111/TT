@@ -7,7 +7,7 @@
 
 namespace cad_sketch {
 
-SnappingManager::SnappingManager() : m_snapTolerance(5.0), m_gridSize(10.0) {
+SnappingManager::SnappingManager() : m_snapTolerance(0.1), m_gridSize(0.5) {
     // 默认启用常见的捕捉类型
     m_enabledSnapTypes.push_back(SnapType::Endpoint);
     m_enabledSnapTypes.push_back(SnapType::Midpoint);
