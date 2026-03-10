@@ -22,6 +22,7 @@
 #include "cad_core/Shape.h"
 #include "cad_core/SelectionManager.h"
 #include "cad_sketch/SketchLine.h"
+#include "cad_sketch/SnappingManager.h"
 
 namespace cad_ui {
 
@@ -106,12 +107,17 @@ public:
     void ExitSketchMode();
     void StartRectangleTool();
     void StartLineTool();
+    void StartCircleTool();
 
     // 草图预览与渲染接口
-    void ShowSketchPreviewLines(const std::vector<cad_sketch::SketchLinePtr>& lines, const gp_Ax3& sketchCS);
+    void ShowSketchPreviewElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS);
     void ClearSketchPreview();
-    void AddSketchLines(const std::vector<cad_sketch::SketchLinePtr>& lines, const gp_Ax3& sketchCS);
+    void AddSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS);
     void ClearSketchObjects();
+
+    // 控制吸附提示符的显示和隐藏
+    void ShowSnapIndicator(const gp_Pnt& pnt, cad_sketch::SnapType snapType);
+    void HideSnapIndicator();
 
     // 草图基准面高亮 
     void HighlightSketchFace(const TopoDS_Face& face);
@@ -185,6 +191,8 @@ private:
     std::vector<Handle(AIS_InteractiveObject)> m_sketchObjects;
     // 高亮显示的草图面
     Handle(AIS_InteractiveObject) m_highlightedFace;
+    // 用来保存那个吸附小圆圈对象
+    Handle(AIS_InteractiveObject) m_snapIndicator;
 
     // 当前选择模式
     int m_currentSelectionMode;

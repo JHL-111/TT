@@ -21,6 +21,7 @@
 #include "cad_sketch/Sketch.h"
 #include "cad_sketch/SketchElement.h" 
 #include "cad_sketch/SketchLine.h"
+#include "cad_sketch/SketchCircle.h"
 #include "cad_sketch/SnappingManager.h"
 
 // === 开始定义自定义命名空间 ===
@@ -43,6 +44,7 @@ namespace cad_ui {
         virtual void UpdateDrawing(const QPoint& currentPoint) = 0;
         virtual void FinishDrawing(const QPoint& endPoint) = 0;
         virtual void CancelDrawing() = 0;
+        virtual void HoverMove(const QPoint& currentPoint);
 
         bool IsDrawing() const { return m_isDrawing; }
 
@@ -56,19 +58,26 @@ namespace cad_ui {
         }
 
     signals:
-        // 绘制时的动态预览信号 (Preview Signal)
+        // 绘制时的动态预览信号
         void previewUpdated(const std::vector<cad_sketch::SketchElementPtr>& elements);
-        // 绘制完成的确认信号 (Creation Signal)
+        // 绘制完成的确认信号 
         void elementsCreated(const std::vector<cad_sketch::SketchElementPtr>& elements);
-        // 取消绘制信号 (Cancellation Signal)
+        // 取消绘制信号 
         void drawingCancelled();
+        // 检测吸附小圆
+        void snapPointDetected(const gp_Pnt& pnt, cad_sketch::SnapType snapType);
+        void snapPointLost();
 
     protected:
         // 将二维的屏幕鼠标坐标转换到三维空间的草图平面上
         gp_Pnt ScreenToSketchPlane(const QPoint& screenPoint);
         // 统一获取智能吸附后的 2D 坐标
+        
+        // 供真正画图时使用（不需要知道捕捉类型）
+        bool GetSnappedCoordinate(const QPoint& screenPoint, Standard_Real& u, Standard_Real& v);
+        // 专门供悬停提示使用（能把捕捉类型传出来）
+        bool GetSnappedCoordinate(const QPoint& screenPoint, Standard_Real& u, Standard_Real& v, cad_sketch::SnapType& outSnapType);
 
-        void GetSnappedCoordinate(const QPoint& screenPoint, Standard_Real& u, Standard_Real& v);
         bool m_isDrawing;            // 标记当前是否正在绘制中
         gp_Pln m_sketchPlane;        // 当前依附的草图平面 (Sketch Plane)
         Handle(V3d_View) m_view;     // OCC 的视图句柄 (View Handle)
@@ -121,6 +130,25 @@ namespace cad_ui {
     };
 
     /**
+ * @class SketchCircleTool
+ * @brief 圆绘制工具 (Circle Drawing Tool)
+ */
+    class SketchCircleTool : public SketchToolBase {
+        Q_OBJECT
+    public:
+        explicit SketchCircleTool(QObject* parent = nullptr);
+
+        void StartDrawing(const QPoint& startPoint) override;
+        void UpdateDrawing(const QPoint& currentPoint) override;
+        void FinishDrawing(const QPoint& endPoint) override;
+        void CancelDrawing() override;
+
+    private:
+        QPoint m_centerPoint;
+        std::vector<cad_sketch::SketchElementPtr> m_currentElements;
+    };
+
+    /**
      * @class SketchMode
      * @brief 草图模式管理器 (Sketch Mode Manager)
      * * 负责管理草图环境的进入、退出、视图切换，以及分发事件给当前激活的绘制工具。
@@ -145,6 +173,7 @@ namespace cad_ui {
         // 绘图工具控制 (Tool Control)
         void StartRectangleTool();
         void StartLineTool();
+        void StartCircleTool();
         void StopCurrentTool();
 
         // 交互事件处理 (Event Handling)
@@ -152,6 +181,7 @@ namespace cad_ui {
         void HandleMouseMove(QMouseEvent* event);
         void HandleMouseRelease(QMouseEvent* event);
         void HandleKeyPress(QKeyEvent* event);
+
 
     signals:
         void sketchModeEntered();
@@ -164,6 +194,8 @@ namespace cad_ui {
         void OnPreviewUpdated(const std::vector<cad_sketch::SketchElementPtr>& elements);
         void OnElementsCreated(const std::vector<cad_sketch::SketchElementPtr>& elements);
         void OnDrawingCancelled();
+        void OnSnapPointDetected(const gp_Pnt& pnt, cad_sketch::SnapType snapType);
+        void OnSnapPointLost();
 
     private:
         QtOccView* m_viewer; // 视图渲染器指针

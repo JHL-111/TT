@@ -260,21 +260,22 @@ void MainWindow::CreateActions() {
     m_exitSketchAction = new QAction("E&xit Sketch", this);
     m_exitSketchAction->setShortcut(QKeySequence("Escape"));
     m_exitSketchAction->setStatusTip("Exit sketch mode");
-    m_exitSketchAction->setEnabled(false);  // 初始禁用
+    m_exitSketchAction->setEnabled(false);  
     
     m_sketchRectangleAction = new QAction("&Rectangle", this);
     m_sketchRectangleAction->setShortcut(QKeySequence("R"));
     m_sketchRectangleAction->setStatusTip("Draw rectangle in sketch mode");
-    m_sketchRectangleAction->setEnabled(false);  // 初始禁用
+    m_sketchRectangleAction->setEnabled(false); 
     
     m_sketchLineAction = new QAction("&Line", this);
     m_sketchLineAction->setShortcut(QKeySequence("L")); 
     m_sketchLineAction->setStatusTip("Draw line in sketch mode");
-    m_sketchLineAction->setEnabled(false);  // 初始禁用
+    m_sketchLineAction->setEnabled(false);  
 
-    // Selection mode now handled by combo box - old actions commented out for testing
-    
-    // Selection mode group now handled by combo box
+    m_sketchCircleAction = new QAction("&Circle", this);
+    m_sketchCircleAction->setShortcut(QKeySequence("C"));
+    m_sketchCircleAction->setStatusTip("Draw circle in sketch mode");
+    m_sketchCircleAction->setEnabled(false);
     
     // Theme actions
     m_darkThemeAction = new QAction("&Dark Theme", this);
@@ -357,6 +358,7 @@ void MainWindow::CreateMenus() {
     sketchMenu->addSeparator();
     sketchMenu->addAction(m_sketchRectangleAction);
     sketchMenu->addAction(m_sketchLineAction);
+    sketchMenu->addAction(m_sketchCircleAction);
 
     // Selection menu - now handled by combo box in toolbar
     
@@ -825,6 +827,11 @@ void MainWindow::CreateToolBars() {
     lineBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     sketchToolsButtonsLayout->addWidget(lineBtn);
 
+    QToolButton* circleBtn = new QToolButton();
+    circleBtn->setDefaultAction(m_sketchCircleAction);
+    circleBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    sketchToolsButtonsLayout->addWidget(circleBtn);
+
     sketchToolsLayout->addLayout(sketchToolsButtonsLayout);
     sketchLayout->addWidget(sketchToolsFrame);
     
@@ -919,6 +926,7 @@ void MainWindow::ConnectSignals() {
     connect(m_exitSketchAction, &QAction::triggered, this, &MainWindow::OnExitSketchMode);
     connect(m_sketchRectangleAction, &QAction::triggered, this, &MainWindow::OnSketchRectangleTool);
     connect(m_sketchLineAction, &QAction::triggered, this, &MainWindow::OnSketchLineTool);
+    connect(m_sketchCircleAction, &QAction::triggered, this, &MainWindow::OnSketchCircleTool);
 
     // Selection mode combo box connected in CreateSelectionModeCombo()
     
@@ -2150,6 +2158,11 @@ void MainWindow::OnSketchLineTool() {
     statusBar()->showMessage("The line tool is activated - click and move to create a line");
 }
 
+void MainWindow::OnSketchCircleTool() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    m_viewer->StartCircleTool();
+    statusBar()->showMessage("The circle tool is activated - click for center, drag for radius");
+}
 
 void MainWindow::OnFaceSelected(const TopoDS_Face& face) {
     if (!m_waitingForFaceSelection) {
@@ -2227,7 +2240,8 @@ void MainWindow::OnSketchModeEntered() {
     m_exitSketchAction->setEnabled(true);
     m_sketchRectangleAction->setEnabled(true);
     m_sketchLineAction->setEnabled(true);
-    
+    m_sketchCircleAction->setEnabled(true);
+
     // Reset selection mode
     m_viewer->SetSelectionMode(0);  // Shape selection mode
     
@@ -2241,8 +2255,9 @@ void MainWindow::OnSketchModeExited() {
     m_enterSketchAction->setEnabled(true);
     m_exitSketchAction->setEnabled(false);
     m_sketchRectangleAction->setEnabled(false);
-    m_sketchLineAction->setEnabled(false);
-    
+    m_sketchLineAction->setEnabled(false); 
+    m_sketchCircleAction->setEnabled(false); 
+
     // Reset any waiting states
     m_waitingForFaceSelection = false;
     

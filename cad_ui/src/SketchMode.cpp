@@ -41,27 +41,49 @@ namespace cad_ui {
         return gp_Pnt(0, 0, 0); // 降级返回原点
     }
 
-    void SketchToolBase::GetSnappedCoordinate(const QPoint& screenPoint, Standard_Real& u, Standard_Real& v) {
-        // 1. 正常的屏幕到 3D 平面投影
+    // 1. 三参数函数（直接调用四参数版本，丢弃类型即可，这样就不需要改画图代码了）
+    bool SketchToolBase::GetSnappedCoordinate(const QPoint& screenPoint, Standard_Real& u, Standard_Real& v) {
+        cad_sketch::SnapType dummyType;
+        return GetSnappedCoordinate(screenPoint, u, v, dummyType);
+    }
+
+    // 2. 四参数的吸附函数，能把捕捉类型也抓出来
+    bool SketchToolBase::GetSnappedCoordinate(const QPoint& screenPoint, Standard_Real& u, Standard_Real& v, cad_sketch::SnapType& outSnapType) {
         gp_Pnt p3d = ScreenToSketchPlane(screenPoint);
         ElSLib::Parameters(m_sketchPlane, p3d, u, v);
 
-        // 2. 如果绑定了捕捉管理器，进行智能吸附
         if (m_snappingManager && m_existingElements) {
-            // 将 UV 坐标封装为底层数学核心库认得的 Point
             cad_core::Point inputPt(u, v, 0);
-
-            // 让管理器去寻找附近有没有端点/中点/网格点
             cad_sketch::SnapResult snapRes = m_snappingManager->FindSnapPoint(inputPt, *m_existingElements);
 
             if (snapRes.found) {
-                // 如果找到了！强行篡改原始的鼠标坐标，将其“吸附”过去
                 u = snapRes.snapPoint.X();
                 v = snapRes.snapPoint.Y();
-
+                outSnapType = snapRes.type; 
+                return true;
             }
         }
+        return false;
     }
+
+    void SketchToolBase::HoverMove(const QPoint& currentPoint) {
+        Standard_Real u, v;
+        cad_sketch::SnapType snapType; // 准备一个变量来接收类型
+
+        // 调用吸附函数
+        if (GetSnappedCoordinate(currentPoint, u, v, snapType)) {
+            gp_Pnt p3d = m_sketchPlane.Location().Translated(
+                gp_Vec(m_sketchPlane.XAxis().Direction()) * u +
+                gp_Vec(m_sketchPlane.YAxis().Direction()) * v
+            );
+            // 发送信号时，把坐标和类型一起打包发送
+            emit snapPointDetected(p3d, snapType);
+        }
+        else {
+            emit snapPointLost();
+        }
+    }
+
     // =============================================================================
     // SketchRectangleTool Implementation (矩形工具实现)
     // =============================================================================
@@ -119,6 +141,7 @@ namespace cad_ui {
         return elements;
     }
 
+
     // =============================================================================
     // SketchLineTool Implementation (直线工具实现)
     // =============================================================================
@@ -167,6 +190,59 @@ namespace cad_ui {
         emit drawingCancelled();
     }
 
+
+// =============================================================================
+// SketchCircleTool Implementation (圆工具实现)
+// =============================================================================
+    SketchCircleTool::SketchCircleTool(QObject* parent) : SketchToolBase(parent) {}
+
+    void SketchCircleTool::StartDrawing(const QPoint& startPoint) {
+        m_isDrawing = true;
+        m_centerPoint = startPoint;
+        m_currentElements.clear();
+    }
+
+    void SketchCircleTool::UpdateDrawing(const QPoint& currentPoint) {
+        if (!m_isDrawing) return;
+
+        Standard_Real u1, v1, u2, v2;
+        // 获取圆心和当前鼠标所在点的吸附坐标
+        GetSnappedCoordinate(m_centerPoint, u1, v1);
+        GetSnappedCoordinate(currentPoint, u2, v2);
+
+        // 计算半径 (Radius)
+        double dx = u2 - u1;
+        double dy = v2 - v1;
+        double radius = std::sqrt(dx * dx + dy * dy);
+
+        // 安全检查：半径不能为 0
+        if (radius < Precision::Confusion()) {
+            return;
+        }
+
+        // 构建圆的数据模型
+        auto center = std::make_shared<cad_sketch::SketchPoint>(u1, v1);
+        auto circle = std::make_shared<cad_sketch::SketchCircle>(center, radius);
+
+        m_currentElements.clear();
+        m_currentElements.push_back(circle);
+        emit previewUpdated(m_currentElements);
+    }
+
+    void SketchCircleTool::FinishDrawing(const QPoint& endPoint) {
+        if (!m_isDrawing) return;
+        UpdateDrawing(endPoint);
+        m_isDrawing = false;
+        emit elementsCreated(m_currentElements);
+    }
+
+    void SketchCircleTool::CancelDrawing() {
+        m_isDrawing = false;
+        m_currentElements.clear();
+        emit drawingCancelled();
+    }
+
+
     // =============================================================================
     // SketchMode Implementation (草图模式主控逻辑)
     // =============================================================================
@@ -213,9 +289,11 @@ namespace cad_ui {
 
     void SketchMode::ExitSketchMode() {
         if (!m_isActive) return;
+        if (m_viewer) m_viewer->HideSnapIndicator();
+
         StopCurrentTool();
 
-        // 恢复摄像机视角 (Restore Camera View)
+        // 恢复摄像机视角 
         RestoreView();
 
         // 清理并重置数据
@@ -241,6 +319,8 @@ namespace cad_ui {
         connect(m_currentTool.get(), &SketchToolBase::previewUpdated, this, &SketchMode::OnPreviewUpdated);
         connect(m_currentTool.get(), &SketchToolBase::elementsCreated, this, &SketchMode::OnElementsCreated);
         connect(m_currentTool.get(), &SketchToolBase::drawingCancelled, this, &SketchMode::OnDrawingCancelled);
+        connect(m_currentTool.get(), &SketchToolBase::snapPointDetected, this, &SketchMode::OnSnapPointDetected);
+        connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
 
         emit statusMessageChanged("Started rectangle tool");
     }
@@ -257,11 +337,37 @@ namespace cad_ui {
         connect(m_currentTool.get(), &SketchToolBase::previewUpdated, this, &SketchMode::OnPreviewUpdated);
         connect(m_currentTool.get(), &SketchToolBase::elementsCreated, this, &SketchMode::OnElementsCreated);
         connect(m_currentTool.get(), &SketchToolBase::drawingCancelled, this, &SketchMode::OnDrawingCancelled);
-
+        connect(m_currentTool.get(), &SketchToolBase::snapPointDetected, this, &SketchMode::OnSnapPointDetected);
+        connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
+        
         emit statusMessageChanged("Started line tool");
     }
 
+    void SketchMode::StartCircleTool() {
+        if (!m_isActive) return;
+        StopCurrentTool();
+
+        m_currentTool = std::make_unique<SketchCircleTool>(this);
+        m_currentTool->SetSketchPlane(m_sketchPlane);
+        m_currentTool->SetView(m_viewer->GetView());
+
+        // 捕捉上下文，让画圆也能吸附
+        if (m_currentSketch) {
+            m_currentTool->SetSnappingContext(&m_snappingManager, &(m_currentSketch->GetElements()));
+        }
+
+        connect(m_currentTool.get(), &SketchToolBase::previewUpdated, this, &SketchMode::OnPreviewUpdated);
+        connect(m_currentTool.get(), &SketchToolBase::elementsCreated, this, &SketchMode::OnElementsCreated);
+        connect(m_currentTool.get(), &SketchToolBase::drawingCancelled, this, &SketchMode::OnDrawingCancelled);
+        connect(m_currentTool.get(), &SketchToolBase::snapPointDetected, this, &SketchMode::OnSnapPointDetected);
+        connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
+
+        emit statusMessageChanged("Started circle tool");
+    }
+
     void SketchMode::StopCurrentTool() {
+        if (m_viewer) m_viewer->HideSnapIndicator();
+
         if (m_currentTool && m_currentTool->IsDrawing()) {
             m_currentTool->CancelDrawing();
         }
@@ -275,8 +381,13 @@ namespace cad_ui {
     }
 
     void SketchMode::HandleMouseMove(QMouseEvent* event) {
-        if (m_currentTool && m_currentTool->IsDrawing()) {
-            m_currentTool->UpdateDrawing(event->pos());
+        if (m_currentTool) {
+            // 不管现在有没有按着鼠标画图，只要移动了，就检测是不是悬停在特征点上
+            m_currentTool->HoverMove(event->pos());
+            
+            if (m_currentTool->IsDrawing()) {
+                m_currentTool->UpdateDrawing(event->pos());
+            }
         }
     }
 
@@ -300,19 +411,11 @@ namespace cad_ui {
 
     void SketchMode::OnElementsCreated(const std::vector<cad_sketch::SketchElementPtr>& elements) {
         if (m_viewer && m_isActive) {
+            m_viewer->HideSnapIndicator();
             m_viewer->ClearSketchPreview();
+            // 直接把泛型元素传给 Viewer
+            m_viewer->AddSketchElements(elements, m_sketchCS);
 
-            // 类型安全向下转换 (Type-safe Downcasting)：
-            // 兼容原有的 Viewer 接口逻辑，将通用的 Element 转换为具体的 Line
-            std::vector<cad_sketch::SketchLinePtr> lines;
-            for (auto elem : elements) {
-                if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
-                    lines.push_back(line);
-                }
-            }
-            m_viewer->AddSketchLines(lines, m_sketchCS);
-
-            // 将生成的元素录入到数据模型中
             if (m_currentSketch) {
                 for (const auto& elem : elements) {
                     m_currentSketch->AddElement(elem);
@@ -324,18 +427,25 @@ namespace cad_ui {
     }
 
     void SketchMode::OnDrawingCancelled() {
+        if (m_viewer) m_viewer->HideSnapIndicator();
         emit statusMessageChanged("Drawing cancelled");
     }
 
     void SketchMode::OnPreviewUpdated(const std::vector<cad_sketch::SketchElementPtr>& elements) {
         if (m_viewer && m_isActive) {
-            std::vector<cad_sketch::SketchLinePtr> lines;
-            for (auto elem : elements) {
-                if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
-                    lines.push_back(line);
-                }
-            }
-            m_viewer->ShowSketchPreviewLines(lines, m_sketchCS); // 调用渲染层进行动态预览更新
+            m_viewer->ShowSketchPreviewElements(elements, m_sketchCS);
+        }
+    }
+
+    void SketchMode::OnSnapPointDetected(const gp_Pnt& pnt, cad_sketch::SnapType snapType) {
+        if (m_viewer && m_isActive) {
+            m_viewer->ShowSnapIndicator(pnt, snapType);
+        }
+    }
+
+    void SketchMode::OnSnapPointLost() {
+        if (m_viewer && m_isActive) {
+            m_viewer->HideSnapIndicator();
         }
     }
 

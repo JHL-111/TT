@@ -12,6 +12,7 @@ SnappingManager::SnappingManager() : m_snapTolerance(0.1), m_gridSize(0.5) {
     m_enabledSnapTypes.push_back(SnapType::Endpoint);
     m_enabledSnapTypes.push_back(SnapType::Midpoint);
     m_enabledSnapTypes.push_back(SnapType::Center);
+    m_enabledSnapTypes.push_back(SnapType::Nearest);
     m_enabledSnapTypes.push_back(SnapType::Grid);
 }
 
@@ -96,6 +97,19 @@ SnapResult SnappingManager::FindSnapPoint(const cad_core::Point& inputPoint,
             double distance = inputPoint.Distance(centerResult.snapPoint);
             if (distance < bestDistance) {
                 bestResult = centerResult;
+                bestDistance = distance;
+            }
+        }
+    }
+
+    // 尝试边缘/最近点捕捉 
+    // 只有在没捕捉到端点、中点、圆心的情况下，才去吸附边缘
+    if (!bestResult.found && IsSnapTypeEnabled(SnapType::Nearest)) {
+        SnapResult nearestResult = SnapToNearest(inputPoint, elements);
+        if (nearestResult.found) {
+            double distance = inputPoint.Distance(nearestResult.snapPoint);
+            if (distance < bestDistance) {
+                bestResult = nearestResult;
                 bestDistance = distance;
             }
         }
@@ -207,6 +221,78 @@ SnapResult SnappingManager::SnapToCenters(const cad_core::Point& inputPoint,
     }
     
     return result;
+}
+
+// 算法 1：找到任意边线上的最近点
+SnapResult SnappingManager::SnapToNearest(const cad_core::Point& inputPoint, const std::vector<SketchElementPtr>& elements) const {
+    SnapResult result;
+    double minDistance = m_snapTolerance;
+
+    for (const auto& element : elements) {
+        if (element->GetType() == SketchElementType::Line) {
+            auto line = std::dynamic_pointer_cast<SketchLine>(element);
+            if (line && line->GetStartPoint() && line->GetEndPoint()) {
+                cad_core::Point closestPt;
+                double dist = DistanceToLineSegment(inputPoint, line->GetStartPoint()->GetPoint(), line->GetEndPoint()->GetPoint(), closestPt);
+
+                if (dist <= minDistance) {
+                    minDistance = dist;
+                    result.found = true;
+                    result.type = SnapType::Nearest;
+                    result.snapPoint = closestPt; // 吸附到线上的垂足
+                    result.element = element;
+                }
+            }
+        }
+        else if (element->GetType() == SketchElementType::Circle) {
+            auto circle = std::dynamic_pointer_cast<SketchCircle>(element);
+            if (circle && circle->GetCenter()) {
+                cad_core::Point closestPt;
+                double dist = DistanceToCircle(inputPoint, circle->GetCenter()->GetPoint(), circle->GetRadius(), closestPt);
+
+                if (dist <= minDistance) {
+                    minDistance = dist;
+                    result.found = true;
+                    result.type = SnapType::Nearest;
+                    result.snapPoint = closestPt; // 吸附到圆弧上的点
+                    result.element = element;
+                }
+            }
+        }
+    }
+    return result;
+}
+
+// 算法 2：点到线段的几何距离计算 (矢量投影法)
+double SnappingManager::DistanceToLineSegment(const cad_core::Point& p, const cad_core::Point& a, const cad_core::Point& b, cad_core::Point& closestPoint) const {
+    double l2 = a.Distance(b) * a.Distance(b); // 线段长度的平方
+    if (l2 == 0.0) {
+        closestPoint = a;
+        return p.Distance(a);
+    }
+
+    // 投影计算，限制在 0.0 到 1.0 之间，确保点在线段内部而不是延长线上
+    double t = std::max(0.0, std::min(1.0, ((p.X() - a.X()) * (b.X() - a.X()) + (p.Y() - a.Y()) * (b.Y() - a.Y())) / l2));
+
+    closestPoint = cad_core::Point(a.X() + t * (b.X() - a.X()), a.Y() + t * (b.Y() - a.Y()), 0);
+    return p.Distance(closestPoint);
+}
+
+// 算法 3：点到圆的几何距离计算
+double SnappingManager::DistanceToCircle(const cad_core::Point& p, const cad_core::Point& center, double radius, cad_core::Point& closestPoint) const {
+    double d = p.Distance(center); // 鼠标到圆心的距离
+    if (d == 0.0) {
+        closestPoint = cad_core::Point(center.X() + radius, center.Y(), 0);
+        return radius;
+    }
+
+    // 顺着圆心到鼠标的连线，向外延伸或向内收缩，找到圆弧上的绝对点
+    closestPoint = cad_core::Point(
+        center.X() + radius * (p.X() - center.X()) / d,
+        center.Y() + radius * (p.Y() - center.Y()) / d,
+        0
+    );
+    return std::abs(d - radius);
 }
 
 bool SnappingManager::IsWithinTolerance(const cad_core::Point& p1, const cad_core::Point& p2) const {

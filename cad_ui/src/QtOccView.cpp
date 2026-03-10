@@ -27,6 +27,11 @@
 #include <Quantity_NameOfColor.hxx>
 #include <ElSLib.hxx>
 #include <Graphic3d_MaterialAspect.hxx>
+#include "cad_sketch/SketchCircle.h"
+#include <gp_Circ.hxx> 
+#include <AIS_Point.hxx>
+#include <Geom_CartesianPoint.hxx>
+#include <Aspect_TypeOfMarker.hxx>
 
 
 #ifdef _WIN32
@@ -1183,20 +1188,32 @@ namespace {
         );
     }
 
-    /**
-     * @brief 根据草图线段和坐标系创建 OpenCASCADE 边 (TopoDS_Edge)
-     */
-    TopoDS_Edge MakeEdgeFromSketchLine(const cad_sketch::SketchLinePtr& line, const gp_Ax3& cs)
-    {
-        if (!line || !line->GetStartPoint() || !line->GetEndPoint()) {
-            return TopoDS_Edge();
+    // 根据元素类型生成对应的 OCC 边
+    static TopoDS_Edge MakeEdgeFromSketchElement(const cad_sketch::SketchElementPtr& elem, const gp_Ax3& cs) {
+        if (!elem) return TopoDS_Edge();
+
+        // 1. 如果是直线
+        if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
+            gp_Pnt p1 = Sketch2DToWorld(line->GetStartPoint(), cs);
+            gp_Pnt p2 = Sketch2DToWorld(line->GetEndPoint(), cs);
+            if (p1.Distance(p2) > Precision::Confusion()) {
+                return BRepBuilderAPI_MakeEdge(p1, p2);
+            }
         }
-
-        gp_Pnt p1 = Sketch2DToWorld(line->GetStartPoint(), cs);
-        gp_Pnt p2 = Sketch2DToWorld(line->GetEndPoint(), cs);
-
-        return BRepBuilderAPI_MakeEdge(p1, p2);
+        // 2. 如果是圆
+        else if (auto circle = std::dynamic_pointer_cast<cad_sketch::SketchCircle>(elem)) {
+            gp_Pnt center = Sketch2DToWorld(circle->GetCenter(), cs);
+            double radius = circle->GetRadius();
+            if (radius > Precision::Confusion()) {
+                // 用当前草图的法线方向和 X 轴方向构造一个平面坐标系
+                gp_Ax2 ax2(center, cs.Direction(), cs.XDirection());
+                gp_Circ gpCirc(ax2, radius);
+                return BRepBuilderAPI_MakeEdge(gpCirc); // OCC 生成圆形边
+            }
+        }
+        return TopoDS_Edge();
     }
+   
 }
 
 
@@ -1271,7 +1288,11 @@ void QtOccView::StartLineTool() {
     }
 }
 
-
+void QtOccView::StartCircleTool() {
+    if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
+        m_sketchMode->StartCircleTool();
+    }
+}
 
 // 高亮选中的草图面
 void QtOccView::HighlightSketchFace(const TopoDS_Face& face) {
@@ -1312,44 +1333,37 @@ void QtOccView::ClearSketchFaceHighlight() {
 }
 
 // 显示预览线（通常用于鼠标移动时的青色反馈）
-void QtOccView::ShowSketchPreviewLines(const std::vector<cad_sketch::SketchLinePtr>& lines, const gp_Ax3& sketchCS){
+void QtOccView::ShowSketchPreviewElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS) {
     if (m_context.IsNull()) return;
-
-    // 清理之前的预览对象 (Preview Objects)
     ClearSketchPreview();
 
-    for (const auto& line : lines) {
-        TopoDS_Edge edge = MakeEdgeFromSketchLine(line, sketchCS);
+    for (const auto& elem : elements) {
+        TopoDS_Edge edge = MakeEdgeFromSketchElement(elem, sketchCS);
         if (edge.IsNull()) continue;
 
         Handle(AIS_Shape) aisLine = new AIS_Shape(edge);
-        aisLine->SetColor(Quantity_NOC_CYAN1);  
+        aisLine->SetColor(Quantity_NOC_CYAN1);
         aisLine->SetWidth(2.0);
-        aisLine->SetZLayer(Graphic3d_ZLayerId_Topmost);
-
         m_context->Display(aisLine, Standard_False);
         m_sketchPreviewObjects.push_back(aisLine);
     }
-
     m_view->Redraw();
 }
 
 // 添加正式草图线（点击完成后确认留在屏幕上的线条）
-void QtOccView::AddSketchLines(const std::vector<cad_sketch::SketchLinePtr>& lines, const gp_Ax3& sketchCS) {
+void QtOccView::AddSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS) {
     if (m_context.IsNull()) return;
 
-    for (const auto& line : lines) {
-        TopoDS_Edge edge = MakeEdgeFromSketchLine(line, sketchCS);
+    for (const auto& elem : elements) {
+        TopoDS_Edge edge = MakeEdgeFromSketchElement(elem, sketchCS);
         if (edge.IsNull()) continue;
 
         Handle(AIS_Shape) aisLine = new AIS_Shape(edge);
-        aisLine->SetColor(Quantity_NOC_RED); 
+        aisLine->SetColor(Quantity_NOC_RED);
         aisLine->SetWidth(2.0);
-
         m_context->Display(aisLine, Standard_False);
         m_sketchObjects.push_back(aisLine);
     }
-
     m_view->Redraw();
 }
 
@@ -1363,7 +1377,7 @@ void QtOccView::ClearSketchPreview() {
     m_sketchPreviewObjects.clear();
 }
 
-// 4. 清理所有正式草图几何体
+// 清理所有正式草图几何体
 void QtOccView::ClearSketchObjects() {
     if (m_context.IsNull()) return;
 
@@ -1372,6 +1386,72 @@ void QtOccView::ClearSketchObjects() {
     }
     m_sketchObjects.clear();
     m_view->Redraw();
+}
+
+// 显示吸附辅助图形
+void QtOccView::ShowSnapIndicator(const gp_Pnt& pnt, cad_sketch::SnapType snapType) {
+    if (m_context.IsNull()) return;
+
+    // 1. 根据底层传来的捕捉类型，选择 OCC 中对应的图标形状
+    Aspect_TypeOfMarker markerType = Aspect_TOM_RING1; // 默认用圆圈
+    Quantity_NameOfColor markerColor = Quantity_NOC_MAGENTA1; // 默认紫红色
+
+    switch (snapType) {
+    case cad_sketch::SnapType::Endpoint:
+        markerType = Aspect_TOM_PLUS;       // 端点：十字 
+        markerColor = Quantity_NOC_GREEN;   // 端点用绿色
+        break;
+    case cad_sketch::SnapType::Midpoint:
+        markerType = Aspect_TOM_O_STAR;     // 中点：圆圈里带星号 
+        markerColor = Quantity_NOC_CYAN1;   // 中点用青色
+        break;
+    case cad_sketch::SnapType::Center:
+        markerType = Aspect_TOM_RING1;      // 圆心：空心圆 
+        markerColor = Quantity_NOC_MAGENTA1;// 圆心用紫红色
+        break;
+    case cad_sketch::SnapType::Nearest:
+        markerType = Aspect_TOM_X;          // 最近点：X型
+        markerColor = Quantity_NOC_BLACK;  //  最近点用黄色
+        break;
+    case cad_sketch::SnapType::Grid:
+        markerType = Aspect_TOM_POINT;      // 网格：实心小点
+        markerColor = Quantity_NOC_ORANGE;  // 网格用橙色
+        break;
+    default:
+        break;
+    }
+
+    // 2. 创建或更新图标
+    if (m_snapIndicator.IsNull()) {
+        Handle(Geom_CartesianPoint) geomPt = new Geom_CartesianPoint(pnt);
+        Handle(AIS_Point) aisPt = new AIS_Point(geomPt);
+
+        aisPt->SetMarker(markerType);
+        aisPt->SetColor(markerColor);
+        aisPt->SetZLayer(Graphic3d_ZLayerId_Topmost); // 确保不被模型遮挡
+        m_snapIndicator = aisPt;
+    }
+    else {
+        Handle(AIS_Point) aisPt = Handle(AIS_Point)::DownCast(m_snapIndicator);
+        aisPt->SetMarker(markerType); // 动态更新图标形状
+        aisPt->SetColor(markerColor); // 动态更新图标颜色
+
+        Handle(Geom_CartesianPoint) geomPt = Handle(Geom_CartesianPoint)::DownCast(aisPt->Component());
+        geomPt->SetPnt(pnt);
+        m_context->Redisplay(m_snapIndicator, Standard_False);
+    }
+
+    m_context->Display(m_snapIndicator, Standard_False);
+    m_view->Redraw();
+}
+
+// 隐藏小圆圈
+void QtOccView::HideSnapIndicator() {
+    if (!m_context.IsNull() && !m_snapIndicator.IsNull()) {
+        m_context->Remove(m_snapIndicator, Standard_False);
+        m_snapIndicator.Nullify();
+        m_view->Redraw();
+    }
 }
 
 } // namespace cad_ui

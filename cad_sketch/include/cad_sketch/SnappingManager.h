@@ -12,6 +12,7 @@ enum class SnapType {
     Endpoint,
     Midpoint,
     Center,
+    Nearest,
     Intersection,
     Perpendicular,
     Tangent,
@@ -52,6 +53,8 @@ public:
                              const std::vector<SketchElementPtr>& elements) const;
     SnapResult SnapToCenters(const cad_core::Point& inputPoint, 
                            const std::vector<SketchElementPtr>& elements) const;
+    SnapResult SnapToNearest(const cad_core::Point& inputPoint,
+                            const std::vector<SketchElementPtr>& elements) const;
 
 private:
     double m_snapTolerance;
@@ -59,6 +62,9 @@ private:
     std::vector<SnapType> m_enabledSnapTypes;
     
     bool IsWithinTolerance(const cad_core::Point& p1, const cad_core::Point& p2) const;
+    // 计算数学距离的内部辅助函数
+    double DistanceToLineSegment(const cad_core::Point& p, const cad_core::Point& a, const cad_core::Point& b, cad_core::Point& closestPoint) const;
+    double DistanceToCircle(const cad_core::Point& p, const cad_core::Point& center, double radius, cad_core::Point& closestPoint) const;
 };
 
 } // namespace cad_sketch
