@@ -21,15 +21,15 @@ void Sketch::AddElement(const SketchElementPtr& element) {
     m_elements.push_back(element);
 }
 
+void Sketch::ClearElements() {
+    m_elements.clear();
+}
+
 void Sketch::RemoveElement(const SketchElementPtr& element) {
     auto it = std::find(m_elements.begin(), m_elements.end(), element);
     if (it != m_elements.end()) {
         m_elements.erase(it);
     }
-}
-
-void Sketch::ClearElements() {
-    m_elements.clear();
 }
 
 const std::vector<SketchElementPtr>& Sketch::GetElements() const {

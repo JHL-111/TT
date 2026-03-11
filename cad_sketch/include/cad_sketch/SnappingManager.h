@@ -65,6 +65,7 @@ private:
     // 计算数学距离的内部辅助函数
     double DistanceToLineSegment(const cad_core::Point& p, const cad_core::Point& a, const cad_core::Point& b, cad_core::Point& closestPoint) const;
     double DistanceToCircle(const cad_core::Point& p, const cad_core::Point& center, double radius, cad_core::Point& closestPoint) const;
+    double DistanceToArc(const cad_core::Point& p, const cad_core::Point& center, double radius, double startAngle, double sweepAngle, cad_core::Point& closestPoint) const;
 };
 
 } // namespace cad_sketch

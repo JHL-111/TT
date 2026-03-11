@@ -105,9 +105,15 @@ public:
     bool IsInSketchMode() const;
     void EnterSketchMode(const TopoDS_Face& face);
     void ExitSketchMode();
+    void UndoSketch();
+    void RedoSketch();
+    bool CanUndoSketch() const;
+    bool CanRedoSketch() const;
     void StartRectangleTool();
+	void StartPointTool();
     void StartLineTool();
     void StartCircleTool();
+	void StartArcTool();
 
     // 草图预览与渲染接口
     void ShowSketchPreviewElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS);
@@ -129,6 +135,7 @@ signals:
     void ViewChanged();
     void SketchModeEntered();
     void SketchModeExited();
+    void SketchHistoryChanged();
     void MousePositionChanged(int x, int y);
     void Mouse3DPositionChanged(double x, double y, double z);
 

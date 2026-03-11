@@ -22,6 +22,7 @@
 #include "cad_sketch/SketchElement.h" 
 #include "cad_sketch/SketchLine.h"
 #include "cad_sketch/SketchCircle.h"
+#include "cad_sketch/SketchArc.h"
 #include "cad_sketch/SnappingManager.h"
 
 // === 开始定义自定义命名空间 ===
@@ -111,6 +112,25 @@ namespace cad_ui {
     };
 
     /**
+     * @class SketchPointTool
+     * @brief 草图点绘制工具 (Point Drawing Tool)
+     * 只需要单次点击即可生成一个点。
+     */
+    class SketchPointTool : public SketchToolBase {
+        Q_OBJECT
+    public:
+        explicit SketchPointTool(QObject* parent = nullptr);
+
+        void StartDrawing(const QPoint& startPoint) override;
+        void UpdateDrawing(const QPoint& currentPoint) override;
+        void FinishDrawing(const QPoint& endPoint) override;
+        void CancelDrawing() override;
+
+    private:
+        std::vector<cad_sketch::SketchElementPtr> m_currentElements;
+    };
+
+    /**
      * @class SketchLineTool
      * @brief 直线绘制工具 (Line Drawing Tool)
      */
@@ -149,6 +169,34 @@ namespace cad_ui {
     };
 
     /**
+     * @class SketchArcTool
+     * @brief 圆弧绘制工具 (Arc Drawing Tool)
+     * 使用三点交互法：圆心 -> 起点(决定半径和起始角) -> 终点(决定终止角)
+     */
+    class SketchArcTool : public SketchToolBase {
+        Q_OBJECT
+    public:
+        explicit SketchArcTool(QObject* parent = nullptr);
+
+        void StartDrawing(const QPoint& startPoint) override;
+        void UpdateDrawing(const QPoint& currentPoint) override;
+        void FinishDrawing(const QPoint& endPoint) override;
+        void CancelDrawing() override;
+
+        // 重写以支持鼠标未按下时的预览 (Preview on Hover)
+        void HoverMove(const QPoint& currentPoint) override;
+
+    private:
+        // 交互状态 (Interaction States)
+        enum State { Init, CenterSet, StartSet };
+        State m_state;
+
+        QPoint m_centerPoint;
+        QPoint m_startPoint;
+        std::vector<cad_sketch::SketchElementPtr> m_currentElements;
+    };
+
+    /**
      * @class SketchMode
      * @brief 草图模式管理器 (Sketch Mode Manager)
      * * 负责管理草图环境的进入、退出、视图切换，以及分发事件给当前激活的绘制工具。
@@ -163,6 +211,10 @@ namespace cad_ui {
         bool EnterSketchMode(const TopoDS_Face& face); // 进入草图模式
         void ExitSketchMode();                         // 退出草图模式
         bool IsInSketchMode() const { return m_isActive; }
+        void Undo();
+        void Redo();
+        bool CanUndo() const { return !m_undoStack.empty(); }
+        bool CanRedo() const { return !m_redoStack.empty(); }
 
         // 获取草图的上下文数据 (Context Data)
         const cad_sketch::SketchPtr& GetCurrentSketch() const { return m_currentSketch; }
@@ -172,8 +224,10 @@ namespace cad_ui {
 
         // 绘图工具控制 (Tool Control)
         void StartRectangleTool();
+		void StartPointTool();
         void StartLineTool();
         void StartCircleTool();
+		void StartArcTool();
         void StopCurrentTool();
 
         // 交互事件处理 (Event Handling)
@@ -187,6 +241,7 @@ namespace cad_ui {
         void sketchModeEntered();
         void sketchModeExited();
         void sketchElementCreated(cad_sketch::SketchElementPtr element);
+        void sketchHistoryChanged(); // 通知 UI 更新 Undo/Redo 按钮状态
         void statusMessageChanged(const QString& message);
 
     private slots:
@@ -206,6 +261,10 @@ namespace cad_ui {
         TopoDS_Face m_sketchFace;              // 依附的三维拓扑面 (Topological Face)
         gp_Pln m_sketchPlane;                  // 提取出的数学平面 (Mathematical Plane)
         gp_Ax3 m_sketchCS;                     // 局部坐标系 (Local Coordinate System, LCS)
+        std::vector<std::vector<cad_sketch::SketchElementPtr>> m_undoStack;
+        std::vector<std::vector<cad_sketch::SketchElementPtr>> m_redoStack;
+        void RefreshSketchView();
+
 
         // 视口状态保存 (用于退出草图时恢复原视角)
         gp_Pnt m_savedEye;     // 摄像机位置

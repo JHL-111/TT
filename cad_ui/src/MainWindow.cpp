@@ -267,6 +267,11 @@ void MainWindow::CreateActions() {
     m_sketchRectangleAction->setStatusTip("Draw rectangle in sketch mode");
     m_sketchRectangleAction->setEnabled(false); 
     
+    m_sketchPointAction = new QAction("&Point", this);
+    m_sketchPointAction->setShortcut(QKeySequence("P"));
+    m_sketchPointAction->setStatusTip("Draw a point in sketch mode");
+    m_sketchPointAction->setEnabled(false);
+
     m_sketchLineAction = new QAction("&Line", this);
     m_sketchLineAction->setShortcut(QKeySequence("L")); 
     m_sketchLineAction->setStatusTip("Draw line in sketch mode");
@@ -277,6 +282,11 @@ void MainWindow::CreateActions() {
     m_sketchCircleAction->setStatusTip("Draw circle in sketch mode");
     m_sketchCircleAction->setEnabled(false);
     
+    m_sketchArcAction = new QAction("&Arc", this);
+    m_sketchArcAction->setShortcut(QKeySequence("A")); 
+    m_sketchArcAction->setStatusTip("Draw arc in sketch mode");
+    m_sketchArcAction->setEnabled(false);
+
     // Theme actions
     m_darkThemeAction = new QAction("&Dark Theme", this);
     m_darkThemeAction->setCheckable(true);
@@ -357,10 +367,11 @@ void MainWindow::CreateMenus() {
     sketchMenu->addAction(m_exitSketchAction);
     sketchMenu->addSeparator();
     sketchMenu->addAction(m_sketchRectangleAction);
+    sketchMenu->addAction(m_sketchPointAction);
     sketchMenu->addAction(m_sketchLineAction);
     sketchMenu->addAction(m_sketchCircleAction);
+    sketchMenu->addAction(m_sketchArcAction);
 
-    // Selection menu - now handled by combo box in toolbar
     
     // Tools menu
     QMenu* toolsMenu = menuBar()->addMenu("&Tools");
@@ -822,6 +833,11 @@ void MainWindow::CreateToolBars() {
     rectangleBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     sketchToolsButtonsLayout->addWidget(rectangleBtn);
     
+    QToolButton* pointBtn = new QToolButton();
+    pointBtn->setDefaultAction(m_sketchPointAction);
+    pointBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    sketchToolsButtonsLayout->addWidget(pointBtn);
+
     QToolButton* lineBtn = new QToolButton();
     lineBtn->setDefaultAction(m_sketchLineAction);
     lineBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
@@ -831,6 +847,11 @@ void MainWindow::CreateToolBars() {
     circleBtn->setDefaultAction(m_sketchCircleAction);
     circleBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     sketchToolsButtonsLayout->addWidget(circleBtn);
+
+    QToolButton* arcBtn = new QToolButton();
+    arcBtn->setDefaultAction(m_sketchArcAction);
+    arcBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    sketchToolsButtonsLayout->addWidget(arcBtn);
 
     sketchToolsLayout->addLayout(sketchToolsButtonsLayout);
     sketchLayout->addWidget(sketchToolsFrame);
@@ -925,8 +946,10 @@ void MainWindow::ConnectSignals() {
     connect(m_enterSketchAction, &QAction::triggered, this, &MainWindow::OnEnterSketchMode);
     connect(m_exitSketchAction, &QAction::triggered, this, &MainWindow::OnExitSketchMode);
     connect(m_sketchRectangleAction, &QAction::triggered, this, &MainWindow::OnSketchRectangleTool);
+    connect(m_sketchPointAction, &QAction::triggered, this, &MainWindow::OnSketchPointTool);
     connect(m_sketchLineAction, &QAction::triggered, this, &MainWindow::OnSketchLineTool);
     connect(m_sketchCircleAction, &QAction::triggered, this, &MainWindow::OnSketchCircleTool);
+    connect(m_sketchArcAction, &QAction::triggered, this, &MainWindow::OnSketchArcTool); 
 
     // Selection mode combo box connected in CreateSelectionModeCombo()
     
@@ -944,11 +967,9 @@ void MainWindow::ConnectSignals() {
     connect(m_viewer, &QtOccView::FaceSelected, this, &MainWindow::OnFaceSelected);
     connect(m_viewer, &QtOccView::SketchModeEntered, this, &MainWindow::OnSketchModeEntered);
     connect(m_viewer, &QtOccView::SketchModeExited, this, &MainWindow::OnSketchModeExited);
+    connect(m_viewer, &QtOccView::SketchHistoryChanged, this, &MainWindow::UpdateActions);
     
-    // Mouse position signals
-    //connect(m_viewer, &QtOccView::MousePositionChanged, m_statusBar, &StatusBar::updateMousePosition2D);
-    //connect(m_viewer, &QtOccView::Mouse3DPositionChanged, m_statusBar, &StatusBar::updateMousePosition);
-    
+   
     // Document tree signals for selection synchronization
     connect(m_documentTree, &DocumentTree::ShapeSelected, this, &MainWindow::OnDocumentTreeShapeSelected);
     connect(m_documentTree, &DocumentTree::FeatureSelected, this, &MainWindow::OnDocumentTreeFeatureSelected);
@@ -958,7 +979,18 @@ void MainWindow::UpdateActions() {
     bool hasDocument = !m_currentFileName.isEmpty();
     bool canUndo = m_ocafManager->CanUndo();
     bool canRedo = m_ocafManager->CanRedo();
-    
+
+    // 如果在草图模式，优先读取草图的历史状态
+    if (m_viewer && m_viewer->IsInSketchMode()) {
+        canUndo = m_viewer->CanUndoSketch();
+        canRedo = m_viewer->CanRedoSketch();
+    }
+    // 不在草图模式，才读取 OCAF 的 3D 历史状态
+    else if (m_ocafManager) {
+        canUndo = m_ocafManager->CanUndo();
+        canRedo = m_ocafManager->CanRedo();
+    }
+
     m_saveAction->setEnabled(hasDocument && m_documentModified);
     m_saveAsAction->setEnabled(hasDocument);
     m_undoAction->setEnabled(canUndo);
@@ -1081,6 +1113,11 @@ void MainWindow::OnExit() {
 void MainWindow::OnUndo() {
     qDebug() << "=== OnUndo TRIGGERED ===";
     qDebug() << "OnUndo called - checking undo availability:" << m_ocafManager->CanUndo();
+    // 拦截：如果在草图模式中，只撤销草图操作
+    if (m_viewer && m_viewer->IsInSketchMode()) {
+        m_viewer->UndoSketch();
+        return;
+    }
     if (m_ocafManager->Undo()) {
         qDebug() << "Undo operation successful, refreshing UI";
         // Refresh UI from OCAF document state
@@ -1097,6 +1134,11 @@ void MainWindow::OnUndo() {
 void MainWindow::OnRedo() {
     qDebug() << "=== OnRedo TRIGGERED ===";
     qDebug() << "OnRedo called - checking redo availability:" << m_ocafManager->CanRedo();
+    // 拦截：如果在草图模式中，只重做草图操作
+    if (m_viewer && m_viewer->IsInSketchMode()) {
+        m_viewer->RedoSketch();
+        return;
+    }
     if (m_ocafManager->Redo()) {
         qDebug() << "Redo operation successful, refreshing UI";
         // Refresh UI from OCAF document state
@@ -1575,6 +1617,8 @@ void MainWindow::NewDocumentTab() {
     // Connect viewer signals for new tab
     connect(newViewer, &QtOccView::ShapeSelected, this, &MainWindow::OnShapeSelected);
     connect(newViewer, &QtOccView::ViewChanged, this, &MainWindow::OnViewChanged);
+    connect(newViewer, &QtOccView::SketchHistoryChanged, this, &MainWindow::UpdateActions);
+
 }
 
 QtOccView* MainWindow::GetCurrentViewer() const {
@@ -2149,6 +2193,12 @@ void MainWindow::OnSketchRectangleTool() {
     statusBar()->showMessage("The rectangle tool is activated - click and drag to create a rectangle");
 }
 
+void MainWindow::OnSketchPointTool() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    m_viewer->StartPointTool();
+    statusBar()->showMessage("The point tool is activated - click anywhere to place a point");
+}
+
 void MainWindow::OnSketchLineTool() {
     if (!m_viewer || !m_viewer->IsInSketchMode()) {
         return;
@@ -2162,6 +2212,14 @@ void MainWindow::OnSketchCircleTool() {
     if (!m_viewer || !m_viewer->IsInSketchMode()) return;
     m_viewer->StartCircleTool();
     statusBar()->showMessage("The circle tool is activated - click for center, drag for radius");
+}
+
+void MainWindow::OnSketchArcTool() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+
+    m_viewer->StartArcTool();
+    // 提示用户操作步骤：圆心 -> 起点 -> 终点
+    statusBar()->showMessage("The arc tool is activated - click center, start, and end points");
 }
 
 void MainWindow::OnFaceSelected(const TopoDS_Face& face) {
@@ -2239,14 +2297,18 @@ void MainWindow::OnSketchModeEntered() {
     m_enterSketchAction->setEnabled(false);
     m_exitSketchAction->setEnabled(true);
     m_sketchRectangleAction->setEnabled(true);
+    m_sketchPointAction->setEnabled(true);
     m_sketchLineAction->setEnabled(true);
     m_sketchCircleAction->setEnabled(true);
+    m_sketchArcAction->setEnabled(true);
 
     // Reset selection mode
     m_viewer->SetSelectionMode(0);  // Shape selection mode
     
     statusBar()->showMessage(QString("Entered the sketch mode - Select the drawing tool to start drawing"));
     
+    UpdateActions();
+
     qDebug() << "Sketch mode entered, UI updated";
 }
 
@@ -2255,13 +2317,17 @@ void MainWindow::OnSketchModeExited() {
     m_enterSketchAction->setEnabled(true);
     m_exitSketchAction->setEnabled(false);
     m_sketchRectangleAction->setEnabled(false);
+    m_sketchPointAction->setEnabled(false);
     m_sketchLineAction->setEnabled(false); 
     m_sketchCircleAction->setEnabled(false); 
+    m_sketchArcAction->setEnabled(false);
 
     // Reset any waiting states
     m_waitingForFaceSelection = false;
     
     statusBar()->showMessage("Sketch mode exited");
+
+    UpdateActions();
     
     qDebug() << "Sketch mode exited, UI updated";
 }

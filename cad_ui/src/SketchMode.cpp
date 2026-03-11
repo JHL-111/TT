@@ -141,6 +141,37 @@ namespace cad_ui {
         return elements;
     }
 
+    // =============================================================================
+    // SketchPointTool Implementation (点工具实现)
+    // =============================================================================
+    SketchPointTool::SketchPointTool(QObject* parent) : SketchToolBase(parent) {}
+
+    void SketchPointTool::StartDrawing(const QPoint& startPoint) {
+        Standard_Real u, v;
+        // 获取带吸附的 2D 坐标
+        GetSnappedCoordinate(startPoint, u, v);
+
+        auto pt = std::make_shared<cad_sketch::SketchPoint>(u, v);
+
+        m_currentElements.clear();
+        m_currentElements.push_back(pt);
+
+        // 单击即完成绘制，直接发送创建信号
+        emit elementsCreated(m_currentElements);
+
+        m_currentElements.clear();
+        m_isDrawing = false;
+    }
+
+    // 因为点不需要拖拽预览，所以 Update 和 Finish 留空即可
+    void SketchPointTool::UpdateDrawing(const QPoint& currentPoint) { Q_UNUSED(currentPoint); }
+    void SketchPointTool::FinishDrawing(const QPoint& endPoint) { Q_UNUSED(endPoint); }
+
+    void SketchPointTool::CancelDrawing() {
+        m_isDrawing = false;
+        m_currentElements.clear();
+        emit drawingCancelled();
+    }
 
     // =============================================================================
     // SketchLineTool Implementation (直线工具实现)
@@ -242,6 +273,119 @@ namespace cad_ui {
         emit drawingCancelled();
     }
 
+    // =============================================================================
+    // SketchArcTool Implementation (圆弧工具实现)
+    // =============================================================================
+    SketchArcTool::SketchArcTool(QObject* parent) : SketchToolBase(parent), m_state(Init) {}
+
+    void SketchArcTool::StartDrawing(const QPoint& startPoint) {
+        if (m_state == Init) {
+            // 第一次点击：设置圆心 (Set Center)
+            m_isDrawing = true;
+            m_centerPoint = startPoint;
+            m_state = CenterSet;
+            m_currentElements.clear();
+        }
+        else if (m_state == StartSet) {
+            // 第三次交互（点击）：确认终点角并结束 (Confirm End Angle and Finish)
+            m_isDrawing = true;
+            UpdateDrawing(startPoint);
+            emit elementsCreated(m_currentElements); // 提交最终图元
+
+            // 重置状态准备下一次绘制
+            m_state = Init;
+            m_isDrawing = false;
+            m_currentElements.clear();
+        }
+    }
+
+    void SketchArcTool::UpdateDrawing(const QPoint& currentPoint) {
+        Standard_Real u1, v1, u2, v2;
+        GetSnappedCoordinate(m_centerPoint, u1, v1);
+
+        if (m_state == CenterSet) {
+            // 阶段一：正在拖拽确认半径，使用完整圆进行预览 (Previewing radius with a circle)
+            GetSnappedCoordinate(currentPoint, u2, v2);
+            double radius = std::hypot(u2 - u1, v2 - v1);
+
+            if (radius < Precision::Confusion()) return;
+
+            auto center = std::make_shared<cad_sketch::SketchPoint>(u1, v1);
+            auto previewCircle = std::make_shared<cad_sketch::SketchCircle>(center, radius);
+
+            m_currentElements.clear();
+            m_currentElements.push_back(previewCircle);
+            emit previewUpdated(m_currentElements);
+        }
+        else if (m_state == StartSet) {
+            // 阶段二：半径已定，正在确认终止角，实时绘制圆弧预览 (Previewing arc based on angles)
+            Standard_Real uStart, vStart;
+            GetSnappedCoordinate(m_startPoint, uStart, vStart);
+            double radius = std::hypot(uStart - u1, vStart - v1);
+
+            GetSnappedCoordinate(currentPoint, u2, v2);
+            // 计算起止点的角度 (Calculate start and end angles)
+            double startAngle = std::atan2(vStart - v1, uStart - u1);
+            double endAngle = std::atan2(v2 - v1, u2 - u1);
+
+            // 将角度归一化到 [0, 2π] 范围 (Normalize angles)
+            if (startAngle < 0) startAngle += 2 * M_PI;
+            if (endAngle < 0) endAngle += 2 * M_PI;
+
+            auto center = std::make_shared<cad_sketch::SketchPoint>(u1, v1);
+            auto arc = std::make_shared<cad_sketch::SketchArc>(center, radius, startAngle, endAngle);
+
+            m_currentElements.clear();
+            m_currentElements.push_back(arc);
+            emit previewUpdated(m_currentElements);
+        }
+    }
+
+    void SketchArcTool::FinishDrawing(const QPoint& endPoint) {
+        if (m_state == CenterSet) {
+            // 用户完成第一次拖拽并松开鼠标，记录起点 (Record Start Point)
+            m_startPoint = endPoint;
+
+            Standard_Real u1, v1, u2, v2;
+            GetSnappedCoordinate(m_centerPoint, u1, v1);
+            GetSnappedCoordinate(m_startPoint, u2, v2);
+
+            // 安全检查：半径不能过小
+            if (std::hypot(u2 - u1, v2 - v1) > Precision::Confusion()) {
+                m_state = StartSet; // 推进状态机
+            }
+            else {
+                CancelDrawing();
+                return;
+            }
+            m_isDrawing = false; // 结束拖拽状态，进入悬停检测状态
+        }
+        else if (m_state == StartSet) {
+            // 如果用户在最后阶段是以拖拽结束的（备用逻辑）
+            UpdateDrawing(endPoint);
+            emit elementsCreated(m_currentElements);
+            m_state = Init;
+            m_isDrawing = false;
+            m_currentElements.clear();
+        }
+    }
+
+    void SketchArcTool::CancelDrawing() {
+        m_isDrawing = false;
+        m_state = Init;
+        m_currentElements.clear();
+        emit drawingCancelled();
+    }
+
+    void SketchArcTool::HoverMove(const QPoint& currentPoint) {
+        // 调用基类方法保持吸附检测 (Keep snapping detection from base class)
+        SketchToolBase::HoverMove(currentPoint);
+
+        // 悬停鼠标要更新圆弧预览
+        if (m_state == CenterSet || m_state == StartSet) {
+            UpdateDrawing(currentPoint);
+        }
+    }
 
     // =============================================================================
     // SketchMode Implementation (草图模式主控逻辑)
@@ -272,6 +416,8 @@ namespace cad_ui {
             m_sketchFace = face;
             SetupSketchPlane(face);
             m_isActive = true;
+            m_undoStack.clear();
+            m_redoStack.clear();
 
             // 3. 实例化草图数据模型 (Data Model)
             m_currentSketch = std::make_shared<cad_sketch::Sketch>("Sketch_001");
@@ -325,6 +471,27 @@ namespace cad_ui {
         emit statusMessageChanged("Started rectangle tool");
     }
 
+    void SketchMode::StartPointTool() {
+        if (!m_isActive) return;
+        StopCurrentTool();
+
+        m_currentTool = std::make_unique<SketchPointTool>(this);
+        m_currentTool->SetSketchPlane(m_sketchPlane);
+        m_currentTool->SetView(m_viewer->GetView());
+
+        if (m_currentSketch) {
+            m_currentTool->SetSnappingContext(&m_snappingManager, &(m_currentSketch->GetElements()));
+        }
+
+        connect(m_currentTool.get(), &SketchToolBase::previewUpdated, this, &SketchMode::OnPreviewUpdated);
+        connect(m_currentTool.get(), &SketchToolBase::elementsCreated, this, &SketchMode::OnElementsCreated);
+        connect(m_currentTool.get(), &SketchToolBase::drawingCancelled, this, &SketchMode::OnDrawingCancelled);
+        connect(m_currentTool.get(), &SketchToolBase::snapPointDetected, this, &SketchMode::OnSnapPointDetected);
+        connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
+
+        emit statusMessageChanged("Started point tool");
+    }
+
     void SketchMode::StartLineTool() {
         if (!m_isActive) return;
         StopCurrentTool();
@@ -363,6 +530,28 @@ namespace cad_ui {
         connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
 
         emit statusMessageChanged("Started circle tool");
+    }
+
+    void SketchMode::StartArcTool() {
+        if (!m_isActive) return;
+        StopCurrentTool(); // 切换工具前先停止当前工具
+
+        m_currentTool = std::make_unique<SketchArcTool>(this);
+        m_currentTool->SetSketchPlane(m_sketchPlane);
+        m_currentTool->SetView(m_viewer->GetView());
+
+        // 注入捕捉上下文 (Dependency Injection for Snapping Context)
+        if (m_currentSketch) {
+            m_currentTool->SetSnappingContext(&m_snappingManager, &(m_currentSketch->GetElements()));
+        }
+
+        connect(m_currentTool.get(), &SketchToolBase::previewUpdated, this, &SketchMode::OnPreviewUpdated);
+        connect(m_currentTool.get(), &SketchToolBase::elementsCreated, this, &SketchMode::OnElementsCreated);
+        connect(m_currentTool.get(), &SketchToolBase::drawingCancelled, this, &SketchMode::OnDrawingCancelled);
+        connect(m_currentTool.get(), &SketchToolBase::snapPointDetected, this, &SketchMode::OnSnapPointDetected);
+        connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
+
+        emit statusMessageChanged("Started arc tool");
     }
 
     void SketchMode::StopCurrentTool() {
@@ -419,7 +608,10 @@ namespace cad_ui {
             if (m_currentSketch) {
                 for (const auto& elem : elements) {
                     m_currentSketch->AddElement(elem);
-                    emit sketchElementCreated(elem);
+
+                    m_undoStack.push_back(elements);
+                    m_redoStack.clear();
+                    emit sketchHistoryChanged();
                 }
             }
         }
@@ -527,6 +719,44 @@ namespace cad_ui {
         Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
         if (!plane.IsNull()) return plane->Pln();
         return gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1));
+    }
+
+    void SketchMode::RefreshSketchView() {
+        if (!m_viewer) return;
+        m_viewer->ClearSketchObjects(); // 清空当前屏幕上的所有草图对象
+        if (m_currentSketch) {
+            m_viewer->AddSketchElements(m_currentSketch->GetElements(), m_sketchCS); // 重新加载剩下的图元
+        }
+    }
+
+    void SketchMode::Undo() {
+        if (m_undoStack.empty()) return;
+        auto elements = m_undoStack.back();
+        m_undoStack.pop_back();
+        m_redoStack.push_back(elements);
+
+        if (m_currentSketch) {
+            for (auto& elem : elements) {
+                m_currentSketch->RemoveElement(elem); // 从底层数据中删除
+            }
+        }
+        RefreshSketchView(); // 刷新屏幕
+        emit sketchHistoryChanged();
+    }
+
+    void SketchMode::Redo() {
+        if (m_redoStack.empty()) return;
+        auto elements = m_redoStack.back();
+        m_redoStack.pop_back();
+        m_undoStack.push_back(elements);
+
+        if (m_currentSketch) {
+            for (auto& elem : elements) {
+                m_currentSketch->AddElement(elem); // 加回底层数据
+            }
+        }
+        RefreshSketchView(); // 刷新屏幕
+        emit sketchHistoryChanged();
     }
 
 } // namespace cad_ui

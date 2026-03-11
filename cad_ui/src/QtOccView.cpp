@@ -28,10 +28,12 @@
 #include <ElSLib.hxx>
 #include <Graphic3d_MaterialAspect.hxx>
 #include "cad_sketch/SketchCircle.h"
+#include "cad_sketch/SketchArc.h"
 #include <gp_Circ.hxx> 
 #include <AIS_Point.hxx>
 #include <Geom_CartesianPoint.hxx>
 #include <Aspect_TypeOfMarker.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
 
 
 #ifdef _WIN32
@@ -1188,12 +1190,16 @@ namespace {
         );
     }
 
-    // 根据元素类型生成对应的 OCC 边
-    static TopoDS_Edge MakeEdgeFromSketchElement(const cad_sketch::SketchElementPtr& elem, const gp_Ax3& cs) {
-        if (!elem) return TopoDS_Edge();
-
+    // 根据元素类型生成对应的 OCC 拓扑形状
+    static TopoDS_Shape MakeShapeFromSketchElement(const cad_sketch::SketchElementPtr& elem, const gp_Ax3& cs) {
+        if (!elem) return TopoDS_Shape();
+        
+        if (auto point = std::dynamic_pointer_cast<cad_sketch::SketchPoint>(elem)) {
+            gp_Pnt worldPt = Sketch2DToWorld(point, cs);
+            return BRepBuilderAPI_MakeVertex(worldPt); // 生成 OCC 的顶点
+        }
         // 1. 如果是直线
-        if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
+        else if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
             gp_Pnt p1 = Sketch2DToWorld(line->GetStartPoint(), cs);
             gp_Pnt p2 = Sketch2DToWorld(line->GetEndPoint(), cs);
             if (p1.Distance(p2) > Precision::Confusion()) {
@@ -1211,7 +1217,24 @@ namespace {
                 return BRepBuilderAPI_MakeEdge(gpCirc); // OCC 生成圆形边
             }
         }
-        return TopoDS_Edge();
+        // 3. 如果是圆弧
+        else if (auto arc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
+            gp_Pnt center = Sketch2DToWorld(arc->GetCenter(), cs);
+            double radius = arc->GetRadius();
+            if (radius > Precision::Confusion()) {
+                // 用当前草图的法线方向和 X 轴方向构造一个平面坐标系 
+                gp_Ax2 ax2(center, cs.Direction(), cs.XDirection());
+                gp_Circ gpCirc(ax2, radius); // 构造几何基础圆
+
+                // 获取圆弧的起止弧度 
+                double startAngle = arc->GetStartAngle();
+                double endAngle = arc->GetEndAngle();
+
+                // OCC 创建圆弧边：沿着基础圆，从起始参数逆时针绘制到终止参数
+                return BRepBuilderAPI_MakeEdge(gpCirc, startAngle, endAngle);
+            }
+        }
+        return TopoDS_Shape();
     }
    
 }
@@ -1233,6 +1256,9 @@ void QtOccView::EnterSketchMode(const TopoDS_Face& face) {
                         this, &QtOccView::SketchModeEntered);
                 connect(m_sketchMode.get(), &SketchMode::sketchModeExited,
                         this, &QtOccView::SketchModeExited);
+                connect(m_sketchMode.get(), &SketchMode::sketchHistoryChanged, 
+                        this, &QtOccView::SketchHistoryChanged);
+
             }
             qDebug() << "Sketch mode initialized successfully";
         }
@@ -1282,6 +1308,12 @@ void QtOccView::StartRectangleTool() {
     qDebug() << "Started rectangle tool";
 }
 
+void QtOccView::StartPointTool() {
+    if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
+        m_sketchMode->StartPointTool();
+    }
+}
+
 void QtOccView::StartLineTool() {
     if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
         m_sketchMode->StartLineTool();
@@ -1293,6 +1325,13 @@ void QtOccView::StartCircleTool() {
         m_sketchMode->StartCircleTool();
     }
 }
+
+void QtOccView::StartArcTool() {
+    if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
+        m_sketchMode->StartArcTool();
+    }
+}
+
 
 // 高亮选中的草图面
 void QtOccView::HighlightSketchFace(const TopoDS_Face& face) {
@@ -1338,10 +1377,10 @@ void QtOccView::ShowSketchPreviewElements(const std::vector<cad_sketch::SketchEl
     ClearSketchPreview();
 
     for (const auto& elem : elements) {
-        TopoDS_Edge edge = MakeEdgeFromSketchElement(elem, sketchCS);
-        if (edge.IsNull()) continue;
+        TopoDS_Shape shape = MakeShapeFromSketchElement(elem, sketchCS);
+        if (shape.IsNull()) continue;
 
-        Handle(AIS_Shape) aisLine = new AIS_Shape(edge);
+        Handle(AIS_Shape) aisLine = new AIS_Shape(shape);
         aisLine->SetColor(Quantity_NOC_CYAN1);
         aisLine->SetWidth(2.0);
         m_context->Display(aisLine, Standard_False);
@@ -1355,10 +1394,10 @@ void QtOccView::AddSketchElements(const std::vector<cad_sketch::SketchElementPtr
     if (m_context.IsNull()) return;
 
     for (const auto& elem : elements) {
-        TopoDS_Edge edge = MakeEdgeFromSketchElement(elem, sketchCS);
-        if (edge.IsNull()) continue;
+        TopoDS_Shape shape = MakeShapeFromSketchElement(elem, sketchCS);
+        if (shape.IsNull()) continue;
 
-        Handle(AIS_Shape) aisLine = new AIS_Shape(edge);
+        Handle(AIS_Shape) aisLine = new AIS_Shape(shape);
         aisLine->SetColor(Quantity_NOC_RED);
         aisLine->SetWidth(2.0);
         m_context->Display(aisLine, Standard_False);
@@ -1452,6 +1491,20 @@ void QtOccView::HideSnapIndicator() {
         m_snapIndicator.Nullify();
         m_view->Redraw();
     }
+}
+
+//草图历史记录管理
+void QtOccView::UndoSketch() { 
+    if (IsInSketchMode()) m_sketchMode->Undo(); 
+}
+void QtOccView::RedoSketch() { 
+    if (IsInSketchMode()) m_sketchMode->Redo(); 
+}
+bool QtOccView::CanUndoSketch() const { 
+    return IsInSketchMode() && m_sketchMode->CanUndo(); 
+}
+bool QtOccView::CanRedoSketch() const { 
+    return IsInSketchMode() && m_sketchMode->CanRedo(); 
 }
 
 } // namespace cad_ui

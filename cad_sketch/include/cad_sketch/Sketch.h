@@ -63,15 +63,12 @@ public:
      */
     void AddElement(const SketchElementPtr& element);
     
-    /** 
-     * 移除元素 - 从画板上擦掉不需要的图形
-     * @param element 要移除的元素
-     */
-    void RemoveElement(const SketchElementPtr& element);
-    
     /** 清空所有元素  */
     void ClearElements();
-    
+
+    /** 用于撤回  */
+    void RemoveElement(const SketchElementPtr& element);
+
     /** 
      * 获取所有元素 
      * @return 元素列表的常量引用

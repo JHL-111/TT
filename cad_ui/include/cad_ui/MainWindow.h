@@ -141,8 +141,10 @@ private slots:
     void OnEnterSketchMode();
     void OnExitSketchMode();
     void OnSketchRectangleTool();
+    void OnSketchPointTool();
     void OnSketchLineTool();
     void OnSketchCircleTool();
+    void OnSketchArcTool();
 
     // 对话框交互槽
     void OnSelectionModeChanged(bool enabled, const QString& prompt);
@@ -279,8 +281,10 @@ private:
     QAction* m_enterSketchAction;
     QAction* m_exitSketchAction;
     QAction* m_sketchRectangleAction;
+    QAction* m_sketchPointAction;
     QAction* m_sketchLineAction;
     QAction* m_sketchCircleAction;
+    QAction* m_sketchArcAction;
 
     // Selection mode combo box
     QComboBox* m_selectionModeCombo;

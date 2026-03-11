@@ -140,8 +140,21 @@ SnapResult SnappingManager::SnapToEndpoints(const cad_core::Point& inputPoint,
     SnapResult result;
     
     for (const auto& element : elements) {
-        if (element->GetType() == SketchElementType::Line) {
-            auto line = std::dynamic_pointer_cast<SketchLine>(element);
+        if (element->GetType() == SketchElementType::Point) {
+        auto point = std::dynamic_pointer_cast<SketchPoint>(element);
+            if (point) {
+                // 判断鼠标是否在点的捕捉容差范围内
+                if (IsWithinTolerance(inputPoint, point->GetPoint())) {
+                    result.found = true;
+                    result.type = SnapType::Endpoint; // 复用端点的吸附图标
+                    result.snapPoint = point->GetPoint();
+                    result.element = element;
+                    return result;
+                }
+            }
+        }
+        else if (element->GetType() == SketchElementType::Line) {
+                auto line = std::dynamic_pointer_cast<SketchLine>(element);
             if (line && line->GetStartPoint() && line->GetEndPoint()) {
                 if (IsWithinTolerance(inputPoint, line->GetStartPoint()->GetPoint())) {
                     result.found = true;
@@ -154,6 +167,25 @@ SnapResult SnappingManager::SnapToEndpoints(const cad_core::Point& inputPoint,
                     result.found = true;
                     result.type = SnapType::Endpoint;
                     result.snapPoint = line->GetEndPoint()->GetPoint();
+                    result.element = element;
+                    return result;
+                }
+            }
+        }
+        else if (element->GetType() == SketchElementType::Arc) {
+            auto arc = std::dynamic_pointer_cast<SketchArc>(element);
+            if (arc && arc->GetStartPoint() && arc->GetEndPoint()) {
+                if (IsWithinTolerance(inputPoint, arc->GetStartPoint()->GetPoint())) {
+                    result.found = true;
+                    result.type = SnapType::Endpoint;
+                    result.snapPoint = arc->GetStartPoint()->GetPoint();
+                    result.element = element;
+                    return result;
+                }
+                if (IsWithinTolerance(inputPoint, arc->GetEndPoint()->GetPoint())) {
+                    result.found = true;
+                    result.type = SnapType::Endpoint;
+                    result.snapPoint = arc->GetEndPoint()->GetPoint();
                     result.element = element;
                     return result;
                 }
@@ -185,6 +217,25 @@ SnapResult SnappingManager::SnapToMidpoints(const cad_core::Point& inputPoint,
                 }
             }
         }
+        else if (element->GetType() == SketchElementType::Arc) {
+            auto arc = std::dynamic_pointer_cast<SketchArc>(element);
+            if (arc && arc->GetCenter()) {
+                // 计算中点角度
+                double midAngle = arc->GetStartAngle() + arc->GetSweepAngle() / 2.0;
+                // 用极坐标算出真正的中点坐标
+                double midX = arc->GetCenter()->GetX() + arc->GetRadius() * std::cos(midAngle);
+                double midY = arc->GetCenter()->GetY() + arc->GetRadius() * std::sin(midAngle);
+                cad_core::Point midPoint(midX, midY, 0);
+
+                if (IsWithinTolerance(inputPoint, midPoint)) {
+                    result.found = true;
+                    result.type = SnapType::Midpoint;
+                    result.snapPoint = midPoint;
+                    result.element = element;
+                    return result;
+                }
+            }
+        }
     }
     
     return result;
@@ -206,18 +257,7 @@ SnapResult SnappingManager::SnapToCenters(const cad_core::Point& inputPoint,
                     return result;
                 }
             }
-        } else if (element->GetType() == SketchElementType::Arc) {
-            auto arc = std::dynamic_pointer_cast<SketchArc>(element);
-            if (arc && arc->GetCenter()) {
-                if (IsWithinTolerance(inputPoint, arc->GetCenter()->GetPoint())) {
-                    result.found = true;
-                    result.type = SnapType::Center;
-                    result.snapPoint = arc->GetCenter()->GetPoint();
-                    result.element = element;
-                    return result;
-                }
-            }
-        }
+        } 
     }
     
     return result;
@@ -244,18 +284,37 @@ SnapResult SnappingManager::SnapToNearest(const cad_core::Point& inputPoint, con
                 }
             }
         }
-        else if (element->GetType() == SketchElementType::Circle) {
-            auto circle = std::dynamic_pointer_cast<SketchCircle>(element);
-            if (circle && circle->GetCenter()) {
+        else if (element->GetType() == SketchElementType::Arc) {
+            auto arc = std::dynamic_pointer_cast<SketchArc>(element);
+            if (arc && arc->GetCenter()) {
                 cad_core::Point closestPt;
-                double dist = DistanceToCircle(inputPoint, circle->GetCenter()->GetPoint(), circle->GetRadius(), closestPt);
+                double dist = DistanceToArc(inputPoint, arc->GetCenter()->GetPoint(), arc->GetRadius(), arc->GetStartAngle(), arc->GetSweepAngle(), closestPt);
 
                 if (dist <= minDistance) {
                     minDistance = dist;
                     result.found = true;
                     result.type = SnapType::Nearest;
-                    result.snapPoint = closestPt; // 吸附到圆弧上的点
+                    result.snapPoint = closestPt; // 吸附到圆弧上的绝对点
                     result.element = element;
+                }
+            }
+        }
+        else if (element->GetType() == SketchElementType::Arc) {
+            auto arc = std::dynamic_pointer_cast<SketchArc>(element);
+            if (arc && arc->GetStartPoint() && arc->GetEndPoint()) {
+                if (IsWithinTolerance(inputPoint, arc->GetStartPoint()->GetPoint())) {
+                    result.found = true;
+                    result.type = SnapType::Endpoint;
+                    result.snapPoint = arc->GetStartPoint()->GetPoint();
+                    result.element = element;
+                    return result;
+                }
+                if (IsWithinTolerance(inputPoint, arc->GetEndPoint()->GetPoint())) {
+                    result.found = true;
+                    result.type = SnapType::Endpoint;
+                    result.snapPoint = arc->GetEndPoint()->GetPoint();
+                    result.element = element;
+                    return result;
                 }
             }
         }
@@ -293,6 +352,63 @@ double SnappingManager::DistanceToCircle(const cad_core::Point& p, const cad_cor
         0
     );
     return std::abs(d - radius);
+}
+
+// 算法 4：点到圆弧的几何距离计算 (限定在角度范围内)
+double SnappingManager::DistanceToArc(const cad_core::Point& p, const cad_core::Point& center, double radius, double startAngle, double sweepAngle, cad_core::Point& closestPoint) const {
+    // 1. 计算鼠标所在点相对于圆心的角度
+    double dx = p.X() - center.X();
+    double dy = p.Y() - center.Y();
+    double currentAngle = std::atan2(dy, dx);
+    if (currentAngle < 0) currentAngle += 2 * M_PI;
+
+    // 2. 规范化起始角
+    double start = startAngle;
+    while (start < 0) start += 2 * M_PI;
+    while (start >= 2 * M_PI) start -= 2 * M_PI;
+    double end = start + sweepAngle;
+
+    // 3. 判断鼠标角度是否在圆弧的扫掠扇区内 (处理跨越 0度/360度 边界的情况)
+    bool inSweep = false;
+    if (end <= 2 * M_PI) {
+        inSweep = (currentAngle >= start && currentAngle <= end);
+    }
+    else {
+        inSweep = (currentAngle >= start || currentAngle <= (end - 2 * M_PI));
+    }
+
+    if (inSweep) {
+        // 如果在扇区内，最近点和完整的圆一样，是圆弧边缘上的垂足
+        closestPoint = cad_core::Point(
+            center.X() + radius * std::cos(currentAngle),
+            center.Y() + radius * std::sin(currentAngle),
+            0
+        );
+        return p.Distance(closestPoint);
+    }
+    else {
+        // 如果不在扇区内，最近点一定是起点或终点
+        cad_core::Point startPt(
+            center.X() + radius * std::cos(startAngle),
+            center.Y() + radius * std::sin(startAngle), 0
+        );
+        cad_core::Point endPt(
+            center.X() + radius * std::cos(startAngle + sweepAngle),
+            center.Y() + radius * std::sin(startAngle + sweepAngle), 0
+        );
+
+        double distStart = p.Distance(startPt);
+        double distEnd = p.Distance(endPt);
+
+        if (distStart < distEnd) {
+            closestPoint = startPt;
+            return distStart;
+        }
+        else {
+            closestPoint = endPt;
+            return distEnd;
+        }
+    }
 }
 
 bool SnappingManager::IsWithinTolerance(const cad_core::Point& p1, const cad_core::Point& p2) const {
