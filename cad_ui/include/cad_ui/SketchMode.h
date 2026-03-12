@@ -48,10 +48,12 @@ namespace cad_ui {
         virtual void HoverMove(const QPoint& currentPoint);
 
         bool IsDrawing() const { return m_isDrawing; }
+        
 
         // 将草图平面和视图传递给工具
         void SetSketchPlane(const gp_Pln& plane) { m_sketchPlane = plane; }
         void SetView(Handle(V3d_View) view) { m_view = view; }
+
         // 注入捕捉上下文（传入管理器和当前草图已有元素）
         void SetSnappingContext(cad_sketch::SnappingManager* manager, const std::vector<cad_sketch::SketchElementPtr>* elements) {
             m_snappingManager = manager;
@@ -68,6 +70,8 @@ namespace cad_ui {
         // 检测吸附小圆
         void snapPointDetected(const gp_Pnt& pnt, cad_sketch::SnapType snapType);
         void snapPointLost();
+
+        
 
     protected:
         // 将二维的屏幕鼠标坐标转换到三维空间的草图平面上
@@ -211,6 +215,7 @@ namespace cad_ui {
         bool EnterSketchMode(const TopoDS_Face& face); // 进入草图模式
         void ExitSketchMode();                         // 退出草图模式
         bool IsInSketchMode() const { return m_isActive; }
+        bool HasActiveTool() const { return m_currentTool != nullptr; }
         void Undo();
         void Redo();
         bool CanUndo() const { return !m_undoStack.empty(); }
@@ -243,6 +248,7 @@ namespace cad_ui {
         void sketchElementCreated(cad_sketch::SketchElementPtr element);
         void sketchHistoryChanged(); // 通知 UI 更新 Undo/Redo 按钮状态
         void statusMessageChanged(const QString& message);
+        void toolChanged(const QString& toolName);
 
     private slots:
         // 接收工具发出的信号，桥接给渲染器进行显示
@@ -252,6 +258,7 @@ namespace cad_ui {
         void OnSnapPointDetected(const gp_Pnt& pnt, cad_sketch::SnapType snapType);
         void OnSnapPointLost();
 
+   
     private:
         QtOccView* m_viewer; // 视图渲染器指针
         bool m_isActive;     // 是否处于激活状态
@@ -261,10 +268,17 @@ namespace cad_ui {
         TopoDS_Face m_sketchFace;              // 依附的三维拓扑面 (Topological Face)
         gp_Pln m_sketchPlane;                  // 提取出的数学平面 (Mathematical Plane)
         gp_Ax3 m_sketchCS;                     // 局部坐标系 (Local Coordinate System, LCS)
-        std::vector<std::vector<cad_sketch::SketchElementPtr>> m_undoStack;
-        std::vector<std::vector<cad_sketch::SketchElementPtr>> m_redoStack;
+        
+        // 历史操作记录结构体 (History Operation Record)
+        struct SketchHistoryStep {
+            enum ActionType { ADD, REMOVE };
+            ActionType type;
+            std::vector<cad_sketch::SketchElementPtr> elements;
+        };       
+        std::vector<SketchHistoryStep> m_undoStack;
+        std::vector<SketchHistoryStep> m_redoStack;
         void RefreshSketchView();
-
+        void DeleteSelectedElements();
 
         // 视口状态保存 (用于退出草图时恢复原视角)
         gp_Pnt m_savedEye;     // 摄像机位置

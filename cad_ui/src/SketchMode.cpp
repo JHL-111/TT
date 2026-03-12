@@ -469,6 +469,7 @@ namespace cad_ui {
         connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
 
         emit statusMessageChanged("Started rectangle tool");
+        emit toolChanged("Rectangle");
     }
 
     void SketchMode::StartPointTool() {
@@ -490,6 +491,7 @@ namespace cad_ui {
         connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
 
         emit statusMessageChanged("Started point tool");
+        emit toolChanged("Point");
     }
 
     void SketchMode::StartLineTool() {
@@ -508,6 +510,7 @@ namespace cad_ui {
         connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
         
         emit statusMessageChanged("Started line tool");
+        emit toolChanged("Line");
     }
 
     void SketchMode::StartCircleTool() {
@@ -530,6 +533,7 @@ namespace cad_ui {
         connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
 
         emit statusMessageChanged("Started circle tool");
+        emit toolChanged("Circle");
     }
 
     void SketchMode::StartArcTool() {
@@ -552,14 +556,21 @@ namespace cad_ui {
         connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
 
         emit statusMessageChanged("Started arc tool");
+        emit toolChanged("Arc");
     }
 
     void SketchMode::StopCurrentTool() {
         if (m_viewer) m_viewer->HideSnapIndicator();
 
-        if (m_currentTool && m_currentTool->IsDrawing()) {
-            m_currentTool->CancelDrawing();
+        if (m_currentTool) {
+            if (m_currentTool->IsDrawing()) {
+                m_currentTool->CancelDrawing();
+            }
+            m_currentTool.reset();
         }
+
+        // 发送信号，通知 UI 没有任何工具在运行
+        emit toolChanged("None");
     }
 
     // 以下三个函数将鼠标事件从 View 委托 (Delegate) 给当前激活的工具
@@ -588,6 +599,17 @@ namespace cad_ui {
 
     void SketchMode::HandleKeyPress(QKeyEvent* event) {
         if (!m_isActive) return;
+
+        // 拦截 Delete 键或退格键 Backspace
+        if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
+            // 如果当前没有在画图（不在拖拽中），就执行删除操作
+            if (!m_currentTool || !m_currentTool->IsDrawing()) {
+                DeleteSelectedElements();
+            }
+            return;
+        }
+
+        // Esc 键逻辑
         if (event->key() == Qt::Key_Escape) {
             if (m_currentTool && m_currentTool->IsDrawing()) {
                 m_currentTool->CancelDrawing();
@@ -609,7 +631,7 @@ namespace cad_ui {
                 for (const auto& elem : elements) {
                     m_currentSketch->AddElement(elem);
 
-                    m_undoStack.push_back(elements);
+                    m_undoStack.push_back({ SketchHistoryStep::ADD, elements });
                     m_redoStack.clear();
                     emit sketchHistoryChanged();
                 }
@@ -721,41 +743,78 @@ namespace cad_ui {
         return gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1));
     }
 
+
+    void SketchMode::DeleteSelectedElements() {
+        if (!m_viewer) return;
+
+        auto selected = m_viewer->GetSelectedSketchElements();
+        if (selected.empty()) return; // 没选中东西直接返回
+
+        // 1. 从屏幕上擦除 (Erase from Screen)
+        m_viewer->RemoveSketchElements(selected);
+
+        // 2. 从底层数据中删除 (Remove from Data Model)
+        if (m_currentSketch) {
+            for (auto& elem : selected) {
+                m_currentSketch->RemoveElement(elem);
+            }
+        }
+
+        // 3. 记录这是一个“删除 (REMOVE)”操作
+        m_undoStack.push_back({ SketchHistoryStep::REMOVE, selected });
+        m_redoStack.clear();
+
+        emit sketchHistoryChanged(); // 更新撤销/重做按钮状态
+        emit statusMessageChanged(tr("Deleted selected element(s)"));
+    }
+
     void SketchMode::RefreshSketchView() {
         if (!m_viewer) return;
-        m_viewer->ClearSketchObjects(); // 清空当前屏幕上的所有草图对象
+        m_viewer->ClearSketchObjects();
         if (m_currentSketch) {
-            m_viewer->AddSketchElements(m_currentSketch->GetElements(), m_sketchCS); // 重新加载剩下的图元
+            m_viewer->AddSketchElements(m_currentSketch->GetElements(), m_sketchCS);
         }
     }
 
     void SketchMode::Undo() {
         if (m_undoStack.empty()) return;
-        auto elements = m_undoStack.back();
+
+        auto step = m_undoStack.back();
         m_undoStack.pop_back();
-        m_redoStack.push_back(elements);
+        m_redoStack.push_back(step); // 压入重做栈
 
         if (m_currentSketch) {
-            for (auto& elem : elements) {
-                m_currentSketch->RemoveElement(elem); // 从底层数据中删除
+            if (step.type == SketchHistoryStep::ADD) {
+                // 撤销“添加” = 删除它
+                for (auto& elem : step.elements) m_currentSketch->RemoveElement(elem);
+            }
+            else if (step.type == SketchHistoryStep::REMOVE) {
+                // 撤销“删除” = 加回它
+                for (auto& elem : step.elements) m_currentSketch->AddElement(elem);
             }
         }
-        RefreshSketchView(); // 刷新屏幕
+        RefreshSketchView(); // 刷新屏幕显示
         emit sketchHistoryChanged();
     }
 
     void SketchMode::Redo() {
         if (m_redoStack.empty()) return;
-        auto elements = m_redoStack.back();
+
+        auto step = m_redoStack.back();
         m_redoStack.pop_back();
-        m_undoStack.push_back(elements);
+        m_undoStack.push_back(step); // 压回撤销栈
 
         if (m_currentSketch) {
-            for (auto& elem : elements) {
-                m_currentSketch->AddElement(elem); // 加回底层数据
+            if (step.type == SketchHistoryStep::ADD) {
+                // 重做“添加” = 重新加上去
+                for (auto& elem : step.elements) m_currentSketch->AddElement(elem);
+            }
+            else if (step.type == SketchHistoryStep::REMOVE) {
+                // 重做“删除” = 再次删掉它
+                for (auto& elem : step.elements) m_currentSketch->RemoveElement(elem);
             }
         }
-        RefreshSketchView(); // 刷新屏幕
+        RefreshSketchView(); // 刷新屏幕显示
         emit sketchHistoryChanged();
     }
 

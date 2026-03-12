@@ -145,6 +145,7 @@ private slots:
     void OnSketchLineTool();
     void OnSketchCircleTool();
     void OnSketchArcTool();
+    void OnSketchToolChanged(const QString& toolName);
 
     // 对话框交互槽
     void OnSelectionModeChanged(bool enabled, const QString& prompt);

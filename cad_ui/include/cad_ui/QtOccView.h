@@ -105,6 +105,8 @@ public:
     bool IsInSketchMode() const;
     void EnterSketchMode(const TopoDS_Face& face);
     void ExitSketchMode();
+    bool HasActiveSketchTool() const;
+    void StopSketchTool();
     void UndoSketch();
     void RedoSketch();
     bool CanUndoSketch() const;
@@ -129,6 +131,11 @@ public:
     void HighlightSketchFace(const TopoDS_Face& face);
     void ClearSketchFaceHighlight();
 
+	// 获取选中的草图元素
+    std::vector<cad_sketch::SketchElementPtr> GetSelectedSketchElements(); // 获取选中的草图元素
+    void RemoveSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements); // 从视图中移除
+    void ClearSketchElementMap(); // 清空映射表
+
 signals:
     void ShapeSelected(const cad_core::ShapePtr& shape);
     void FaceSelected(const TopoDS_Face& face);
@@ -138,6 +145,8 @@ signals:
     void SketchHistoryChanged();
     void MousePositionChanged(int x, int y);
     void Mouse3DPositionChanged(double x, double y, double z);
+    void SketchToolChanged(const QString& toolName);
+    
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -200,7 +209,8 @@ private:
     Handle(AIS_InteractiveObject) m_highlightedFace;
     // 用来保存那个吸附小圆圈对象
     Handle(AIS_InteractiveObject) m_snapIndicator;
-
+	// 草图元素与AIS对象的映射表（用于选择同步）
+    std::map<Handle(AIS_InteractiveObject), cad_sketch::SketchElementPtr> m_sketchElementMap;
     // 当前选择模式
     int m_currentSelectionMode;
     

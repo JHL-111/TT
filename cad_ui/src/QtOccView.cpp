@@ -244,6 +244,7 @@ void QtOccView::DisplayShape(const cad_core::ShapePtr& shape) {
     
     m_context->Display(aisShape, Standard_False);
     
+
     // Store mapping for selection synchronization
     m_shapeToAIS[shape] = aisShape;
     
@@ -515,7 +516,15 @@ void QtOccView::mousePressEvent(QMouseEvent* event) {
     
     // 优先处理草图模式
     if (IsInSketchMode()) {
-        m_sketchMode->HandleMousePress(event);
+        if (HasActiveSketchTool()) {
+            m_sketchMode->HandleMousePress(event);
+            return; 
+        }
+
+        // 如果当前没有画图工具，只允许左键进行选择 (不允许 3D 旋转视角)
+        if (event->button() == Qt::LeftButton) {
+            HandleSelection(event->pos());
+        }
         return;
     }
     
@@ -548,8 +557,28 @@ void QtOccView::mouseMoveEvent(QMouseEvent* event) {
     
     // 优先处理草图模式
     if (IsInSketchMode()) {
-        m_sketchMode->HandleMouseMove(event);
-        return;
+        m_sketchMode->HandleMouseMove(event); // 保持悬停吸附
+
+        if (!HasActiveSketchTool() && !m_context.IsNull()) {
+            // 将鼠标的 2D 坐标传递给底层的交互上下文，让它知道鼠标碰到了什么
+            m_context->MoveTo(currentPos.x(), currentPos.y(), m_view, Standard_True);
+        }
+
+        // 允许中键平移和右键缩放，但屏蔽草图模式下的左键旋转
+        if (m_currentMouseButton == Qt::MiddleButton) {
+            QPoint delta = currentPos - m_lastMousePos;
+            m_view->Pan(delta.x(), -delta.y());
+            m_view->Redraw();
+        }
+        else if (m_currentMouseButton == Qt::RightButton) {
+            QPoint delta = currentPos - m_lastMousePos;
+            if (delta.y() != 0) {
+                m_view->SetZoom((delta.y() > 0) ? 0.9 : 1.1);
+                m_view->Redraw();
+            }
+        }
+        m_lastMousePos = currentPos;
+        return; // 返回，不执行下面的 3D 旋转逻辑
     }
     
     if (m_currentMouseButton == Qt::LeftButton) {
@@ -1258,6 +1287,8 @@ void QtOccView::EnterSketchMode(const TopoDS_Face& face) {
                         this, &QtOccView::SketchModeExited);
                 connect(m_sketchMode.get(), &SketchMode::sketchHistoryChanged, 
                         this, &QtOccView::SketchHistoryChanged);
+                connect(m_sketchMode.get(), &SketchMode::toolChanged, 
+                        this, &QtOccView::SketchToolChanged);
 
             }
             qDebug() << "Sketch mode initialized successfully";
@@ -1401,6 +1432,7 @@ void QtOccView::AddSketchElements(const std::vector<cad_sketch::SketchElementPtr
         aisLine->SetColor(Quantity_NOC_RED);
         aisLine->SetWidth(2.0);
         m_context->Display(aisLine, Standard_False);
+        m_sketchElementMap[aisLine] = elem;
         m_sketchObjects.push_back(aisLine);
     }
     m_view->Redraw();
@@ -1424,6 +1456,7 @@ void QtOccView::ClearSketchObjects() {
         m_context->Remove(obj, Standard_False);
     }
     m_sketchObjects.clear();
+    m_sketchElementMap.clear();
     m_view->Redraw();
 }
 
@@ -1490,6 +1523,54 @@ void QtOccView::HideSnapIndicator() {
         m_context->Remove(m_snapIndicator, Standard_False);
         m_snapIndicator.Nullify();
         m_view->Redraw();
+    }
+}
+
+
+// 获取当前被选中的草图元素 
+std::vector<cad_sketch::SketchElementPtr> QtOccView::GetSelectedSketchElements() {
+    std::vector<cad_sketch::SketchElementPtr> result;
+    if (m_context.IsNull()) return result;
+
+    // 遍历 OCC 上下文中所有被选中的对象
+    for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
+        Handle(AIS_InteractiveObject) obj = m_context->SelectedInteractive();
+        // 如果在我们的映射表里能找到，就提取出来
+        if (m_sketchElementMap.find(obj) != m_sketchElementMap.end()) {
+            result.push_back(m_sketchElementMap[obj]);
+        }
+    }
+    return result;
+}
+
+// 从屏幕上抹除指定的草图元素
+void QtOccView::RemoveSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements) {
+    if (m_context.IsNull()) return;
+
+    // 反向查找：通过元素指针找到对应的 AIS 对象并移除
+    for (const auto& elem : elements) {
+        for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ++it) {
+            if (it->second == elem) {
+                m_context->Remove(it->first, Standard_False);
+                m_sketchElementMap.erase(it); // 从映射表中注销
+                break; // 找到了就跳出内层循环
+            }
+        }
+    }
+    m_context->UpdateCurrentViewer(); // 刷新屏幕
+}
+
+void QtOccView::ClearSketchElementMap() {
+    m_sketchElementMap.clear();
+}
+
+bool QtOccView::HasActiveSketchTool() const {
+    return m_sketchMode && m_sketchMode->HasActiveTool();
+}
+
+void QtOccView::StopSketchTool() {
+    if (m_sketchMode) {
+        m_sketchMode->StopCurrentTool();
     }
 }
 

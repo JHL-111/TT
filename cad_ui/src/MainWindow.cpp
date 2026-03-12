@@ -263,26 +263,31 @@ void MainWindow::CreateActions() {
     m_exitSketchAction->setEnabled(false);  
     
     m_sketchRectangleAction = new QAction("&Rectangle", this);
+    m_sketchRectangleAction->setCheckable(true);
     m_sketchRectangleAction->setShortcut(QKeySequence("R"));
     m_sketchRectangleAction->setStatusTip("Draw rectangle in sketch mode");
     m_sketchRectangleAction->setEnabled(false); 
     
     m_sketchPointAction = new QAction("&Point", this);
+    m_sketchPointAction->setCheckable(true);
     m_sketchPointAction->setShortcut(QKeySequence("P"));
     m_sketchPointAction->setStatusTip("Draw a point in sketch mode");
     m_sketchPointAction->setEnabled(false);
 
     m_sketchLineAction = new QAction("&Line", this);
+	m_sketchLineAction->setCheckable(true);
     m_sketchLineAction->setShortcut(QKeySequence("L")); 
     m_sketchLineAction->setStatusTip("Draw line in sketch mode");
     m_sketchLineAction->setEnabled(false);  
 
     m_sketchCircleAction = new QAction("&Circle", this);
+	m_sketchCircleAction->setCheckable(true);
     m_sketchCircleAction->setShortcut(QKeySequence("C"));
     m_sketchCircleAction->setStatusTip("Draw circle in sketch mode");
     m_sketchCircleAction->setEnabled(false);
     
     m_sketchArcAction = new QAction("&Arc", this);
+	m_sketchArcAction->setCheckable(true);
     m_sketchArcAction->setShortcut(QKeySequence("A")); 
     m_sketchArcAction->setStatusTip("Draw arc in sketch mode");
     m_sketchArcAction->setEnabled(false);
@@ -968,7 +973,7 @@ void MainWindow::ConnectSignals() {
     connect(m_viewer, &QtOccView::SketchModeEntered, this, &MainWindow::OnSketchModeEntered);
     connect(m_viewer, &QtOccView::SketchModeExited, this, &MainWindow::OnSketchModeExited);
     connect(m_viewer, &QtOccView::SketchHistoryChanged, this, &MainWindow::UpdateActions);
-    
+    connect(m_viewer, &QtOccView::SketchToolChanged, this, &MainWindow::OnSketchToolChanged);
    
     // Document tree signals for selection synchronization
     connect(m_documentTree, &DocumentTree::ShapeSelected, this, &MainWindow::OnDocumentTreeShapeSelected);
@@ -1618,6 +1623,8 @@ void MainWindow::NewDocumentTab() {
     connect(newViewer, &QtOccView::ShapeSelected, this, &MainWindow::OnShapeSelected);
     connect(newViewer, &QtOccView::ViewChanged, this, &MainWindow::OnViewChanged);
     connect(newViewer, &QtOccView::SketchHistoryChanged, this, &MainWindow::UpdateActions);
+	connect(newViewer, &QtOccView::SketchToolChanged, this, &MainWindow::OnSketchToolChanged);
+
 
 }
 
@@ -2185,41 +2192,63 @@ void MainWindow::OnExitSketchMode() {
 
 // 草图工具槽函数
 void MainWindow::OnSketchRectangleTool() {
-    if (!m_viewer || !m_viewer->IsInSketchMode()) {
-        return;
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+
+    if (m_sketchRectangleAction->isChecked()) {
+        m_viewer->StartRectangleTool();
+        statusBar()->showMessage("The rectangle tool is activated - click and drag to create a rectangle");
     }
-    
-    m_viewer->StartRectangleTool();
-    statusBar()->showMessage("The rectangle tool is activated - click and drag to create a rectangle");
+    else {
+        m_viewer->StopSketchTool(); // 再次点击按钮则取消工具
+    }
 }
 
 void MainWindow::OnSketchPointTool() {
     if (!m_viewer || !m_viewer->IsInSketchMode()) return;
-    m_viewer->StartPointTool();
-    statusBar()->showMessage("The point tool is activated - click anywhere to place a point");
+
+    if (m_sketchPointAction->isChecked()) {
+        m_viewer->StartPointTool();
+        statusBar()->showMessage("The point tool is activated - click to create a point");
+    }
+    else {
+        m_viewer->StopSketchTool(); // 再次点击按钮则取消工具
+    }
 }
 
 void MainWindow::OnSketchLineTool() {
-    if (!m_viewer || !m_viewer->IsInSketchMode()) {
-        return;
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+
+    if (m_sketchLineAction->isChecked()) {
+        m_viewer->StartLineTool();
+        statusBar()->showMessage("The line tool is activated - click and move to create a line");
     }
-    // 告诉视图层启动直线工具
-    m_viewer->StartLineTool();
-    statusBar()->showMessage("The line tool is activated - click and move to create a line");
+    else {
+        m_viewer->StopSketchTool(); // 再次点击按钮则取消工具
+    }
 }
 
 void MainWindow::OnSketchCircleTool() {
     if (!m_viewer || !m_viewer->IsInSketchMode()) return;
-    m_viewer->StartCircleTool();
-    statusBar()->showMessage("The circle tool is activated - click for center, drag for radius");
+
+    if (m_sketchCircleAction->isChecked()) {
+        m_viewer->StartCircleTool();
+        statusBar()->showMessage("The circle tool is activated - click for center, drag for radius");
+    }
+    else {
+        m_viewer->StopSketchTool(); // 再次点击按钮则取消工具
+    }
 }
 
 void MainWindow::OnSketchArcTool() {
     if (!m_viewer || !m_viewer->IsInSketchMode()) return;
 
-    m_viewer->StartArcTool();
-    // 提示用户操作步骤：圆心 -> 起点 -> 终点
-    statusBar()->showMessage("The arc tool is activated - click center, start, and end points");
+    if (m_sketchArcAction->isChecked()) {
+        m_viewer->StartArcTool();
+        statusBar()->showMessage("The arc tool is activated - click center, start, and end points");
+    }
+    else {
+        m_viewer->StopSketchTool(); // 再次点击按钮则取消工具
+    }
 }
 
 void MainWindow::OnFaceSelected(const TopoDS_Face& face) {
@@ -2330,6 +2359,29 @@ void MainWindow::OnSketchModeExited() {
     UpdateActions();
     
     qDebug() << "Sketch mode exited, UI updated";
+}
+
+// UI 状态同步：根据底层激活的工具，点亮或熄灭顶部按钮
+void MainWindow::OnSketchToolChanged(const QString& toolName) {
+    // 暂时阻塞信号，防止 setChecked 再次触发 triggered 导致死循环
+    m_sketchRectangleAction->blockSignals(true);
+    m_sketchLineAction->blockSignals(true);
+    m_sketchCircleAction->blockSignals(true);
+
+    // 根据传来的工具名称，设置按钮的状态（只有对应的按钮为 true，其他全为 false）
+    m_sketchRectangleAction->setChecked(toolName == "Rectangle");
+    m_sketchLineAction->setChecked(toolName == "Line");
+    m_sketchCircleAction->setChecked(toolName == "Circle");
+
+    // 恢复信号
+    m_sketchRectangleAction->blockSignals(false);
+    m_sketchLineAction->blockSignals(false);
+    m_sketchCircleAction->blockSignals(false);
+
+    // 如果工具名字是 "None"（比如按了 Esc 或者取消了工具），提示用户可以去选择图形了
+    if (toolName == "None") {
+        statusBar()->showMessage("Ready - Select sketch elements to modify or delete.");
+    }
 }
 
 } // namespace cad_ui
