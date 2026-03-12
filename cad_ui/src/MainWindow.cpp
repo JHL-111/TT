@@ -2363,25 +2363,54 @@ void MainWindow::OnSketchModeExited() {
 
 // UI 状态同步：根据底层激活的工具，点亮或熄灭顶部按钮
 void MainWindow::OnSketchToolChanged(const QString& toolName) {
-    // 暂时阻塞信号，防止 setChecked 再次触发 triggered 导致死循环
+    // 暂时阻塞信号，防止 setChecked 触发 triggered 导致死循环 (Block Signals)
     m_sketchRectangleAction->blockSignals(true);
     m_sketchLineAction->blockSignals(true);
     m_sketchCircleAction->blockSignals(true);
+    m_sketchArcAction->blockSignals(true);   
+    m_sketchPointAction->blockSignals(true); 
 
-    // 根据传来的工具名称，设置按钮的状态（只有对应的按钮为 true，其他全为 false）
-    m_sketchRectangleAction->setChecked(toolName == "Rectangle");
-    m_sketchLineAction->setChecked(toolName == "Line");
-    m_sketchCircleAction->setChecked(toolName == "Circle");
+    if (toolName == "None") {
+        // 状态 1：没有任何工具激活时（比如按了 Esc 或主动取消了当前工具）
+        // 所有按钮恢复可用 (Enabled) 并变亮
+        m_sketchRectangleAction->setEnabled(true);
+        m_sketchLineAction->setEnabled(true);
+        m_sketchCircleAction->setEnabled(true);
+        m_sketchArcAction->setEnabled(true);
+        m_sketchPointAction->setEnabled(true);
 
-    // 恢复信号
+        // 所有按钮状态设为未选中 (Unchecked / 弹起)
+        m_sketchRectangleAction->setChecked(false);
+        m_sketchLineAction->setChecked(false);
+        m_sketchCircleAction->setChecked(false);
+        m_sketchArcAction->setChecked(false);
+        m_sketchPointAction->setChecked(false);
+
+        statusBar()->showMessage("Ready - Select sketch elements to modify or delete.");
+    }
+    else {
+        // 状态 2：当某一个特定的工具激活时
+        // 只有当前激活的工具保持可用（为了能让用户再次点击它来取消），其他的全部禁用 
+        m_sketchRectangleAction->setEnabled(toolName == "Rectangle");
+        m_sketchLineAction->setEnabled(toolName == "Line");
+        m_sketchCircleAction->setEnabled(toolName == "Circle");
+        m_sketchArcAction->setEnabled(toolName == "Arc");
+        m_sketchPointAction->setEnabled(toolName == "Point");
+
+        // 只有当前激活的按钮保持选中 (Checked / 按下)
+        m_sketchRectangleAction->setChecked(toolName == "Rectangle");
+        m_sketchLineAction->setChecked(toolName == "Line");
+        m_sketchCircleAction->setChecked(toolName == "Circle");
+        m_sketchArcAction->setChecked(toolName == "Arc");
+        m_sketchPointAction->setChecked(toolName == "Point");
+    }
+
+    // 恢复信号传递
     m_sketchRectangleAction->blockSignals(false);
     m_sketchLineAction->blockSignals(false);
     m_sketchCircleAction->blockSignals(false);
-
-    // 如果工具名字是 "None"（比如按了 Esc 或者取消了工具），提示用户可以去选择图形了
-    if (toolName == "None") {
-        statusBar()->showMessage("Ready - Select sketch elements to modify or delete.");
-    }
+    m_sketchArcAction->blockSignals(false);
+    m_sketchPointAction->blockSignals(false);
 }
 
 } // namespace cad_ui

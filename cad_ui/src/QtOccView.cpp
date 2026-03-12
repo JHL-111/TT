@@ -1431,7 +1431,8 @@ void QtOccView::AddSketchElements(const std::vector<cad_sketch::SketchElementPtr
         Handle(AIS_Shape) aisLine = new AIS_Shape(shape);
         aisLine->SetColor(Quantity_NOC_RED);
         aisLine->SetWidth(2.0);
-        m_context->Display(aisLine, Standard_False);
+        aisLine->SetZLayer(Graphic3d_ZLayerId_Topmost);
+        m_context->Display(aisLine, Standard_False); 
         m_sketchElementMap[aisLine] = elem;
         m_sketchObjects.push_back(aisLine);
     }
