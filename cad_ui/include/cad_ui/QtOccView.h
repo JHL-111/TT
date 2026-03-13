@@ -213,7 +213,10 @@ private:
     std::map<Handle(AIS_InteractiveObject), cad_sketch::SketchElementPtr> m_sketchElementMap;
     // 当前选择模式
     int m_currentSelectionMode;
-    
+    // 草图的临时选中高亮层机制 
+    Handle(AIS_Shape) m_sketchHighlightAIS;
+    void UnhighlightSketchElement();
+
     void InitializeOCC();
     void RedrawView();
     void HandleSelection(const QPoint& point);
