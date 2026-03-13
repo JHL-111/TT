@@ -51,6 +51,11 @@ double SketchLine::GetAngle() const {
     return std::atan2(dy, dx);
 }
 
+void SketchLine::Translate(double dx, double dy) {
+    m_startPoint->Translate(dx, dy);
+    m_endPoint->Translate(dx, dy);
+}
+
 std::string SketchLine::GetDescription() const {
     std::ostringstream oss;
     oss << "Line (Length: " << GetLength() << ")";

@@ -136,6 +136,9 @@ public:
     void RemoveSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements); // 从视图中移除
     void ClearSketchElementMap(); // 清空映射表
 
+    // 移动刷新草图元素
+    void UpdateSketchElementVisuals(const cad_sketch::SketchElementPtr& elem);
+
 signals:
     void ShapeSelected(const cad_core::ShapePtr& shape);
     void FaceSelected(const TopoDS_Face& face);

@@ -79,6 +79,11 @@ SketchPointPtr SketchArc::GetEndPoint() const {
     return std::make_shared<SketchPoint>(x, y);
 }
 
+void SketchArc::Translate(double dx, double dy) {
+    m_center->Translate(dx, dy);
+    // 半径和起止角度都不变
+}
+
 std::string SketchArc::GetDescription() const {
     std::ostringstream oss;
     oss << "Arc (Radius: " << m_radius << ", Sweep: " << GetSweepAngle() * 180.0 / M_PI << "°)";

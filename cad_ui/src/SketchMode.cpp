@@ -575,25 +575,76 @@ namespace cad_ui {
 
     // 以下三个函数将鼠标事件从 View 委托 (Delegate) 给当前激活的工具
     void SketchMode::HandleMousePress(QMouseEvent* event) {
-        if (m_isActive && m_currentTool && event->button() == Qt::LeftButton) {
+        if (!m_isActive) return;
+
+        // 如果当前有激活的绘图工具，交给它处理
+  
+        if (m_currentTool && event->button() == Qt::LeftButton) {
             m_currentTool->StartDrawing(event->pos());
+        }
+
+        // 没有绘图工具时，准备开始拖拽选中图形
+        else if (!m_currentTool && event->button() == Qt::LeftButton) {
+            auto selected = m_viewer->GetSelectedSketchElements();
+            if (!selected.empty()) {
+                m_isDragging = true;
+                m_draggedElements = selected;
+                GetPlaneCoordinate(event->pos(), m_lastDragU, m_lastDragV);
+            }
         }
     }
 
     void SketchMode::HandleMouseMove(QMouseEvent* event) {
+        if (!m_isActive) return;
+
+        // 如果当前有激活的绘图工具，交给它处理
         if (m_currentTool) {
-            // 不管现在有没有按着鼠标画图，只要移动了，就检测是不是悬停在特征点上
             m_currentTool->HoverMove(event->pos());
-            
             if (m_currentTool->IsDrawing()) {
                 m_currentTool->UpdateDrawing(event->pos());
+            }
+        }
+
+        // 处理图形平移拖拽
+        else {
+            if (m_isDragging && !m_draggedElements.empty()) {
+                double currentU = 0.0, currentV = 0.0;
+                GetPlaneCoordinate(event->pos(), currentU, currentV);
+
+                // 计算位移差值
+                double dx = currentU - m_lastDragU;
+                double dy = currentV - m_lastDragV;
+
+                // 应用平移并刷新视图
+                for (auto& elem : m_draggedElements) {
+                    elem->Translate(dx, dy);
+                    m_viewer->UpdateSketchElementVisuals(elem);
+                }
+
+                // 更新上一帧位置
+                m_lastDragU = currentU;
+                m_lastDragV = currentV;
             }
         }
     }
 
     void SketchMode::HandleMouseRelease(QMouseEvent* event) {
-        if (m_isActive && m_currentTool && event->button() == Qt::LeftButton && m_currentTool->IsDrawing()) {
+        if (!m_isActive) return;
+
+        // 如果当前有激活的绘图工具，交由它完成绘制
+        if (m_currentTool && event->button() == Qt::LeftButton && m_currentTool->IsDrawing()) {
             m_currentTool->FinishDrawing(event->pos());
+        }
+
+        // 结束平移拖拽
+        else if (!m_currentTool && event->button() == Qt::LeftButton) {
+            if (m_isDragging) {
+                m_isDragging = false;
+                m_draggedElements.clear();
+
+                // 触发历史记录更新，点亮撤销按钮（可将此次平移计入 Undo）
+                emit sketchHistoryChanged();
+            }
         }
     }
 
@@ -741,6 +792,40 @@ namespace cad_ui {
         Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
         if (!plane.IsNull()) return plane->Pln();
         return gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1));
+    }
+
+    // 一个不带吸附的坐标获取函数，专门用于平移计算差值
+    void SketchMode::GetPlaneCoordinate(const QPoint& screenPos, double& u, double& v) {
+        if (!m_viewer || m_viewer->GetView().IsNull()) return;
+
+        // 1. 使用 ConvertWithProj 获取 3D 空间点 (X, Y, Z) 和视角投影方向 (Vx, Vy, Vz)
+        Standard_Real X, Y, Z;
+        Standard_Real Vx, Vy, Vz;
+        m_viewer->GetView()->ConvertWithProj(screenPos.x(), screenPos.y(), X, Y, Z, Vx, Vy, Vz);
+
+        gp_Pnt p1(X, Y, Z);
+        gp_Vec dir(Vx, Vy, Vz);
+
+        // 防止方向向量为零导致崩溃
+        if (dir.SquareMagnitude() < Precision::Confusion()) {
+            return;
+        }
+
+        // 2. 构造一条射线 (Ray)
+        gp_Lin ray(p1, dir);
+
+        // 3. 构造草图所在的平面 (Plane)
+        gp_Pln pln(m_sketchCS);
+
+        // 4. 计算射线与平面的交点 (Intersection)
+        Standard_Real u_param, v_param;
+        IntAna_IntConicQuad intersection(ray, pln, Precision::Angular(), Precision::Confusion());
+        if (intersection.IsDone() && intersection.NbPoints() > 0) {
+            gp_Pnt pt = intersection.Point(1); // 获取 3D 交点
+            ElSLib::Parameters(pln, pt, u_param, v_param); // 将 3D 交点转换为平面的 2D (U, V) 坐标
+            u = u_param;
+            v = v_param;
+        }
     }
 
 

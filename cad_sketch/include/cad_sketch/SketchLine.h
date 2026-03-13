@@ -11,7 +11,7 @@ public:
     SketchLine(const SketchPointPtr& startPoint, const SketchPointPtr& endPoint);
     SketchLine(double x1, double y1, double x2, double y2);
     virtual ~SketchLine() = default;
-
+    void Translate(double dx, double dy) override;
     const SketchPointPtr& GetStartPoint() const;
     const SketchPointPtr& GetEndPoint() const;
     void SetStartPoint(const SketchPointPtr& point);

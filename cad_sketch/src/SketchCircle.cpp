@@ -45,6 +45,11 @@ double SketchCircle::GetArea() const {
     return M_PI * m_radius * m_radius;
 }
 
+void SketchCircle::Translate(double dx, double dy) {
+    m_center->Translate(dx, dy);
+    // 半径不变
+}
+
 std::string SketchCircle::GetDescription() const {
     std::ostringstream oss;
     oss << "Circle (Radius: " << m_radius << ")";

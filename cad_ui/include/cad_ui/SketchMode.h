@@ -223,6 +223,8 @@ namespace cad_ui {
 
         // 获取草图的上下文数据 (Context Data)
         const cad_sketch::SketchPtr& GetCurrentSketch() const { return m_currentSketch; }
+        // 获取草图的局部坐标系 (Coordinate System)
+        const gp_Ax3& GetSketchCS() const { return m_sketchCS; }
         const gp_Pln& GetSketchPlane() const { return m_sketchPlane; }
         const gp_Ax3& GetSketchCoordinateSystem() const { return m_sketchCS; }
         const TopoDS_Face& GetSketchFace() const { return m_sketchFace; }
@@ -269,6 +271,13 @@ namespace cad_ui {
         gp_Pln m_sketchPlane;                  // 提取出的数学平面 (Mathematical Plane)
         gp_Ax3 m_sketchCS;                     // 局部坐标系 (Local Coordinate System, LCS)
         
+        // 拖拽状态变量 
+        bool m_isDragging = false;          // 是否正在拖拽
+        double m_lastDragU = 0.0;           // 上一帧的 U (X) 坐标
+        double m_lastDragV = 0.0;           // 上一帧的 V (Y) 坐标
+        std::vector<cad_sketch::SketchElementPtr> m_draggedElements; // 正在被拖拽的元素
+        std::vector<cad_sketch::SketchElementPtr> m_dragStartSnapshot; // 记录拖拽前的状态(用于Undo)
+
         // 历史操作记录结构体 (History Operation Record)
         struct SketchHistoryStep {
             enum ActionType { ADD, REMOVE };
@@ -298,6 +307,8 @@ namespace cad_ui {
         void SetupSketchView();
         void RestoreView();
         void CreateSketchCoordinateSystem();
+        // 坐标转换辅助函数
+        void GetPlaneCoordinate(const QPoint& screenPos, double& u, double& v);
         gp_Pln ExtractPlaneFromFace(const TopoDS_Face& face);
     };
 

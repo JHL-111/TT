@@ -11,7 +11,7 @@ public:
     SketchCircle(const SketchPointPtr& center, double radius);
     SketchCircle(double centerX, double centerY, double radius);
     virtual ~SketchCircle() = default;
-
+    void Translate(double dx, double dy) override;
     const SketchPointPtr& GetCenter() const;
     void SetCenter(const SketchPointPtr& center);
     

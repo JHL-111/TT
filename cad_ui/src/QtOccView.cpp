@@ -518,12 +518,13 @@ void QtOccView::mousePressEvent(QMouseEvent* event) {
     if (IsInSketchMode()) {
         if (HasActiveSketchTool()) {
             m_sketchMode->HandleMousePress(event);
-            return; 
+            return;
         }
 
-        // 如果当前没有画图工具，只允许左键进行选择 (不允许 3D 旋转视角)
+        // 如果当前没有画图工具，先执行选择，然后再触发拖拽判定
         if (event->button() == Qt::LeftButton) {
-            HandleSelection(event->pos());
+            HandleSelection(event->pos());         // 1. 先判断并选中目标（变成蓝线）
+            m_sketchMode->HandleMousePress(event); // 2. 通知 SketchMode 开启拖拽状态！
         }
         return;
     }
@@ -613,6 +614,7 @@ void QtOccView::mouseReleaseEvent(QMouseEvent* event) {
     
     Q_UNUSED(event);
     m_currentMouseButton = Qt::NoButton;
+    
 }
 
 void QtOccView::wheelEvent(QWheelEvent* event) {
@@ -1303,6 +1305,10 @@ void QtOccView::EnterSketchMode(const TopoDS_Face& face) {
     try {
         if (m_sketchMode->EnterSketchMode(face)) {
             qDebug() << "Successfully entered sketch mode";
+            if (!m_context.IsNull()) {
+                m_context->ClearSelected(Standard_False);
+                m_context->Deactivate();   // 禁用普通模型选择
+            }
             emit SketchModeEntered();
         } else {
             qDebug() << "Failed to enter sketch mode";
@@ -1575,6 +1581,32 @@ void QtOccView::RemoveSketchElements(const std::vector<cad_sketch::SketchElement
         }
     }
     m_context->UpdateCurrentViewer(); // 刷新屏幕
+}
+
+// 移动元素后的刷新
+void QtOccView::UpdateSketchElementVisuals(const cad_sketch::SketchElementPtr& elem) {
+    if (m_context.IsNull() || !m_sketchMode) return;
+
+    // 遍历映射表，找到该数据对应的 AIS 渲染对象
+    for (const auto& pair : m_sketchElementMap) {
+        if (pair.second == elem) {
+            Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(pair.first);
+            if (!aisShape.IsNull()) {
+                // 重新生成新的拓扑形状
+                TopoDS_Shape newShape = MakeShapeFromSketchElement(elem, m_sketchMode->GetSketchCS());
+                aisShape->SetShape(newShape);
+                m_context->Redisplay(aisShape, Standard_False); // 更新红色本体
+
+                // 如果这个对象当前正好被选中（也就是我们正在拖拽它），同时更新蓝色高亮克隆体
+                if (m_currentSelectedAIS == pair.first && !m_sketchHighlightAIS.IsNull()) {
+                    m_sketchHighlightAIS->SetShape(newShape);
+                    m_context->Redisplay(m_sketchHighlightAIS, Standard_False); // 更新蓝色高亮
+                }
+            }
+            break;
+        }
+    }
+    m_view->Redraw(); // 强制刷新屏幕
 }
 
 void QtOccView::ClearSketchElementMap() {

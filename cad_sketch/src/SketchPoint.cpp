@@ -43,6 +43,11 @@ void SketchPoint::SetXY(double x, double y) {
     m_point.SetXYZ(x, y, 0);
 }
 
+void SketchPoint::Translate(double dx, double dy) {
+    m_point.SetX(m_point.X() + dx);
+    m_point.SetY(m_point.Y() + dy);
+}
+
 std::string SketchPoint::GetDescription() const {
     std::ostringstream oss;
     oss << "Point (" << GetX() << ", " << GetY() << ")";

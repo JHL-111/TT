@@ -11,7 +11,7 @@ public:
     SketchArc(const SketchPointPtr& center, double radius, double startAngle, double endAngle);
     SketchArc(double centerX, double centerY, double radius, double startAngle, double endAngle);
     virtual ~SketchArc() = default;
-
+    void Translate(double dx, double dy) override;
     const SketchPointPtr& GetCenter() const;
     void SetCenter(const SketchPointPtr& center);
     

@@ -18,6 +18,8 @@ public:
     SketchElement(SketchElementType type);
     virtual ~SketchElement() = default;
 
+    virtual void Translate(double dx, double dy) = 0; // 平移接口
+
     SketchElementType GetType() const;
     int GetId() const;
     void SetId(int id);

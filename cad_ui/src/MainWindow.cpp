@@ -2332,7 +2332,7 @@ void MainWindow::OnSketchModeEntered() {
     m_sketchArcAction->setEnabled(true);
 
     // Reset selection mode
-    m_viewer->SetSelectionMode(0);  // Shape selection mode
+    //m_viewer->SetSelectionMode(0);  // Shape selection mode
     
     statusBar()->showMessage(QString("Entered the sketch mode - Select the drawing tool to start drawing"));
     
@@ -2350,6 +2350,8 @@ void MainWindow::OnSketchModeExited() {
     m_sketchLineAction->setEnabled(false); 
     m_sketchCircleAction->setEnabled(false); 
     m_sketchArcAction->setEnabled(false);
+
+    m_viewer->SetSelectionMode(0);
 
     // Reset any waiting states
     m_waitingForFaceSelection = false;
