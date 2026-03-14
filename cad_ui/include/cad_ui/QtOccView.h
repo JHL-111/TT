@@ -147,6 +147,9 @@ public:
     // 获取当前草图所在的基准面
     TopoDS_Face GetSketchFace() const;
 
+    // 获取底层真正被选中的子形状 (比如选面模式下的那个具体的面)
+    TopoDS_Shape GetSelectedSubShape() const;
+
     // 进入和退出拉伸专用选择模式
     void EnterExtrudeSelectionMode(std::shared_ptr<cad_sketch::Sketch> sketch);
     void ExitExtrudeSelectionMode();

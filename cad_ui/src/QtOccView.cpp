@@ -1629,6 +1629,16 @@ TopoDS_Face QtOccView::GetSketchFace() const {
     return TopoDS_Face(); // 如果草图模式未初始化，返回一个空的面
 }
 
+TopoDS_Shape QtOccView::GetSelectedSubShape() const {
+    if (!m_context.IsNull()) {
+        m_context->InitSelected();
+        if (m_context->MoreSelected() && m_context->HasSelectedShape()) {
+            return m_context->SelectedShape(); // 返回精确选中的 Face / Edge 等
+        }
+    }
+    return TopoDS_Shape();
+}
+
 void QtOccView::ClearSketchElementMap() {
     m_sketchElementMap.clear();
 }
