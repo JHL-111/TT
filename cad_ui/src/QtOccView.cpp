@@ -34,7 +34,7 @@
 #include <Geom_CartesianPoint.hxx>
 #include <Aspect_TypeOfMarker.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
-
+#include "cad_ui/SketchMode.h"
 
 #ifdef _WIN32
 #include <WNT_Window.hxx>
@@ -1308,6 +1308,15 @@ void QtOccView::EnterSketchMode(const TopoDS_Face& face) {
             if (!m_context.IsNull()) {
                 m_context->ClearSelected(Standard_False);
                 m_context->Deactivate();   // 禁用普通模型选择
+                // 重新启用当前草图元素的选择能力
+                for (const auto& obj : m_sketchObjects) {
+                    if (!obj.IsNull()) {
+                        m_context->SetSelectionModeActive(obj, 0, Standard_True);
+                    }
+                }
+
+                // 草图模式下默认按单对象选择处理
+                m_currentSelectionMode = 0;
             }
             emit SketchModeEntered();
         } else {
@@ -1607,6 +1616,17 @@ void QtOccView::UpdateSketchElementVisuals(const cad_sketch::SketchElementPtr& e
         }
     }
     m_view->Redraw(); // 强制刷新屏幕
+}
+
+std::shared_ptr<cad_sketch::Sketch> QtOccView::GetActiveSketch() const {
+    return m_sketchMode ? m_sketchMode->GetCurrentSketch() : nullptr;
+}
+
+TopoDS_Face QtOccView::GetSketchFace() const {
+    if (m_sketchMode) {
+        return m_sketchMode->GetSketchFace(); // 调用在 SketchMode 中加好的接口
+    }
+    return TopoDS_Face(); // 如果草图模式未初始化，返回一个空的面
 }
 
 void QtOccView::ClearSketchElementMap() {

@@ -5,7 +5,9 @@
 
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
 #include <TopoDS_Wire.hxx>
+#include <TopoDS_Face.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Ax2.hxx>
@@ -184,5 +186,22 @@ TopoDS_Wire Sketch::GetProfileWire() const {
     return wireMaker.Wire();
 }
 
+TopoDS_Face Sketch::GetProfileFace() const {
+    // 1. 获取吸附点自然生成的线框 
+    TopoDS_Wire wire = GetProfileWire();
+
+    // 2. 如果没有生成线框，或者线框根本没闭合，直接拒绝生成面
+    if (wire.IsNull() || !wire.Closed()) {
+        return TopoDS_Face();
+    }
+
+    // 3. 将闭合线框生成平面 
+    BRepBuilderAPI_MakeFace faceMaker(wire, true);
+    if (faceMaker.IsDone()) {
+        return faceMaker.Face();
+    }
+
+    return TopoDS_Face();
+}
 
 } // namespace cad_sketch

@@ -400,7 +400,7 @@ namespace cad_ui {
         if (face.IsNull() || !m_viewer) return false;
 
         try {
-            // 1. 备份当前 3D 视口的摄像机状态 (Camera State Backup)
+            // 1. 备份当前 3D 视口状态
             if (!m_viewer->GetView().IsNull()) {
                 Handle(Graphic3d_Camera) camera = m_viewer->GetView()->Camera();
                 if (!camera.IsNull()) {
@@ -419,11 +419,16 @@ namespace cad_ui {
             m_undoStack.clear();
             m_redoStack.clear();
 
-            // 3. 实例化草图数据模型 (Data Model)
-            m_currentSketch = std::make_shared<cad_sketch::Sketch>("Sketch_001");
+            // 3. 如果有未销毁的草图数据则复用，否则才实例化
+            if (!m_currentSketch) {
+                m_currentSketch = std::make_shared<cad_sketch::Sketch>("Sketch_001");
+            }
 
-            // 4. 将摄像机切换到正交的草图视角 (Orthographic Sketch View)
+            // 4. 将摄像机切换到正交的草图视角
             SetupSketchView();
+
+            // 重新进入时，立刻刷新视口，显示已存在的草图元素
+            RefreshSketchView();
 
             if (m_viewer) m_viewer->HighlightSketchFace(face);
             emit sketchModeEntered();
@@ -442,9 +447,7 @@ namespace cad_ui {
         // 恢复摄像机视角 
         RestoreView();
 
-        // 清理并重置数据
-        m_currentSketch.reset();
-        m_sketchFace = TopoDS_Face();
+        // 清理并数据
         m_isActive = false;
         m_viewer->ClearSketchFaceHighlight();
         emit sketchModeExited();

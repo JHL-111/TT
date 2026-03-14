@@ -17,6 +17,9 @@
 #include <memory>            // 智能指针 
 #include <string>            // 字符串 
 #include <gp_Ax3.hxx>
+#include <TopoDS_Wire.hxx>
+#include <TopoDS_Face.hxx>
+
 
 namespace cad_sketch {
 
@@ -170,6 +173,13 @@ public:
      * * @return TopoDS_Wire 拓扑线框。如果草图为空或缝合失败，可能返回一个空的 Wire。
      */
     TopoDS_Wire GetProfileWire() const;
+
+    /** * 获取草图生成的闭合面 (Get Profile Face)
+     * 检测线框是否闭合，如果闭合则生成一个平面，用于后续高亮检测或拉伸
+     * @return TopoDS_Face 拓扑面。如果不闭合则返回空的 Face
+     */
+    TopoDS_Face GetProfileFace() const;
+
 
 private:
     /** 草图名称 */

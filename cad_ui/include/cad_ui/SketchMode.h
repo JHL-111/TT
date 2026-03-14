@@ -221,13 +221,15 @@ namespace cad_ui {
         bool CanUndo() const { return !m_undoStack.empty(); }
         bool CanRedo() const { return !m_redoStack.empty(); }
 
-        // 获取草图的上下文数据 (Context Data)
+        // 获取草图的保存数据 (Context Data)
         const cad_sketch::SketchPtr& GetCurrentSketch() const { return m_currentSketch; }
+        const TopoDS_Face& GetSketchFace() const { return m_sketchFace; }
+
         // 获取草图的局部坐标系 (Coordinate System)
         const gp_Ax3& GetSketchCS() const { return m_sketchCS; }
         const gp_Pln& GetSketchPlane() const { return m_sketchPlane; }
         const gp_Ax3& GetSketchCoordinateSystem() const { return m_sketchCS; }
-        const TopoDS_Face& GetSketchFace() const { return m_sketchFace; }
+        
 
         // 绘图工具控制 (Tool Control)
         void StartRectangleTool();

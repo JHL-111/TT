@@ -12,8 +12,14 @@
 #include "cad_core/SelectionManager.h"
 #include "cad_ui/CreateExtrudeDialog.h"
 #include "cad_feature/ExtrudeFeature.h"
-#include <TopoDS.hxx>
 
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <BRep_Tool.hxx>
+#include <GeomLProp_SLProps.hxx>
+#include <BRepTools.hxx>
+#include <TopoDS.hxx>
 #include <iostream>
 #include <QApplication>
 #include <QFileDialog>
@@ -1324,52 +1330,107 @@ void MainWindow::OnCreateSphere() {
 }
 
 void MainWindow::OnCreateExtrude() {
-    // 1. 检查当前是否在草图模式中，或者是否选中了有效草图
-    // (这里的 m_viewer->GetActiveSketch() 是伪代码，你需要根据你的 QtOccView 实际接口来获取当前画好的草图数据)
-    /* auto currentSketch = m_viewer->GetActiveSketch();
-    if (!currentSketch || currentSketch->IsEmpty()) {
-        QMessageBox::warning(this, "Extrude", "Please create or select a closed sketch first.");
+    // 如果对话框已经在选区域了，直接获取焦点
+    if (m_currentExtrudeDialog) {
+        m_currentExtrudeDialog->activateWindow();
         return;
     }
-    */
 
-    // 2. 弹出拉伸参数对话框
-    CreateExtrudeDialog dialog(this);
-    if (dialog.exec() == QDialog::Accepted) {
-        double distance = dialog.GetDistance();
+    // 1. 进入【第一阶段】：等待选择基准面 (Waiting for Base Face)
+    m_waitingForExtrudeBaseFace = true;
 
-        // 3. 开启 OCAF 事务，准备生成 3D 实体
-        m_ocafManager->StartTransaction("Create Extrude");
+    // 强制切换为选面模式 (TopAbs_FACE)
+    m_viewer->SetSelectionMode(4);
+    if (m_selectionModeCombo) {
+        m_selectionModeCombo->setCurrentIndex(1); // UI 联动显示 Select Face
+    }
 
-        // 4. 实例化拉伸特征
-        auto extrudeFeature = std::make_shared<cad_feature::ExtrudeFeature>();
-        extrudeFeature->SetDistance(distance);
-        // extrudeFeature->SetSketch(currentSketch); // 把获取到的草图传给特征
+    // 此时不弹对话框，只在状态栏提示用户
+    statusBar()->showMessage("Select a base face with sketch elements");
+}
 
-        // 调用我们刚才在 ExtrudeFeature.cpp 里实现的拉伸逻辑
-        auto shape = extrudeFeature->CreateShape();
+void MainWindow::OnExtrudeRequested(cad_core::ShapePtr baseShape, double distance) {
+    if (!baseShape) return;
 
-        if (shape && shape->IsValid()) {
-            // 5. 将生成的实体加入文档树和 3D 视图
-            if (m_ocafManager->AddShape(shape, "Extrusion")) {
-                m_viewer->DisplayShape(shape);
-                m_documentTree->AddShape(shape);
+    m_ocafManager->StartTransaction("Create Extrude");
 
-                m_ocafManager->CommitTransaction();
-                SetDocumentModified(true);
-                UpdateActions();
+    try {
+        TopoDS_Shape topoShape = baseShape->GetOCCTShape();
+        TopoDS_Face profileFace;
+        gp_Dir extrudeNormal(0, 0, 1);
+
+        // 识别选中的是线框还是平面
+        if (topoShape.ShapeType() == TopAbs_WIRE || topoShape.ShapeType() == TopAbs_EDGE) {
+            BRepBuilderAPI_MakeWire wireMaker;
+            if (topoShape.ShapeType() == TopAbs_EDGE) {
+                wireMaker.Add(TopoDS::Edge(topoShape));
             }
             else {
-                m_ocafManager->AbortTransaction();
-                QMessageBox::warning(this, "Error", "Failed to add extrusion to document.");
+                wireMaker.Add(TopoDS::Wire(topoShape));
             }
+            if (!wireMaker.IsDone() || !wireMaker.Wire().Closed()) {
+                throw std::runtime_error("Sketch profile is not closed!");
+            }
+            BRepBuilderAPI_MakeFace faceMaker(wireMaker.Wire(), true);
+            if (!faceMaker.IsDone()) throw std::runtime_error("Failed to make face from profile.");
+            profileFace = faceMaker.Face();
+        }
+        else if (topoShape.ShapeType() == TopAbs_FACE) {
+            profileFace = TopoDS::Face(topoShape);
         }
         else {
-            m_ocafManager->AbortTransaction();
-            // 如果生成失败，大概率是因为上一步草图没闭合！
-            QMessageBox::warning(this, "Error", "Extrusion failed. Please check if the sketch profile is closed.");
+            throw std::runtime_error("Please select a Face or closed Wire.");
+        }
+
+        // 计算法线 (Normal Calculation)
+        Handle(Geom_Surface) surface = BRep_Tool::Surface(profileFace);
+        Standard_Real uMin, uMax, vMin, vMax;
+        BRepTools::UVBounds(profileFace, uMin, uMax, vMin, vMax);
+        Standard_Real uMid = (uMin + uMax) / 2.0;
+        Standard_Real vMid = (vMin + vMax) / 2.0;
+        GeomLProp_SLProps props(surface, uMid, vMid, 1, Precision::Confusion());
+
+        if (props.IsNormalDefined()) {
+            extrudeNormal = props.Normal();
+            if (profileFace.Orientation() == TopAbs_REVERSED) extrudeNormal.Reverse();
+        }
+
+        // 执行 3D 拉伸 (Make Prism)
+        gp_Vec extrudeVec(extrudeNormal.XYZ() * distance);
+        BRepPrimAPI_MakePrism prismMaker(profileFace, extrudeVec);
+        if (!prismMaker.IsDone()) throw std::runtime_error("Extrusion geometry failed!");
+
+        // 添加到模型树
+        auto resultShape = std::make_shared<cad_core::Shape>(prismMaker.Shape());
+        if (m_ocafManager->AddShape(resultShape, "Extrusion")) {
+            m_viewer->DisplayShape(resultShape);
+            m_documentTree->AddShape(resultShape);
+            m_ocafManager->CommitTransaction();
+            SetDocumentModified(true);
+            UpdateActions();
+        }
+        else {
+            throw std::runtime_error("Failed to add shape to document.");
         }
     }
+    catch (const std::exception& e) {
+        m_ocafManager->AbortTransaction();
+        QMessageBox::warning(this, "Extrude Error", e.what());
+    }
+
+    // 成功执行完毕后，不需要手动调 OnExtrudeDialogClosed，
+    // 因为对话框会在 accept() 后自动触发 closeEvent 来清理！
+}
+
+void MainWindow::OnExtrudeDialogClosed() {
+    // 无论拉伸成功还是中途取消，都会销毁临时用于高亮的面
+    for (auto& tempShape : m_tempExtrudeProfiles) {
+        if (tempShape) m_viewer->RemoveShape(tempShape);
+    }
+    m_tempExtrudeProfiles.clear();
+    m_currentExtrudeDialog = nullptr;
+    m_waitingForExtrudeBaseFace = false;
+    statusBar()->showMessage("Extrude mode closed.");
 }
 
 void MainWindow::OnDarkTheme() {
@@ -1799,6 +1860,76 @@ void MainWindow::OnSelectionModeChanged(bool enabled, const QString& prompt) {
 }
 
 void MainWindow::OnObjectSelected(const cad_core::ShapePtr& shape) {
+    if (!shape) return;
+
+    // 如果我们正在寻找拉伸的基准面
+    if (m_waitingForExtrudeBaseFace) {
+        TopoDS_Shape topoShape = shape->GetOCCTShape();
+
+        if (topoShape.ShapeType() == TopAbs_FACE) {
+            TopoDS_Face selectedFace = TopoDS::Face(topoShape);
+
+            // 获取当前的草图管理模式，检查草图是否在这个面上
+            bool isCorrectFace = false;
+            auto sketch = m_viewer->GetActiveSketch();
+
+            if (sketch && !sketch->IsEmpty()) {
+                // 直接向 Viewer 要 SketchFace
+                TopoDS_Face sketchFace = m_viewer->GetSketchFace();
+
+                // 确保返回的面不为空，并且与用户点击的面是同一个
+                if (!sketchFace.IsNull() && selectedFace.IsSame(sketchFace)) {
+                    isCorrectFace = true;
+                }
+            }
+
+            if (isCorrectFace) {
+                // 校验成功！进入【第二阶段】：加载轮廓并弹窗
+                m_waitingForExtrudeBaseFace = false;
+
+                // 1. "复制"一份临时面显示出来，用于高亮检测 (Highlight Detection)
+                m_tempExtrudeProfiles.clear();
+                TopoDS_Face profileFace = sketch->GetProfileFace();
+                if (!profileFace.IsNull()) {
+                    auto tempShape = std::make_shared<cad_core::Shape>(profileFace);
+                    m_viewer->DisplayShape(tempShape);
+                    m_viewer->SetShapeTransparency(tempShape, 0.5);
+                    m_tempExtrudeProfiles.push_back(tempShape);
+                }
+
+                // 2. 将摄像头视角摆正对齐到这个面 (Camera Auto-Align)
+                Handle(Geom_Surface) surface = BRep_Tool::Surface(selectedFace);
+                Standard_Real uMin, uMax, vMin, vMax;
+                BRepTools::UVBounds(selectedFace, uMin, uMax, vMin, vMax);
+                GeomLProp_SLProps props(surface, (uMin + uMax) / 2.0, (vMin + vMax) / 2.0, 1, Precision::Confusion());
+
+                if (props.IsNormalDefined()) {
+                    gp_Dir normal = props.Normal();
+                    if (selectedFace.Orientation() == TopAbs_REVERSED) normal.Reverse();
+                    if (!m_viewer->GetView().IsNull()) {
+                        m_viewer->GetView()->SetProj(normal.X(), normal.Y(), normal.Z());
+                        m_viewer->GetView()->FitAll();
+                        m_viewer->GetView()->Redraw();
+                    }
+                }
+
+                // 3. 弹出拉伸对话框 (Show Dialog)
+                m_currentExtrudeDialog = new CreateExtrudeDialog(this);
+                connect(m_currentExtrudeDialog, &CreateExtrudeDialog::extrudeRequested, this, &MainWindow::OnExtrudeRequested);
+                connect(m_currentExtrudeDialog, &CreateExtrudeDialog::dialogClosed, this, &MainWindow::OnExtrudeDialogClosed);
+                m_currentExtrudeDialog->show();
+
+                statusBar()->showMessage("Select profile to extrude");
+            }
+            else {
+                // 如果用户点的面没有草图，拒绝并要求重选
+                statusBar()->showMessage("Error: There are no drawn sketch elements on this surface. Please select a different surface.！");
+            }
+        }
+        return; // 结束处理，不要把面传给后面的逻辑
+    }
+    
+    
     // Forward selection to the active dialog
     if (m_currentBooleanDialog) {
         m_currentBooleanDialog->onObjectSelected(shape);
@@ -1809,6 +1940,8 @@ void MainWindow::OnObjectSelected(const cad_core::ShapePtr& shape) {
     if (m_currentTransformDialog) {
         m_currentTransformDialog->onObjectSelected(shape);
     }
+    // 如果 拉伸 对话框开着，把选中的形状传给它
+    if (m_currentExtrudeDialog) m_currentExtrudeDialog->SetSelectedShape(shape);
 }
 
 void MainWindow::OnBooleanOperationRequested(BooleanOperationType type, 
@@ -2233,8 +2366,23 @@ void MainWindow::OnExitSketchMode() {
     if (!m_viewer || !m_viewer->IsInSketchMode()) {
         return;
     }
-    
+
+    // 退出草图模式视图状态
     m_viewer->ExitSketchMode();
+
+    // 更新 UI 状态
+    m_enterSketchAction->setEnabled(true);
+    m_exitSketchAction->setEnabled(false);
+    m_sketchRectangleAction->setEnabled(false);
+    m_sketchPointAction->setEnabled(false);
+    m_sketchLineAction->setEnabled(false);
+    m_sketchCircleAction->setEnabled(false);
+    m_sketchArcAction->setEnabled(false);
+
+    m_viewer->SetSelectionMode(0); // 恢复 Shape 选取模式
+    m_waitingForFaceSelection = false;
+    statusBar()->showMessage("Sketch mode exited.");
+    UpdateActions();
 }
 
 // 草图工具槽函数

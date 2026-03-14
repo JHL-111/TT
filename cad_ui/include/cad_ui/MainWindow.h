@@ -29,6 +29,7 @@
 #include "FilletChamferDialog.h"
 #include "TransformOperationDialog.h"
 #include "FaceSelectionDialog.h"
+#include "CreateExtrudeDialog.h"
 #include "cad_core/CommandManager.h"
 #include "cad_core/OCAFManager.h"
 #include "cad_core/TransformCommand.h"
@@ -159,7 +160,9 @@ private slots:
     void OnTransformOperationRequested(std::shared_ptr<cad_core::TransformCommand> command);
     void OnTransformPreviewRequested(std::shared_ptr<cad_core::TransformCommand> command);
     void OnTransformResetRequested();
-    
+    void OnExtrudeRequested(cad_core::ShapePtr baseShape, double distance);
+    void OnExtrudeDialogClosed();
+
     // 选择模式组合框
     void OnSelectionModeComboChanged(int index);
     
@@ -235,6 +238,11 @@ private:
     bool SaveChanges();
     void SetDocumentModified(bool modified);
     
+    CreateExtrudeDialog* m_currentExtrudeDialog = nullptr;
+    std::vector<cad_core::ShapePtr> m_tempExtrudeProfiles; // 存放临时的草图高亮面
+    // 状态标志位 (State Flag)
+    bool m_waitingForExtrudeBaseFace = false;
+
     // Actions
     QAction* m_newAction;
     QAction* m_openAction;

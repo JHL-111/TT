@@ -9,7 +9,7 @@
 #include <map>
 #include <memory>
 #include <vector>
-
+#include <TopoDS_Face.hxx>
 #include <gp_Ax3.hxx>
 #include <V3d_View.hxx>
 #include <V3d_Viewer.hxx>
@@ -21,6 +21,7 @@
 
 #include "cad_core/Shape.h"
 #include "cad_core/SelectionManager.h"
+#include "cad_sketch/Sketch.h"
 #include "cad_sketch/SketchLine.h"
 #include "cad_sketch/SnappingManager.h"
 
@@ -133,11 +134,26 @@ public:
 
 	// 获取选中的草图元素
     std::vector<cad_sketch::SketchElementPtr> GetSelectedSketchElements(); // 获取选中的草图元素
+
     void RemoveSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements); // 从视图中移除
     void ClearSketchElementMap(); // 清空映射表
 
     // 移动刷新草图元素
     void UpdateSketchElementVisuals(const cad_sketch::SketchElementPtr& elem);
+
+    // 获取当前活跃的草图
+    std::shared_ptr<cad_sketch::Sketch> GetActiveSketch() const;
+
+    // 获取当前草图所在的基准面
+    TopoDS_Face GetSketchFace() const;
+
+    // 进入和退出拉伸专用选择模式
+    void EnterExtrudeSelectionMode(std::shared_ptr<cad_sketch::Sketch> sketch);
+    void ExitExtrudeSelectionMode();
+
+    // 在拉伸模式下，获取用户最终选中的几何体 (面或线)
+    cad_core::ShapePtr GetExtrudeSelectedProfile();
+
 
 signals:
     void ShapeSelected(const cad_core::ShapePtr& shape);
@@ -172,7 +188,7 @@ private:
     Handle(AIS_InteractiveContext) m_context;
     Handle(Graphic3d_GraphicDriver) m_driver;
     Handle(AIS_InteractiveObject) m_previewFaceAIS;
-
+    
     QPoint m_lastMousePos;
     Qt::MouseButton m_currentMouseButton;
     bool m_isInitialized;
@@ -223,6 +239,9 @@ private:
     void InitializeOCC();
     void RedrawView();
     void HandleSelection(const QPoint& point);
+
+	// 拉伸选择模式相关
+    Handle(AIS_Shape) m_tempExtrudeProfile;
 
  public slots:
      void ShowOpFace(int faceIndex);
