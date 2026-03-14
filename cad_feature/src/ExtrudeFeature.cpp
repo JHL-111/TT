@@ -1,6 +1,7 @@
 ﻿#include "cad_feature/ExtrudeFeature.h"
 #include "cad_core/CreateBoxCommand.h"
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
 #include <gp_Vec.hxx>
 
 namespace cad_feature {
@@ -105,25 +106,57 @@ bool ExtrudeFeature::IsSketchValid() const {
 }
 
 cad_core::ShapePtr ExtrudeFeature::ExtrudeSketch() const {
+    // 1. 检查草图是否有效
     if (!IsSketchValid()) {
         return nullptr;
     }
-    
+
     try {
-        // In a real implementation, this would:
-        // 1. Convert sketch elements to OCCT wire/face
-        // 2. Create extrusion vector from direction and distance
-        // 3. Use BRepPrimAPI_MakePrism to create the solid
-        
-        // For now, return a simple box as placeholder
+        // 2. 获取我们在 Sketch.cpp 里写好的闭合线框 (Wire)
+        TopoDS_Wire profileWire = m_sketch->GetProfileWire();
+
+        // 3. 检查线框是否闭合 (Check if closed)
+        // 如果用户画的线没有首尾相连，这里就会拦截下来
+        if (profileWire.IsNull() || !profileWire.Closed()) {
+            // TODO: 未来可以在这里抛出异常或通过 UI 提示用户"草图未闭合"
+            return nullptr;
+        }
+
+        // 4. 将线框转化为平面 (Make Face)
+        BRepBuilderAPI_MakeFace faceMaker(profileWire);
+        if (!faceMaker.IsDone()) {
+            return nullptr;
+        }
+        TopoDS_Face profileFace = faceMaker.Face();
+
+        // 5. 获取拉伸的距离和方向 (Get Distance and Direction)
         double distance = GetDistance();
-        auto shape = std::make_shared<cad_core::Shape>();
-        
-        // Placeholder: create a simple box
-        // In real implementation, this would properly extrude the sketch
-        
-        return shape;
-    } catch (...) {
+        double dx, dy, dz;
+        GetDirection(dx, dy, dz);
+
+        // 构造拉伸向量 (Extrusion Vector)
+        gp_Vec extrudeVec(dx, dy, dz);
+        if (extrudeVec.Magnitude() > 1e-10) {
+            extrudeVec.Normalize(); // 归一化方向向量
+            extrudeVec *= distance; // 乘以拉伸距离
+        }
+        else {
+            // 如果方向没设置好，默认沿着 Z 轴拉伸
+            extrudeVec = gp_Vec(0, 0, distance);
+        }
+
+        // 6. 执行真正的 3D 拉伸 (Make Prism)
+        BRepPrimAPI_MakePrism prismMaker(profileFace, extrudeVec);
+        if (!prismMaker.IsDone()) {
+            return nullptr;
+        }
+
+        // 7. 将生成的 3D 实体 (Solid) 包装进你的 Shape 类中返回
+        return std::make_shared<cad_core::Shape>(prismMaker.Shape());
+
+    }
+    catch (...) {
+        // 捕获任何 OpenCASCADE 可能抛出的底层异常
         return nullptr;
     }
 }

@@ -10,6 +10,8 @@
 #include "cad_core/BooleanOperations.h"
 #include "cad_core/FilletChamferOperations.h"
 #include "cad_core/SelectionManager.h"
+#include "cad_ui/CreateExtrudeDialog.h"
+#include "cad_feature/ExtrudeFeature.h"
 #include <TopoDS.hxx>
 
 #include <iostream>
@@ -1322,7 +1324,52 @@ void MainWindow::OnCreateSphere() {
 }
 
 void MainWindow::OnCreateExtrude() {
-    QMessageBox::information(this, "Create Extrude", "Extrude feature creation not implemented yet");
+    // 1. 检查当前是否在草图模式中，或者是否选中了有效草图
+    // (这里的 m_viewer->GetActiveSketch() 是伪代码，你需要根据你的 QtOccView 实际接口来获取当前画好的草图数据)
+    /* auto currentSketch = m_viewer->GetActiveSketch();
+    if (!currentSketch || currentSketch->IsEmpty()) {
+        QMessageBox::warning(this, "Extrude", "Please create or select a closed sketch first.");
+        return;
+    }
+    */
+
+    // 2. 弹出拉伸参数对话框
+    CreateExtrudeDialog dialog(this);
+    if (dialog.exec() == QDialog::Accepted) {
+        double distance = dialog.GetDistance();
+
+        // 3. 开启 OCAF 事务，准备生成 3D 实体
+        m_ocafManager->StartTransaction("Create Extrude");
+
+        // 4. 实例化拉伸特征
+        auto extrudeFeature = std::make_shared<cad_feature::ExtrudeFeature>();
+        extrudeFeature->SetDistance(distance);
+        // extrudeFeature->SetSketch(currentSketch); // 把获取到的草图传给特征
+
+        // 调用我们刚才在 ExtrudeFeature.cpp 里实现的拉伸逻辑
+        auto shape = extrudeFeature->CreateShape();
+
+        if (shape && shape->IsValid()) {
+            // 5. 将生成的实体加入文档树和 3D 视图
+            if (m_ocafManager->AddShape(shape, "Extrusion")) {
+                m_viewer->DisplayShape(shape);
+                m_documentTree->AddShape(shape);
+
+                m_ocafManager->CommitTransaction();
+                SetDocumentModified(true);
+                UpdateActions();
+            }
+            else {
+                m_ocafManager->AbortTransaction();
+                QMessageBox::warning(this, "Error", "Failed to add extrusion to document.");
+            }
+        }
+        else {
+            m_ocafManager->AbortTransaction();
+            // 如果生成失败，大概率是因为上一步草图没闭合！
+            QMessageBox::warning(this, "Error", "Extrusion failed. Please check if the sketch profile is closed.");
+        }
+    }
 }
 
 void MainWindow::OnDarkTheme() {

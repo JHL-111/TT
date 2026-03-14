@@ -12,6 +12,7 @@ set(HEADERS
     include/cad_ui/ExportDialog.h
     include/cad_ui/AboutDialog.h
     include/cad_ui/CreatePrimitiveDialog.h
+    include/cad_ui/CreateExtrudeDialog.h
     include/cad_ui/BooleanOperationDialog.h
     include/cad_ui/FilletChamferDialog.h
     include/cad_ui/TransformOperationDialog.h
@@ -31,6 +32,7 @@ set(SOURCES
     src/ExportDialog.cpp
     src/AboutDialog.cpp
     src/CreatePrimitiveDialog.cpp
+    src/CreateExtrudeDialog.cpp
     src/BooleanOperationDialog.cpp
     src/FilletChamferDialog.cpp
     src/TransformOperationDialog.cpp

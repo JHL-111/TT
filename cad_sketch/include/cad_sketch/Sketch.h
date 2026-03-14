@@ -162,6 +162,15 @@ public:
      */
     int GetConstraintCount() const;
 
+    // ========== 3D 几何生成  ==========
+
+    /** * 获取草图轮廓线框 (Get Profile Wire)
+     * 遍历草图中的 2D 元素，将它们转换为 3D 空间（默认 XOY 平面）的边，
+     * 并尝试缝合成一个闭合线框，用于后续的拉伸等特征操作。
+     * * @return TopoDS_Wire 拓扑线框。如果草图为空或缝合失败，可能返回一个空的 Wire。
+     */
+    TopoDS_Wire GetProfileWire() const;
+
 private:
     /** 草图名称 */
     std::string m_name;
