@@ -987,6 +987,9 @@ void MainWindow::ConnectSignals() {
     // Document tree signals for selection synchronization
     connect(m_documentTree, &DocumentTree::ShapeSelected, this, &MainWindow::OnDocumentTreeShapeSelected);
     connect(m_documentTree, &DocumentTree::FeatureSelected, this, &MainWindow::OnDocumentTreeFeatureSelected);
+    connect(m_documentTree, &DocumentTree::ShapeDeleted, this, &MainWindow::OnDocumentTreeShapeDeleted);
+    connect(m_documentTree, &DocumentTree::ShapeVisibilityChanged, this, &MainWindow::OnDocumentTreeShapeVisibilityChanged);
+
 }
 
 void MainWindow::UpdateActions() {
@@ -1410,6 +1413,9 @@ void MainWindow::OnExtrudeRequested(cad_core::ShapePtr baseShape, double distanc
         if (m_ocafManager->AddShape(resultShape, "Extrusion")) {
             m_viewer->DisplayShape(resultShape);
             m_documentTree->AddShape(resultShape);
+            m_viewer->ClearSketchObjects();
+            m_viewer->ClearSketchProfiles();
+            m_viewer->ClearSelection();
             m_ocafManager->CommitTransaction();
             SetDocumentModified(true);
             UpdateActions();
@@ -1469,6 +1475,7 @@ void MainWindow::OnDocumentTreeShapeSelected(const cad_core::ShapePtr& shape) {
     if (m_viewer && shape) {
         m_viewer->SelectShape(shape);
         m_propertyPanel->SetShape(shape);
+        OnObjectSelected(shape);
     }
 }
 
@@ -1478,6 +1485,53 @@ void MainWindow::OnDocumentTreeFeatureSelected(const cad_feature::FeaturePtr& fe
         // Update property panel to show feature properties
         // This would require extending PropertyPanel to handle features
         qDebug() << "Feature selected:" << QString::fromStdString(feature->GetName());
+    }
+}
+
+void MainWindow::OnDocumentTreeShapeDeleted(const cad_core::ShapePtr& shape) {
+    if (!shape) return;
+
+    // 开启历史记录事务，这样删除操作也是可以撤销(Undo)的
+    m_ocafManager->StartTransaction("Delete Shape");
+
+    try {
+        // 1. 从底层的 OCAF 文档中删除数据
+        if (m_ocafManager->RemoveShape(shape)) {
+            // 2. 从 3D 视图中擦除画面
+            m_viewer->RemoveShape(shape);
+
+            // 提交历史记录
+            m_ocafManager->CommitTransaction();
+            SetDocumentModified(true);
+            UpdateActions();
+
+            // 如果恰好删除了正在选中的物体，清理一下属性面板和选中状态
+            m_viewer->ClearSelection();
+
+            statusBar()->showMessage("Shape deleted successfully", 2000);
+        }
+        else {
+            m_ocafManager->AbortTransaction();
+            QMessageBox::warning(this, "Error", "Failed to delete shape from OCAF document.");
+        }
+    }
+    catch (const std::exception& e) {
+        m_ocafManager->AbortTransaction();
+        QMessageBox::critical(this, "Error", QString("Exception during deletion: %1").arg(e.what()));
+    }
+}
+
+void MainWindow::OnDocumentTreeShapeVisibilityChanged(const cad_core::ShapePtr& shape, bool visible) {
+    if (m_viewer && shape) {
+        m_viewer->SetShapeVisibility(shape, visible);
+
+        // 在底部状态栏提示一下
+        if (visible) {
+            statusBar()->showMessage("Shape is now visible", 2000);
+        }
+        else {
+            statusBar()->showMessage("Shape is now hidden", 2000);
+        }
     }
 }
 

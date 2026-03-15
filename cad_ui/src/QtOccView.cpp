@@ -37,6 +37,12 @@
 #include "cad_core/Shape.h"
 #include <QMessageBox>
 #include <QApplication>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRep_Tool.hxx>
+#include <BRepTools.hxx>
+#include <GeomLProp_SLProps.hxx>
+#include <Precision.hxx>
+
 
 #ifdef _WIN32
 #include <WNT_Window.hxx>
@@ -148,10 +154,7 @@ bool QtOccView::InitViewer() {
         m_context->SetDisplayMode(AIS_Shaded, Standard_False);
         
         // 设置统一的高亮样式
-// 普通实体：Hover = Dynamic，Selected = Selected
-// 子形状（Face/Edge/Vertex）：Hover = LocalDynamic，Selected = LocalSelected
-
-// 1. 全局选中样式（普通实体点击后的状态）
+        // 1. 全局选中样式（普通实体点击后的状态）
         Handle(Prs3d_Drawer) selectedDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_Selected);
         if (!selectedDrawer.IsNull()) {
             selectedDrawer->SetColor(Quantity_NOC_RED);
@@ -267,7 +270,7 @@ void QtOccView::DisplayShape(const cad_core::ShapePtr& shape) {
     Handle(AIS_Shape) aisShape = new AIS_Shape(shape->GetOCCTShape());
     
     // Set shape properties for better visibility
-    aisShape->SetColor(Quantity_NOC_ORANGE);
+    aisShape->SetColor(Quantity_NOC_GRAY);
     aisShape->SetTransparency(0.0);
     
     m_context->Display(aisShape, Standard_False);
@@ -282,6 +285,31 @@ void QtOccView::DisplayShape(const cad_core::ShapePtr& shape) {
     
     // Force immediate rendering
     update();
+}
+
+void QtOccView::SetShapeVisibility(const cad_core::ShapePtr& shape, bool visible) {
+    if (!shape || m_context.IsNull()) return;
+
+    // 在映射表中找到这个 shape 对应的 AIS 显示对象
+    auto it = m_shapeToAIS.find(shape);
+    if (it != m_shapeToAIS.end()) {
+        Handle(AIS_Shape) aisShape = it->second;
+        if (!aisShape.IsNull()) {
+            if (visible) {
+                m_context->Display(aisShape, Standard_False); // 显示
+            }
+            else {
+                // 如果刚好是被选中的状态，先取消选中
+                if (m_currentSelectedAIS == aisShape) {
+                    m_context->SetSelected(aisShape, Standard_False);
+                    m_currentSelectedAIS.Nullify();
+                    m_currentSelectedShape.reset();
+                }
+                m_context->Erase(aisShape, Standard_False); // 隐藏 (Erase)
+            }
+            m_view->Redraw();
+        }
+    }
 }
 
 QPaintEngine* QtOccView::paintEngine() const
@@ -923,8 +951,20 @@ void QtOccView::ProcessShapeOrSketchSelection() {
     if (!selectedObj.IsNull()) {
         Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(selectedObj);
 
-        // --- 路线 A：点中的是草图元素 ---
-        if (m_sketchElementMap.find(selectedObj) != m_sketchElementMap.end()) {
+        // 点中的是草图闭合轮廓 
+        if (m_sketchProfileMap.find(selectedObj) != m_sketchProfileMap.end()) {
+            cad_core::ShapePtr profileShape = m_sketchProfileMap[selectedObj];
+
+            m_currentSelectedAIS = aisShape;
+            m_currentSelectedShape = profileShape;
+
+            // 关键：发射信号，这样 MainWindow 的 OnObjectSelected 就能接住它并传给拉伸对话框
+            emit ShapeSelected(profileShape);
+            qDebug() << "Sketch Profile selected natively.";
+        }
+
+        // 点中的是草图元素
+        else if (m_sketchElementMap.find(selectedObj) != m_sketchElementMap.end()) {
             // 先清掉旧的草图高亮覆盖层，避免重复叠加
             UnhighlightSketchElement();
 
@@ -932,7 +972,7 @@ void QtOccView::ProcessShapeOrSketchSelection() {
             m_sketchHighlightAIS = new AIS_Shape(aisShape->Shape());
             m_sketchHighlightAIS->SetColor(Quantity_NOC_BLUE1);
             m_sketchHighlightAIS->SetWidth(4.0);
-            m_sketchHighlightAIS->SetZLayer(Graphic3d_ZLayerId_Topmost);
+            m_sketchHighlightAIS->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
 
             // 仅显示覆盖层，不加入选中池
             m_context->Display(m_sketchHighlightAIS, Standard_False);
@@ -941,7 +981,7 @@ void QtOccView::ProcessShapeOrSketchSelection() {
             m_currentSelectedAIS = aisShape;
             qDebug() << "Sketch element selected natively and highlighted with overlay.";
         }
-        // --- 路线 B：点中的是普通 3D 实体 ---
+        // 点中的是普通 3D 实体
         else {
             cad_core::ShapePtr foundShape = nullptr;
             for (const auto& pair : m_shapeToAIS) {
@@ -1501,14 +1541,11 @@ void QtOccView::HighlightSketchFace(const TopoDS_Face& face) {
     drawer->FaceBoundaryAspect()->SetColor(Quantity_NOC_BLUE1); // 边界线用深蓝色
     drawer->FaceBoundaryAspect()->SetWidth(2.0);                // 稍微加粗
 
-    // 5. 为了防止与原模型发生严重的深度冲突，将其提至顶层
-    aisFace->SetZLayer(Graphic3d_ZLayerId_Topmost);
-
-    // 6. 显示并保存引用
+    // 5. 显示并保存引用
     m_context->Display(aisFace, Standard_False);
     m_context->Deactivate(aisFace);
     m_highlightedFace = aisFace;
-
+    aisFace->SetPolygonOffsets(Aspect_POM_Fill, 1.0f, -2.0f);
     m_view->Redraw();
 }
 
@@ -1549,7 +1586,7 @@ void QtOccView::AddSketchElements(const std::vector<cad_sketch::SketchElementPtr
         Handle(AIS_Shape) aisLine = new AIS_Shape(shape);
         aisLine->SetColor(Quantity_NOC_RED);
         aisLine->SetWidth(2.0);
-        aisLine->SetZLayer(Graphic3d_ZLayerId_Topmost);
+        aisLine->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
         m_context->Display(aisLine, Standard_False); 
         m_sketchElementMap[aisLine] = elem;
         m_sketchObjects.push_back(aisLine);
@@ -1786,19 +1823,45 @@ void QtOccView::RenderSketchProfiles(const std::vector<cad_sketch::SketchProfile
         TopoDS_Face face = profile->GetFace();
         if (face.IsNull()) continue;
 
-        Handle(AIS_Shape) aisFace = new AIS_Shape(face);
+        // ===== 1. 计算该 profile 面的法向 =====
+        Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+        if (surface.IsNull()) continue;
 
-        // 设置半透明的浅蓝色，让它看起来像闭合区域 (Closed region)
+        Standard_Real uMin, uMax, vMin, vMax;
+        BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
+        Standard_Real uMid = (uMin + uMax) * 0.5;
+        Standard_Real vMid = (vMin + vMax) * 0.5;
+
+        GeomLProp_SLProps props(surface, uMid, vMid, 1, Precision::Confusion());
+        if (!props.IsNormalDefined()) continue;
+
+        gp_Dir normal = props.Normal();
+        if (face.Orientation() == TopAbs_REVERSED) {
+            normal.Reverse();
+        }
+
+        // ===== 2. 只把“显示用的 face”微微抬起，避免和橙色底面共面闪烁 =====
+        const Standard_Real previewOffset = 0.1; // 可以在 0.05 ~ 0.2 之间试
+        gp_Trsf trsf;
+        trsf.SetTranslation(gp_Vec(normal) * previewOffset);
+
+        TopoDS_Shape liftedShape = BRepBuilderAPI_Transform(face, trsf, true).Shape();
+        TopoDS_Face liftedFace = TopoDS::Face(liftedShape);
+
+        Handle(AIS_Shape) aisFace = new AIS_Shape(liftedFace);
+
         aisFace->SetColor(Quantity_NOC_LIGHTSKYBLUE1);
         aisFace->SetTransparency(0.6);
         aisFace->SetDisplayMode(AIS_Shaded);
-
-        // 略微提升渲染层级，避免与草图底面产生深度冲突 (Z-fighting)
-        aisFace->SetZLayer(Graphic3d_ZLayerId_Topmost);
-
+        aisFace->SetPolygonOffsets(Aspect_POM_Fill, 1.0f, -4.0f); // 比现在再强一点
         m_context->Display(aisFace, Standard_False);
         m_sketchProfileObjects.push_back(aisFace);
+
+        // ===== 3. 映射仍然保存“原始 face”，拉伸时用原始 profile =====
+        cad_core::ShapePtr profileShape = std::make_shared<cad_core::Shape>(face);
+        m_sketchProfileMap[aisFace] = profileShape;
     }
+
     m_view->Redraw();
 }
 
@@ -1809,6 +1872,7 @@ void QtOccView::ClearSketchProfiles() {
         m_context->Remove(obj, Standard_False);
     }
     m_sketchProfileObjects.clear();
+    m_sketchProfileMap.clear(); // 清空映射表防止内存泄漏或野指针
     m_view->Redraw();
 }
 

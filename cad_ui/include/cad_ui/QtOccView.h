@@ -55,6 +55,8 @@ public:
     void RemoveShape(const cad_core::ShapePtr& shape);
     void ClearShapes();
     void RedrawAll();
+    // 切换形状的可见性
+    void SetShapeVisibility(const cad_core::ShapePtr& shape, bool visible);
     virtual QPaintEngine* paintEngine() const;
     
     // 背景和外观
@@ -237,6 +239,8 @@ private:
     Handle(AIS_InteractiveObject) m_snapIndicator;
 	// 草图元素与AIS对象的映射表（用于选择同步）
     std::map<Handle(AIS_InteractiveObject), cad_sketch::SketchElementPtr> m_sketchElementMap;
+    // 草图轮廓映射表
+    std::map<Handle(AIS_InteractiveObject), cad_core::ShapePtr> m_sketchProfileMap; 
     // 当前选择模式
     int m_currentSelectionMode;
     // 存放草图闭合线框

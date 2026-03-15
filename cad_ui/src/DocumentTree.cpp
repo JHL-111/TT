@@ -148,6 +148,11 @@ void DocumentTree::OnDeleteItem() {
         return;
     }
     
+    auto shape = item->data(0, Qt::UserRole).value<cad_core::ShapePtr>();
+    if (shape) {
+        emit ShapeDeleted(shape); // 通知外界去删除真实的 3D 数据
+    }
+
     // Remove the item
     if (item->parent() == m_shapesRoot) {
         m_shapesRoot->removeChild(item);
@@ -170,11 +175,19 @@ void DocumentTree::OnToggleVisibility() {
     if (!item || item == m_shapesRoot || item == m_featuresRoot) {
         return;
     }
-    
-    // Toggle visibility (placeholder - would need to be implemented with actual visibility logic)
+
+    // 切换字体删除线样式（作为UI表现）
     QFont font = item->font(0);
-    font.setStrikeOut(!font.strikeOut());
+    bool isCurrentlyHidden = font.strikeOut();
+    font.setStrikeOut(!isCurrentlyHidden); // 状态反转
     item->setFont(0, font);
+
+    auto shape = item->data(0, Qt::UserRole).value<cad_core::ShapePtr>();
+    if (shape) {
+        // 如果当前没有删除线，说明下一步是隐藏(false)；如果有，下一步是显示(true)
+        bool willBeVisible = isCurrentlyHidden;
+        emit ShapeVisibilityChanged(shape, willBeVisible);
+    }
 }
 
 } // namespace cad_ui

@@ -178,7 +178,9 @@ private slots:
     // 文档树选择处理器
     void OnDocumentTreeShapeSelected(const cad_core::ShapePtr& shape);
     void OnDocumentTreeFeatureSelected(const cad_feature::FeaturePtr& feature);
-    
+    void OnDocumentTreeShapeDeleted(const cad_core::ShapePtr& shape);
+    void OnDocumentTreeShapeVisibilityChanged(const cad_core::ShapePtr& shape, bool visible);
+
     // 标签页管理
     void CloseDocumentTab(int index);
     void OnTabChanged(int index);

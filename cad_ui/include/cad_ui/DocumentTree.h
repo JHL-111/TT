@@ -26,6 +26,8 @@ public:
 signals:
     void ShapeSelected(const cad_core::ShapePtr& shape);
     void FeatureSelected(const cad_feature::FeaturePtr& feature);
+    void ShapeDeleted(const cad_core::ShapePtr& shape);
+    void ShapeVisibilityChanged(const cad_core::ShapePtr& shape, bool visible);
 
 protected:
     void contextMenuEvent(QContextMenuEvent* event) override;
