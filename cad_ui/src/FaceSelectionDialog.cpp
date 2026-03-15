@@ -46,7 +46,7 @@ void FaceSelectionDialog::SetupUI() {
     mainLayout->addWidget(m_instructionLabel);
     
     // 提示标签
-    QLabel* hintLabel = new QLabel("hint：Create some geometric shapes (such as cubes, cylinders, etc.，then select the surfaces");
+    QLabel* hintLabel = new QLabel("hint:Create some geometric shapes (such as cubes, cylinders, etc.,then select the surfaces");
     hintLabel->setWordWrap(true);
     hintLabel->setStyleSheet("QLabel { font-size: 11px; color: #888; font-style: italic; margin-bottom: 10px; }");
     mainLayout->addWidget(hintLabel);

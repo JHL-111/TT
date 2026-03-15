@@ -622,7 +622,7 @@ void QtOccView::mouseMoveEvent(QMouseEvent* event) {
 
     // 非草图模式：鼠标悬停检测
     if (m_currentMouseButton == Qt::NoButton && !m_context.IsNull()) {
-        m_context->MoveTo(currentPos.x(), currentPos.y(), m_view, Standard_True);
+        m_context->MoveTo(currentPos.x(), currentPos.y(), m_view, Standard_False);
 
         // 已经选中的对象，不再显示 hover 预览颜色
         if (m_context->HasDetected()) {
@@ -638,7 +638,7 @@ void QtOccView::mouseMoveEvent(QMouseEvent* event) {
                 }
 
                 if (isAlreadySelected) {
-                    m_context->ClearDetected(Standard_True);
+                    m_context->ClearDetected(Standard_False);
                 }
             }
         }
@@ -739,14 +739,26 @@ void QtOccView::RedrawView() {
     }
 }
 
-void QtOccView::HandleSelection(const QPoint& point) {
-    if (m_context.IsNull()) return;
 
-    qDebug() << "HandleSelection called, current selection mode:" << m_currentSelectionMode;
+// 从 OCC 当前选择里提取对象
+Handle(AIS_InteractiveObject) QtOccView::GetFirstSelectedObject() const {
+    m_context->InitSelected();
+    if (m_context->MoreSelected()) {
+        return m_context->SelectedInteractive();
+    }
+    return nullptr;
+}
 
-    // =========================================================================
-    // 【步骤 1：清理阶段】在新选择开始时，统一清除之前的高亮和选中状态
-    // =========================================================================
+Handle(StdSelect_BRepOwner) QtOccView::GetFirstSelectedOwner() const {
+    m_context->InitSelected();
+    if (m_context->MoreSelected()) {
+        return Handle(StdSelect_BRepOwner)::DownCast(m_context->SelectedOwner());
+    }
+    return nullptr;
+}
+
+// 专门清理旧状态
+void QtOccView::ClearPreviousSelectionState() {
     if (m_currentSelectionMode != 2) { // 边模式支持多选，不在这里清边
         UnhighlightAllVertices();
         UnhighlightAllFaces();
@@ -762,194 +774,192 @@ void QtOccView::HandleSelection(const QPoint& point) {
         // face / vertex / 普通单选模式下，清空 OCC 的当前选择池
         m_context->ClearSelected(Standard_False);
     }
+}
 
-    // =========================================================================
-    // 【步骤 2：鼠标位置检测】
-    // =========================================================================
+// =========================================================================
+// 总入口：处理选择分发
+// =========================================================================
+void QtOccView::HandleSelection(const QPoint& point) {
+    if (m_context.IsNull()) return;
+
+    qDebug() << "HandleSelection called, current selection mode:" << m_currentSelectionMode;
+
+    // 1. 清理阶段：统一清除之前的高亮和选中状态
+    ClearPreviousSelectionState();
+
+    // 2. 鼠标位置检测
     m_context->MoveTo(point.x(), point.y(), m_view, Standard_True);
 
     if (m_context->HasDetected()) {
-        if (m_currentSelectionMode == 2) { // Edge mode (边模式)
-            qDebug() << "Edge selection mode detected, attempting to select edge...";
-            m_context->Select(Standard_True);
+        // 让 OCC 底层真实选中（触发内部选取逻辑，无论是哪种模式都需要）
+        m_context->Select(Standard_True);
 
-            int selectedCount = 0;
-            for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
-                selectedCount++;
-                Handle(AIS_InteractiveObject) anIO = m_context->SelectedInteractive();
-                Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(anIO);
-
-                if (!aisShape.IsNull()) {
-                    cad_core::ShapePtr parentShape = nullptr;
-                    for (const auto& pair : m_shapeToAIS) {
-                        if (pair.second == aisShape) {
-                            parentShape = pair.first;
-                            break;
-                        }
-                    }
-
-                    if (!parentShape) {
-                        qDebug() << "Could not find parent shape for selected edge";
-                        continue;
-                    }
-
-                    Handle(StdSelect_BRepOwner) anOwner =
-                        Handle(StdSelect_BRepOwner)::DownCast(m_context->SelectedOwner());
-
-                    if (!anOwner.IsNull()) {
-                        TopoDS_Shape selectedShape = anOwner->Shape();
-                        if (selectedShape.ShapeType() == TopAbs_EDGE) {
-                            TopoDS_Edge edge = TopoDS::Edge(selectedShape);
-
-                            bool alreadySelected = false;
-                            for (const auto& existingEdge : m_selectedEdges) {
-                                if (edge.IsSame(existingEdge)) {
-                                    alreadySelected = true;
-                                    break;
-                                }
-                            }
-
-                            if (!alreadySelected) {
-                                m_selectedEdges.push_back(edge);
-                                m_edgeParentShapes.push_back(parentShape);
-                                qDebug() << "Added edge to selection, total edges:" << m_selectedEdges.size();
-                                HighlightEdge(edge);
-                            }
-                            else {
-                                qDebug() << "Edge already selected";
-                            }
-                        }
-                    }
-                }
-                else {
-                    qDebug() << "Selected object is not an AIS_Shape";
-                }
-            }
-
-            if (selectedCount == 0) {
-                qDebug() << "No objects selected in context";
-            }
-        }
-        else if (m_currentSelectionMode == 1) { // Vertex mode (顶点模式)
-            qDebug() << "Vertex selection mode detected, attempting to select vertex...";
-            m_context->Select(Standard_True);
-
-            for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
-                Handle(AIS_InteractiveObject) anIO = m_context->SelectedInteractive();
-                Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(anIO);
-
-                if (!aisShape.IsNull()) {
-                    Handle(StdSelect_BRepOwner) anOwner =
-                        Handle(StdSelect_BRepOwner)::DownCast(m_context->SelectedOwner());
-
-                    if (!anOwner.IsNull()) {
-                        TopoDS_Shape selectedShape = anOwner->Shape();
-                        if (selectedShape.ShapeType() == TopAbs_VERTEX) {
-                            TopoDS_Vertex vertex = TopoDS::Vertex(selectedShape);
-                            HighlightVertex(vertex);
-                            qDebug() << "Vertex selected";
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        else if (m_currentSelectionMode == 4) { // Face mode (面模式)
-            qDebug() << "Face selection mode detected, attempting to select face...";
-            m_context->Select(Standard_True);
-
-            for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
-                Handle(AIS_InteractiveObject) anIO = m_context->SelectedInteractive();
-                Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(anIO);
-
-                if (!aisShape.IsNull()) {
-                    Handle(StdSelect_BRepOwner) anOwner =
-                        Handle(StdSelect_BRepOwner)::DownCast(m_context->SelectedOwner());
-
-                    if (!anOwner.IsNull()) {
-                        TopoDS_Shape selectedShape = anOwner->Shape();
-                        if (selectedShape.ShapeType() == TopAbs_FACE) {
-                            TopoDS_Face face = TopoDS::Face(selectedShape);
-                            qDebug() << "Face selected, emitting FaceSelected signal";
-                            emit FaceSelected(face);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        else {
-            // =========================================================================
-            // 【步骤 3：单选模式 (Shape / Sketch mode)】
-            // =========================================================================
-
-            // 让 OCC 底层真实选中，保证 Delete 能抓到它的数据
-            m_context->Select(Standard_True);
-
-            Handle(AIS_InteractiveObject) selectedObj;
-            for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
-                selectedObj = m_context->SelectedInteractive();
-                break; // 单选，拿第一个就行
-            }
-
-            if (!selectedObj.IsNull()) {
-                Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(selectedObj);
-
-                // --- 路线 A：点中的是草图元素 ---
-                if (m_sketchElementMap.find(selectedObj) != m_sketchElementMap.end()) {
-                    // 先清掉旧的草图高亮覆盖层，避免重复叠加
-                    UnhighlightSketchElement();
-
-                    // 克隆一个临时形状盖在草图元素上方，原对象自身属性不变
-                    m_sketchHighlightAIS = new AIS_Shape(aisShape->Shape());
-                    m_sketchHighlightAIS->SetColor(Quantity_NOC_BLUE1);
-                    m_sketchHighlightAIS->SetWidth(4.0);
-                    m_sketchHighlightAIS->SetZLayer(Graphic3d_ZLayerId_Topmost);
-
-                    // 仅显示这个覆盖层，不加入选中池
-                    m_context->Display(m_sketchHighlightAIS, Standard_False);
-
-                    // 记录真实本体
-                    m_currentSelectedAIS = aisShape;
-                    qDebug() << "Sketch element selected natively and highlighted with overlay.";
-                }
-                // --- 路线 B：点中的是普通 3D 实体 ---
-                else {
-                    cad_core::ShapePtr foundShape = nullptr;
-                    for (const auto& pair : m_shapeToAIS) {
-                        if (pair.second == aisShape) {
-                            foundShape = pair.first;
-                            break;
-                        }
-                    }
-
-                    m_currentSelectedAIS = aisShape;
-                    m_currentSelectedShape = foundShape;
-
-                    if (foundShape) {
-                        emit ShapeSelected(foundShape);
-                        qDebug() << "Normal model shape selected natively.";
-                    }
-                }
-            }
+        // 3. 按模式分发处理
+        switch (m_currentSelectionMode) {
+        case 2: // Edge
+            ProcessEdgeSelection();
+            break;
+        case 1: // Vertex
+            ProcessVertexSelection();
+            break;
+        case 4: // Face
+            ProcessFaceSelection();
+            break;
+        default: // 0: Shape 或草图模式
+            ProcessShapeOrSketchSelection();
+            break;
         }
     }
     else {
-        // =========================================================================
-        // 【步骤 4：点击了空白区域】
-        // =========================================================================
+        // 4. 点击了空白区域
         qDebug() << "No object detected, clearing all selections";
         if (m_currentSelectionMode != 2) {
             UnhighlightAllEdges(); // 非边模式下清空边高亮
         }
-        // 注：由于我们在函数最开头的步骤 1 已经执行了清理高亮层的操作，这里什么都不用加了
     }
 
-    // =========================================================================
-    // 【步骤 5：刷新屏幕】
-    // =========================================================================
+    // 5. 刷新屏幕
     m_view->Redraw();
     emit ViewChanged();
+}
+
+// 子模式处理函数
+void QtOccView::ProcessEdgeSelection() {
+    qDebug() << "Edge selection mode detected, attempting to select edge...";
+
+    int selectedCount = 0;
+    // 边模式可能涉及多选，因此保留循环遍历
+    for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
+        selectedCount++;
+        Handle(AIS_InteractiveObject) anIO = m_context->SelectedInteractive();
+        Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(anIO);
+
+        if (!aisShape.IsNull()) {
+            cad_core::ShapePtr parentShape = nullptr;
+            for (const auto& pair : m_shapeToAIS) {
+                if (pair.second == aisShape) {
+                    parentShape = pair.first;
+                    break;
+                }
+            }
+
+            if (!parentShape) {
+                qDebug() << "Could not find parent shape for selected edge";
+                continue;
+            }
+
+            Handle(StdSelect_BRepOwner) anOwner = Handle(StdSelect_BRepOwner)::DownCast(m_context->SelectedOwner());
+            if (!anOwner.IsNull()) {
+                TopoDS_Shape selectedShape = anOwner->Shape();
+                if (selectedShape.ShapeType() == TopAbs_EDGE) {
+                    TopoDS_Edge edge = TopoDS::Edge(selectedShape);
+
+                    bool alreadySelected = false;
+                    for (const auto& existingEdge : m_selectedEdges) {
+                        if (edge.IsSame(existingEdge)) {
+                            alreadySelected = true;
+                            break;
+                        }
+                    }
+
+                    if (!alreadySelected) {
+                        m_selectedEdges.push_back(edge);
+                        m_edgeParentShapes.push_back(parentShape);
+                        qDebug() << "Added edge to selection, total edges:" << m_selectedEdges.size();
+                        HighlightEdge(edge);
+                    }
+                    else {
+                        qDebug() << "Edge already selected";
+                    }
+                }
+            }
+        }
+    }
+
+    if (selectedCount == 0) {
+        qDebug() << "No objects selected in context";
+    }
+}
+
+void QtOccView::ProcessVertexSelection() {
+    qDebug() << "Vertex selection mode detected, attempting to select vertex...";
+
+    // 顶点一般单选，直接利用工具函数获取第一个对象
+    Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(GetFirstSelectedObject());
+    if (!aisShape.IsNull()) {
+        Handle(StdSelect_BRepOwner) anOwner = GetFirstSelectedOwner();
+        if (!anOwner.IsNull()) {
+            TopoDS_Shape selectedShape = anOwner->Shape();
+            if (selectedShape.ShapeType() == TopAbs_VERTEX) {
+                TopoDS_Vertex vertex = TopoDS::Vertex(selectedShape);
+                HighlightVertex(vertex);
+                qDebug() << "Vertex selected";
+            }
+        }
+    }
+}
+
+void QtOccView::ProcessFaceSelection() {
+    qDebug() << "Face selection mode detected, attempting to select face...";
+
+    // 面一般单选，直接利用工具函数获取第一个对象
+    Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(GetFirstSelectedObject());
+    if (!aisShape.IsNull()) {
+        Handle(StdSelect_BRepOwner) anOwner = GetFirstSelectedOwner();
+        if (!anOwner.IsNull()) {
+            TopoDS_Shape selectedShape = anOwner->Shape();
+            if (selectedShape.ShapeType() == TopAbs_FACE) {
+                TopoDS_Face face = TopoDS::Face(selectedShape);
+                qDebug() << "Face selected, emitting FaceSelected signal";
+                emit FaceSelected(face);
+            }
+        }
+    }
+}
+
+void QtOccView::ProcessShapeOrSketchSelection() {
+    Handle(AIS_InteractiveObject) selectedObj = GetFirstSelectedObject();
+
+    if (!selectedObj.IsNull()) {
+        Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(selectedObj);
+
+        // --- 路线 A：点中的是草图元素 ---
+        if (m_sketchElementMap.find(selectedObj) != m_sketchElementMap.end()) {
+            // 先清掉旧的草图高亮覆盖层，避免重复叠加
+            UnhighlightSketchElement();
+
+            // 克隆一个临时形状盖在草图元素上方
+            m_sketchHighlightAIS = new AIS_Shape(aisShape->Shape());
+            m_sketchHighlightAIS->SetColor(Quantity_NOC_BLUE1);
+            m_sketchHighlightAIS->SetWidth(4.0);
+            m_sketchHighlightAIS->SetZLayer(Graphic3d_ZLayerId_Topmost);
+
+            // 仅显示覆盖层，不加入选中池
+            m_context->Display(m_sketchHighlightAIS, Standard_False);
+
+            // 记录真实本体
+            m_currentSelectedAIS = aisShape;
+            qDebug() << "Sketch element selected natively and highlighted with overlay.";
+        }
+        // --- 路线 B：点中的是普通 3D 实体 ---
+        else {
+            cad_core::ShapePtr foundShape = nullptr;
+            for (const auto& pair : m_shapeToAIS) {
+                if (pair.second == aisShape) {
+                    foundShape = pair.first;
+                    break;
+                }
+            }
+
+            m_currentSelectedAIS = aisShape;
+            m_currentSelectedShape = foundShape;
+
+            if (foundShape) {
+                emit ShapeSelected(foundShape);
+                qDebug() << "Normal model shape selected natively.";
+            }
+        }
+    }
 }
 
 

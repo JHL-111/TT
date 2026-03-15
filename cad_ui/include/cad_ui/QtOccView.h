@@ -18,6 +18,7 @@
 #include <AIS_ViewController.hxx>
 #include <Graphic3d_GraphicDriver.hxx>
 #include <AIS_InteractiveObject.hxx>
+#include <StdSelect_BRepOwner.hxx>
 
 #include "cad_core/Shape.h"
 #include "cad_core/SelectionManager.h"
@@ -242,7 +243,19 @@ private:
 
     void InitializeOCC();
     void RedrawView();
+
     void HandleSelection(const QPoint& point);
+
+    // 选择逻辑拆分函数 
+    void ClearPreviousSelectionState();
+    void ProcessEdgeSelection();
+    void ProcessVertexSelection();
+    void ProcessFaceSelection();
+    void ProcessShapeOrSketchSelection();
+
+    // OCC 选择对象提取工具 
+    Handle(AIS_InteractiveObject) GetFirstSelectedObject() const;
+    Handle(StdSelect_BRepOwner) GetFirstSelectedOwner() const;
 
  public slots:
      void ShowOpFace(int faceIndex);
