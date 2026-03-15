@@ -16,6 +16,7 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
 #include <BRep_Tool.hxx>
 #include <GeomLProp_SLProps.hxx>
 #include <BRepTools.hxx>
@@ -1430,6 +1431,13 @@ void MainWindow::OnExtrudeDialogClosed() {
     m_tempExtrudeProfiles.clear();
     m_currentExtrudeDialog = nullptr;
     m_waitingForExtrudeBaseFace = false;
+
+    // 拉伸流程彻底结束后，才恢复到普通的 Shape 选择模式
+    m_viewer->SetSelectionMode(0);
+    if (m_selectionModeCombo) {
+        m_selectionModeCombo->setCurrentIndex(0);
+    }
+
     statusBar()->showMessage("Extrude mode closed.");
 }
 
@@ -2404,31 +2412,18 @@ void MainWindow::OnFaceSelected(const TopoDS_Face& face) {
             // 校验成功！结束第一阶段
             m_waitingForExtrudeBaseFace = false;
 
-            // 1. 生成并显示临时面
-            for (auto& tempShape : m_tempExtrudeProfiles) {
-                if (tempShape) {
-                    m_viewer->RemoveShape(tempShape);
-                }
-            }
-            m_tempExtrudeProfiles.clear();
-
-            TopoDS_Face profileFace = sketch->GetProfileFace();
-            if (!profileFace.IsNull()) {
-                auto tempShape = std::make_shared<cad_core::Shape>(profileFace);
-                m_viewer->DisplayShape(tempShape);
-                m_viewer->SetShapeTransparency(tempShape, 0.5);
-                m_tempExtrudeProfiles.push_back(tempShape);
-            }
-
-            // 2. 摆正视角
+            // 1. 先计算基准面的法线方向 (用于摆正视角和偏移临时面)
             Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
             Standard_Real uMin, uMax, vMin, vMax;
             BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
             GeomLProp_SLProps props(surface, (uMin + uMax) / 2.0, (vMin + vMax) / 2.0, 1, Precision::Confusion());
 
+            gp_Dir normal(0, 0, 1);
             if (props.IsNormalDefined()) {
-                gp_Dir normal = props.Normal();
+                normal = props.Normal();
                 if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
+
+                // 摆正视角
                 if (!m_viewer->GetView().IsNull()) {
                     m_viewer->GetView()->SetProj(normal.X(), normal.Y(), normal.Z());
                     m_viewer->GetView()->SetTwist(0);
@@ -2437,31 +2432,39 @@ void MainWindow::OnFaceSelected(const TopoDS_Face& face) {
                 }
             }
 
-            // 3. 弹窗并抢占焦点
-            if (m_currentExtrudeDialog) {
-                m_currentExtrudeDialog->close();
-                m_currentExtrudeDialog->deleteLater();
-                m_currentExtrudeDialog = nullptr;
+            // 2. 生成并显示临时面 
+            m_tempExtrudeProfiles.clear();
+            gp_Ax3 sketchCS = m_viewer->GetSketchCS();
+            TopoDS_Face profileFace = sketch->GetProfileFace(sketchCS);
+
+  
+
+            if (!profileFace.IsNull()) {
+                // 沿着法线向外平移 0.01mm 解决 Z-fighting 闪烁覆盖问题
+                gp_Trsf trsf;
+                trsf.SetTranslation(gp_Vec(normal) * 0.01);
+                BRepBuilderAPI_Transform transform(profileFace, trsf);
+                TopoDS_Shape offsetProfile = transform.Shape();
+
+                auto tempShape = std::make_shared<cad_core::Shape>(offsetProfile);
+                m_viewer->DisplayShape(tempShape);
+                //m_viewer->SetShapeTransparency(tempShape, 0.5);
+                m_tempExtrudeProfiles.push_back(tempShape);
             }
 
-            m_currentExtrudeDialog = new CreateExtrudeDialog(this);
-            connect(m_currentExtrudeDialog, &CreateExtrudeDialog::extrudeRequested,
-                this, &MainWindow::OnExtrudeRequested);
-            connect(m_currentExtrudeDialog, &CreateExtrudeDialog::dialogClosed,
-                this, &MainWindow::OnExtrudeDialogClosed);
+            m_viewer->SetSelectionMode(4);
 
+            // 3. 弹窗并抢占焦点
+            if (!m_currentExtrudeDialog) {
+                m_currentExtrudeDialog = new CreateExtrudeDialog(this);
+                connect(m_currentExtrudeDialog, &CreateExtrudeDialog::extrudeRequested, this, &MainWindow::OnExtrudeRequested);
+                connect(m_currentExtrudeDialog, &QDialog::finished, this, &MainWindow::OnExtrudeDialogClosed);
+            }
             m_currentExtrudeDialog->show();
             m_currentExtrudeDialog->raise();
             m_currentExtrudeDialog->activateWindow();
 
-            // 立刻切回实体选择模式 (Shape Mode)
-            // 这样下一步点击临时轮廓面时，就会发送 ShapeSelected 信号！
- 
-            m_viewer->SetSelectionMode(0);
-            if (m_selectionModeCombo) {
-                m_selectionModeCombo->setCurrentIndex(0); // UI 下拉框同步显示 Shape 模式
-            }
-
+            // 保持在当前的 Face Mode (4) 状态中，让下一步点击时触发真正的选面逻辑！
             statusBar()->showMessage("The sketch has been loaded. Please hover over and click on the area of the sketch that you want to stretch...");
         }
         else {

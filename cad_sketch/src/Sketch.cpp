@@ -124,83 +124,64 @@ int Sketch::GetConstraintCount() const {
     return static_cast<int>(m_constraints.size());
 }
 
-TopoDS_Wire Sketch::GetProfileWire() const {
+TopoDS_Wire Sketch::GetProfileWire(const gp_Ax3& cs) const {
     BRepBuilderAPI_MakeWire wireMaker;
     bool hasEdges = false;
 
-    // 遍历草图中的所有元素 (Iterate through all sketch elements)
-    for (const auto& element : m_elements) {
+    // 获取草图基准面的原点和 X/Y 轴向量
+    gp_Pnt origin = cs.Location();
+    gp_Dir xDir = cs.XDirection();
+    gp_Dir yDir = cs.YDirection();
 
-        // 处理直线 (Handle Lines)
+    // 辅助 Lambda：将 2D 草图坐标转换为基于基准面的真实 3D 坐标
+    auto LocalToWorld = [&](double x, double y) -> gp_Pnt {
+        return origin.Translated(gp_Vec(xDir) * x + gp_Vec(yDir) * y);
+        };
+
+    for (const auto& element : m_elements) {
         if (element->GetType() == SketchElementType::Line) {
             auto line = std::dynamic_pointer_cast<SketchLine>(element);
             if (line && line->GetStartPoint() && line->GetEndPoint()) {
-                // 将 2D 坐标转换为 3D 空间中 XOY 平面上的点 (Z = 0)
-                gp_Pnt p1(line->GetStartPoint()->GetX(), line->GetStartPoint()->GetY(), 0.0);
-                gp_Pnt p2(line->GetEndPoint()->GetX(), line->GetEndPoint()->GetY(), 0.0);
-
-                // 确保两个点不重合 (Ensure points are not identical)
-                if (!p1.IsEqual(p2, 1e-6)) {
-                    TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(p1, p2);
-                    wireMaker.Add(edge);
+                gp_Pnt p1 = LocalToWorld(line->GetStartPoint()->GetX(), line->GetStartPoint()->GetY());
+                gp_Pnt p2 = LocalToWorld(line->GetEndPoint()->GetX(), line->GetEndPoint()->GetY());
+                if (!p1.IsEqual(p2, Precision::Confusion())) {
+                    wireMaker.Add(BRepBuilderAPI_MakeEdge(p1, p2));
                     hasEdges = true;
                 }
             }
         }
-        // 处理完整圆 (Handle Circles)
         else if (element->GetType() == SketchElementType::Circle) {
             auto circle = std::dynamic_pointer_cast<SketchCircle>(element);
             if (circle && circle->GetCenter()) {
-                gp_Pnt center(circle->GetCenter()->GetX(), circle->GetCenter()->GetY(), 0.0);
-                // 定义一个位于 XOY 平面的局部坐标系 (Z轴为法线)
-                gp_Ax2 ax2(center, gp_Dir(0, 0, 1));
-                gp_Circ gpCirc(ax2, circle->GetRadius());
-
-                TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(gpCirc);
-                wireMaker.Add(edge);
+                gp_Pnt center = LocalToWorld(circle->GetCenter()->GetX(), circle->GetCenter()->GetY());
+                // 在斜面上生成圆：法线为 cs.Direction()
+                gp_Ax2 ax2(center, cs.Direction(), cs.XDirection());
+                wireMaker.Add(BRepBuilderAPI_MakeEdge(gp_Circ(ax2, circle->GetRadius())));
                 hasEdges = true;
             }
         }
-        // 处理圆弧 (Handle Arcs)
         else if (element->GetType() == SketchElementType::Arc) {
             auto arc = std::dynamic_pointer_cast<SketchArc>(element);
             if (arc && arc->GetCenter()) {
-                gp_Pnt center(arc->GetCenter()->GetX(), arc->GetCenter()->GetY(), 0.0);
-                gp_Ax2 ax2(center, gp_Dir(0, 0, 1));
-                gp_Circ gpCirc(ax2, arc->GetRadius());
-
-                // OCCT 接收的弧度通常是从 X 轴正向逆时针计算的
-                TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(gpCirc, arc->GetStartAngle(), arc->GetEndAngle());
-                wireMaker.Add(edge);
+                gp_Pnt center = LocalToWorld(arc->GetCenter()->GetX(), arc->GetCenter()->GetY());
+                gp_Ax2 ax2(center, cs.Direction(), cs.XDirection());
+                wireMaker.Add(BRepBuilderAPI_MakeEdge(gp_Circ(ax2, arc->GetRadius()), arc->GetStartAngle(), arc->GetEndAngle()));
                 hasEdges = true;
             }
         }
     }
 
-    // 如果没有添加任何边，或者线框构造失败，返回一个空的 Wire
-    if (!hasEdges || !wireMaker.IsDone()) {
-        return TopoDS_Wire();
-    }
-
-    // 返回构造好的拓扑线框 (Return the constructed topological wire)
+    if (!hasEdges || !wireMaker.IsDone()) return TopoDS_Wire();
     return wireMaker.Wire();
 }
 
-TopoDS_Face Sketch::GetProfileFace() const {
-    // 1. 获取吸附点自然生成的线框 
-    TopoDS_Wire wire = GetProfileWire();
+TopoDS_Face Sketch::GetProfileFace(const gp_Ax3& cs) const {
+    TopoDS_Wire wire = GetProfileWire(cs);
+    if (wire.IsNull() || !wire.Closed()) return TopoDS_Face();
 
-    // 2. 如果没有生成线框，或者线框根本没闭合，直接拒绝生成面
-    if (wire.IsNull() || !wire.Closed()) {
-        return TopoDS_Face();
-    }
-
-    // 3. 将闭合线框生成平面 
+    // 强制根据真实 3D 空间内的线框生成面
     BRepBuilderAPI_MakeFace faceMaker(wire, true);
-    if (faceMaker.IsDone()) {
-        return faceMaker.Face();
-    }
-
+    if (faceMaker.IsDone()) return faceMaker.Face();
     return TopoDS_Face();
 }
 

@@ -34,7 +34,7 @@
 #include <Geom_CartesianPoint.hxx>
 #include <Aspect_TypeOfMarker.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
-#include "cad_ui/SketchMode.h"
+#include <QMessageBox>
 
 #ifdef _WIN32
 #include <WNT_Window.hxx>
@@ -143,18 +143,36 @@ bool QtOccView::InitViewer() {
         
         // 设置选中和高亮样式
         // 使用更直接的方法设置高亮颜色
+        // 1. 全局选中样式 (Selected)
         Handle(Prs3d_Drawer) hilightDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_Selected);
         if (!hilightDrawer.IsNull()) {
             hilightDrawer->SetColor(Quantity_NOC_RED);
             hilightDrawer->SetDisplayMode(1); // Shaded mode
         }
         
+        // 2. 全局悬停样式 (Dynamic)
         Handle(Prs3d_Drawer) preHilightDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_Dynamic);
         if (!preHilightDrawer.IsNull()) {
-            preHilightDrawer->SetColor(Quantity_NOC_ORANGE);
+            preHilightDrawer->SetColor(Quantity_NOC_LIGHTSKYBLUE1);
             preHilightDrawer->SetDisplayMode(1); // Shaded mode
         }
         
+        // 3. 局部选中样式 (Local Selected - 面被点击后)
+        Handle(Prs3d_Drawer) localSelDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalSelected);
+        if (!localSelDrawer.IsNull()) {
+            localSelDrawer->SetColor(Quantity_NOC_RED);
+            localSelDrawer->SetDisplayMode(1); // 强制填充内部
+            localSelDrawer->SetTransparency(0.3f); // 30% 透明度，形成红玻璃效果
+        }
+
+        // 4. 局部悬停样式 (Local Dynamic - 鼠标悬空在面上)
+        Handle(Prs3d_Drawer) localDynDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalDynamic);
+        if (!localDynDrawer.IsNull()) {
+            localDynDrawer->SetColor(Quantity_NOC_BLUE); // 淡蓝色
+            localDynDrawer->SetDisplayMode(1); // 强制填充内部
+            localDynDrawer->SetTransparency(0.3f); // 30% 透明度，形成淡蓝色玻璃效果
+        }
+
         // Set up selection manager
         m_selectionManager->SetContext(m_context);
         m_selectionManager->SetView(m_view);
@@ -248,12 +266,6 @@ void QtOccView::DisplayShape(const cad_core::ShapePtr& shape) {
     // Store mapping for selection synchronization
     m_shapeToAIS[shape] = aisShape;
     
-    // Enable selection modes for this shape
-    m_context->SetSelectionModeActive(aisShape, 0, Standard_True); // Shape
-    m_context->SetSelectionModeActive(aisShape, 1, Standard_True); // Vertex
-    m_context->SetSelectionModeActive(aisShape, 2, Standard_True); // Edge
-    m_context->SetSelectionModeActive(aisShape, 4, Standard_True); // Face
-    
     // Fit all objects in view to ensure visibility and render
     m_view->FitAll();
     m_view->Redraw();
@@ -261,10 +273,12 @@ void QtOccView::DisplayShape(const cad_core::ShapePtr& shape) {
     // Force immediate rendering
     update();
 }
+
 QPaintEngine* QtOccView::paintEngine() const
 {
     return nullptr;
 }
+
 void QtOccView::RemoveShape(const cad_core::ShapePtr& shape) {
     if (!shape || m_context.IsNull()) {
         return;
@@ -580,6 +594,10 @@ void QtOccView::mouseMoveEvent(QMouseEvent* event) {
         }
         m_lastMousePos = currentPos;
         return; // 返回，不执行下面的 3D 旋转逻辑
+    }
+
+    if (m_currentMouseButton == Qt::NoButton && !m_context.IsNull()) {
+        m_context->MoveTo(currentPos.x(), currentPos.y(), m_view, Standard_True);
     }
     
     if (m_currentMouseButton == Qt::LeftButton) {
@@ -1124,6 +1142,8 @@ void QtOccView::HighlightFace(const TopoDS_Face& face) {
     aisFace->SetTransparency(0.3); // 半透明
     aisFace->SetDisplayMode(AIS_Shaded);
     
+    aisFace->SetZLayer(Graphic3d_ZLayerId_Topmost);
+
     // 显示高亮的面
     m_context->Display(aisFace, Standard_False);
     
@@ -1637,6 +1657,13 @@ TopoDS_Shape QtOccView::GetSelectedSubShape() const {
         }
     }
     return TopoDS_Shape();
+}
+
+gp_Ax3 QtOccView::GetSketchCS() const {
+    if (m_sketchMode) {
+        return m_sketchMode->GetSketchCS();
+    }
+    return gp_Ax3();
 }
 
 void QtOccView::ClearSketchElementMap() {

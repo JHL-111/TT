@@ -7,7 +7,7 @@
 namespace cad_ui {
 
     CreateExtrudeDialog::CreateExtrudeDialog(QWidget* parent) : QDialog(parent), m_selectedShape(nullptr) {
-        setWindowTitle("Extrude (拉伸特征)");
+        setWindowTitle("Extrude");
         setMinimumWidth(280);
 
         // 核心：设为非模态悬浮窗 (Non-modal floating window)
