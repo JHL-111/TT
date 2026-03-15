@@ -6,16 +6,17 @@
 
 #pragma once
 
-#include "SketchElement.h"   // 草图元素基类 
-#include "SketchPoint.h"     // 点元素 
-#include "SketchLine.h"      // 线元素 
-#include "SketchCircle.h"    // 圆元素 
-#include "SketchArc.h"       // 弧元素
-#include "Constraint.h"      // 约束基类 
-#include "ConstraintSolver.h" // 约束求解器 
-#include <vector>            // 动态数组 
-#include <memory>            // 智能指针 
-#include <string>            // 字符串 
+#include "SketchElement.h"   
+#include "SketchPoint.h"     
+#include "SketchLine.h"      
+#include "SketchCircle.h"   
+#include "SketchArc.h"       
+#include "Constraint.h"      
+#include "ConstraintSolver.h"  
+#include "cad_sketch/SketchProfile.h"
+#include <vector>            
+#include <memory>             
+#include <string>           
 #include <gp_Ax3.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopoDS_Face.hxx>
@@ -180,6 +181,13 @@ public:
      */
     TopoDS_Face GetProfileFace(const gp_Ax3& cs = gp_Ax3()) const;
 
+    // 获取当前计算出的所有闭合轮廓 (Profiles)
+    std::vector<SketchProfilePtr> GetProfiles() const { return m_profiles; }
+
+    // 核心算法：检测并更新轮廓
+    void UpdateProfiles(const gp_Ax3& cs);
+
+
 private:
     /** 草图名称 */
     std::string m_name;
@@ -192,6 +200,9 @@ private:
     
     /** 约束求解器 */
     ConstraintSolver m_solver;
+
+    /** 闭合轮廓集合 */
+    std::vector<SketchProfilePtr> m_profiles;
 };
 
 /** 草图智能指针类型别名 */

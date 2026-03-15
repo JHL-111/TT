@@ -1775,6 +1775,43 @@ bool QtOccView::CanRedoSketch() const {
     return IsInSketchMode() && m_sketchMode->CanRedo(); 
 }
 
+// 渲染草图闭合线框
+void QtOccView::RenderSketchProfiles(const std::vector<cad_sketch::SketchProfilePtr>& profiles) {
+    if (m_context.IsNull()) return;
+
+    // 先清理旧的轮廓渲染
+    ClearSketchProfiles();
+
+    for (const auto& profile : profiles) {
+        TopoDS_Face face = profile->GetFace();
+        if (face.IsNull()) continue;
+
+        Handle(AIS_Shape) aisFace = new AIS_Shape(face);
+
+        // 设置半透明的浅蓝色，让它看起来像闭合区域 (Closed region)
+        aisFace->SetColor(Quantity_NOC_LIGHTSKYBLUE1);
+        aisFace->SetTransparency(0.6);
+        aisFace->SetDisplayMode(AIS_Shaded);
+
+        // 略微提升渲染层级，避免与草图底面产生深度冲突 (Z-fighting)
+        aisFace->SetZLayer(Graphic3d_ZLayerId_Topmost);
+
+        m_context->Display(aisFace, Standard_False);
+        m_sketchProfileObjects.push_back(aisFace);
+    }
+    m_view->Redraw();
+}
+
+void QtOccView::ClearSketchProfiles() {
+    if (m_context.IsNull()) return;
+
+    for (auto& obj : m_sketchProfileObjects) {
+        m_context->Remove(obj, Standard_False);
+    }
+    m_sketchProfileObjects.clear();
+    m_view->Redraw();
+}
+
 } // namespace cad_ui
 
 #include "QtOccView.moc"

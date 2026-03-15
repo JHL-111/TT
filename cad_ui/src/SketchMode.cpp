@@ -645,6 +645,12 @@ namespace cad_ui {
                 m_isDragging = false;
                 m_draggedElements.clear();
 
+                // 拖拽松开后，线条位置发生变化，重新计算并渲染轮廓
+                if (m_currentSketch) {
+                    m_currentSketch->UpdateProfiles(m_sketchCS);
+                    m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());
+                }
+
                 // 触发历史记录更新，点亮撤销按钮（可将此次平移计入 Undo）
                 emit sketchHistoryChanged();
             }
@@ -689,6 +695,10 @@ namespace cad_ui {
                     m_redoStack.clear();
                     emit sketchHistoryChanged();
                 }
+
+                m_currentSketch->UpdateProfiles(m_sketchCS);
+                m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());
+
             }
         }
         emit statusMessageChanged(tr("Shape created."));
@@ -846,6 +856,8 @@ namespace cad_ui {
             for (auto& elem : selected) {
                 m_currentSketch->RemoveElement(elem);
             }
+            m_currentSketch->UpdateProfiles(m_sketchCS);
+            m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());
         }
 
         // 3. 记录这是一个“删除 (REMOVE)”操作
@@ -858,9 +870,14 @@ namespace cad_ui {
 
     void SketchMode::RefreshSketchView() {
         if (!m_viewer) return;
+
         m_viewer->ClearSketchObjects();
+        m_viewer->ClearSketchProfiles();
+
         if (m_currentSketch) {
             m_viewer->AddSketchElements(m_currentSketch->GetElements(), m_sketchCS);
+            m_currentSketch->UpdateProfiles(m_sketchCS);
+            m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());
         }
     }
 

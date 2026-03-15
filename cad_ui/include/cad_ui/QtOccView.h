@@ -133,7 +133,9 @@ public:
     void HighlightSketchFace(const TopoDS_Face& face);
     void ClearSketchFaceHighlight();
 
-   
+    // 草图模式闭合线框相关
+    void RenderSketchProfiles(const std::vector<cad_sketch::SketchProfilePtr>& profiles);
+    void ClearSketchProfiles();
 
 	// 获取选中的草图元素
     std::vector<cad_sketch::SketchElementPtr> GetSelectedSketchElements(); // 获取选中的草图元素
@@ -237,6 +239,8 @@ private:
     std::map<Handle(AIS_InteractiveObject), cad_sketch::SketchElementPtr> m_sketchElementMap;
     // 当前选择模式
     int m_currentSelectionMode;
+    // 存放草图闭合线框
+    std::vector<Handle(AIS_InteractiveObject)> m_sketchProfileObjects;
     // 草图的临时选中高亮层机制 
     Handle(AIS_Shape) m_sketchHighlightAIS;
     void UnhighlightSketchElement();

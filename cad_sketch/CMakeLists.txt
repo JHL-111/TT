@@ -10,6 +10,7 @@ set(HEADERS
     include/cad_sketch/Constraint.h
     include/cad_sketch/ConstraintSolver.h
     include/cad_sketch/Sketch.h
+    include/cad_sketch/SketchProfile.h
     include/cad_sketch/SnappingManager.h
 )
 
@@ -23,6 +24,7 @@ set(SOURCES
     src/Constraint.cpp
     src/ConstraintSolver.cpp
     src/Sketch.cpp
+    src/SketchProfile.cpp
     src/SnappingManager.cpp
 )
 
