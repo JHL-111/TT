@@ -49,7 +49,7 @@ namespace cad_ui {
     void CreateExtrudeDialog::SetSelectedShape(const cad_core::ShapePtr& shape) {
         m_selectedShape = shape;
         if (shape) {
-            m_statusLabel->setText("Profile selected! Click OK to extrude.");
+            m_statusLabel->setText("Selection received. Click OK to extrude.");
             m_statusLabel->setStyleSheet("color: #00aa00; font-weight: bold;"); // 选中有反馈变绿
         }
         else {

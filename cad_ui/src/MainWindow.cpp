@@ -1331,23 +1331,27 @@ void MainWindow::OnCreateSphere() {
 }
 
 void MainWindow::OnCreateExtrude() {
-    // 如果对话框已经在选区域了，直接获取焦点
+    // 如果对话框已经打开，则直接激活
     if (m_currentExtrudeDialog) {
+        m_currentExtrudeDialog->show();
+        m_currentExtrudeDialog->raise();
         m_currentExtrudeDialog->activateWindow();
         return;
     }
 
-    // 1. 进入【第一阶段】：等待选择基准面 (Waiting for Base Face)
-    m_waitingForExtrudeBaseFace = true;
+    // 直接弹出拉伸对话框，不再进入“先选基准面”的旧流程
+    m_currentExtrudeDialog = new CreateExtrudeDialog(this);
+    connect(m_currentExtrudeDialog, &CreateExtrudeDialog::extrudeRequested,
+        this, &MainWindow::OnExtrudeRequested);
+    connect(m_currentExtrudeDialog, &QDialog::finished,
+        this, &MainWindow::OnExtrudeDialogClosed);
 
-    // 强制切换为选面模式 (TopAbs_FACE)
-    m_viewer->SetSelectionMode(4);
-    if (m_selectionModeCombo) {
-        m_selectionModeCombo->setCurrentIndex(1); // UI 联动显示 Select Face
-    }
+    // 不强制切到 Face 选择模式，保持正常视图交互
+    m_currentExtrudeDialog->show();
+    m_currentExtrudeDialog->raise();
+    m_currentExtrudeDialog->activateWindow();
 
-    // 此时不弹对话框，只在状态栏提示用户
-    statusBar()->showMessage("Select a base face with sketch elements");
+    statusBar()->showMessage("Extrude dialog opened. Please select a profile or face.");
 }
 
 void MainWindow::OnExtrudeRequested(cad_core::ShapePtr baseShape, double distance) {
@@ -1424,21 +1428,10 @@ void MainWindow::OnExtrudeRequested(cad_core::ShapePtr baseShape, double distanc
 }
 
 void MainWindow::OnExtrudeDialogClosed() {
-    // 无论拉伸成功还是中途取消，都会销毁临时用于高亮的面
-    for (auto& tempShape : m_tempExtrudeProfiles) {
-        if (tempShape) m_viewer->RemoveShape(tempShape);
-    }
-    m_tempExtrudeProfiles.clear();
     m_currentExtrudeDialog = nullptr;
-    m_waitingForExtrudeBaseFace = false;
 
-    // 拉伸流程彻底结束后，才恢复到普通的 Shape 选择模式
-    m_viewer->SetSelectionMode(0);
-    if (m_selectionModeCombo) {
-        m_selectionModeCombo->setCurrentIndex(0);
-    }
-
-    statusBar()->showMessage("Extrude mode closed.");
+    // 拉伸对话框关闭后，恢复普通提示
+    statusBar()->showMessage("Extrude dialog closed.");
 }
 
 void MainWindow::OnDarkTheme() {
@@ -1870,15 +1863,21 @@ void MainWindow::OnSelectionModeChanged(bool enabled, const QString& prompt) {
 void MainWindow::OnObjectSelected(const cad_core::ShapePtr& shape) {
     if (!shape) return;
 
-    // 拉伸第二阶段,如果对话框已经打开，把选中的临时拉伸区域传给对话框
+    // 如果拉伸对话框打开，则把当前选中的对象传给对话框
+    // 当前阶段先接收普通可选对象，后续再补“草图 profile 优先命中”
     if (m_currentExtrudeDialog) {
         m_currentExtrudeDialog->SetSelectedShape(shape);
     }
 
-    // 其它对话框的分发逻辑保持不变...
-    if (m_currentBooleanDialog) m_currentBooleanDialog->onObjectSelected(shape);
-    if (m_currentFilletChamferDialog) m_currentFilletChamferDialog->onEdgeSelected(shape);
-    if (m_currentTransformDialog) m_currentTransformDialog->onObjectSelected(shape);
+    if (m_currentBooleanDialog) {
+        m_currentBooleanDialog->onObjectSelected(shape);
+    }
+    if (m_currentFilletChamferDialog) {
+        m_currentFilletChamferDialog->onEdgeSelected(shape);
+    }
+    if (m_currentTransformDialog) {
+        m_currentTransformDialog->onObjectSelected(shape);
+    }
 }
 
 void MainWindow::OnBooleanOperationRequested(BooleanOperationType type, 
@@ -2384,11 +2383,13 @@ void MainWindow::OnSketchArcTool() {
 }
 
 void MainWindow::OnFaceSelected(const TopoDS_Face& face) {
-    // 1. 原有的：进入草图模式前选基准面的逻辑
+    // 进入草图模式前选基准面的逻辑
     if (m_waitingForFaceSelection) {
         m_waitingForFaceSelection = false;
-        m_viewer->SetSelectionMode(0); // 恢复选择模式
-        if (m_selectionModeCombo) m_selectionModeCombo->setCurrentIndex(0);
+        m_viewer->SetSelectionMode(0);
+        if (m_selectionModeCombo) {
+            m_selectionModeCombo->setCurrentIndex(0);
+        }
 
         m_viewer->EnterSketchMode(face);
 
@@ -2396,84 +2397,7 @@ void MainWindow::OnFaceSelected(const TopoDS_Face& face) {
         return;
     }
 
-    // 拉伸第一步的基准面校验逻辑在这里处理！
-    if (m_waitingForExtrudeBaseFace) {
-        bool isCorrectFace = false;
-        auto sketch = m_viewer->GetActiveSketch();
-        TopoDS_Face sketchFace = m_viewer->GetSketchFace();
-
-        if (sketch && !sketch->IsEmpty() && !sketchFace.IsNull()) {
-            if (face.IsSame(sketchFace) || face.IsPartner(sketchFace)) {
-                isCorrectFace = true;
-            }
-        }
-
-        if (isCorrectFace) {
-            // 校验成功！结束第一阶段
-            m_waitingForExtrudeBaseFace = false;
-
-            // 1. 先计算基准面的法线方向 (用于摆正视角和偏移临时面)
-            Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
-            Standard_Real uMin, uMax, vMin, vMax;
-            BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
-            GeomLProp_SLProps props(surface, (uMin + uMax) / 2.0, (vMin + vMax) / 2.0, 1, Precision::Confusion());
-
-            gp_Dir normal(0, 0, 1);
-            if (props.IsNormalDefined()) {
-                normal = props.Normal();
-                if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
-
-                // 摆正视角
-                if (!m_viewer->GetView().IsNull()) {
-                    m_viewer->GetView()->SetProj(normal.X(), normal.Y(), normal.Z());
-                    m_viewer->GetView()->SetTwist(0);
-                    m_viewer->GetView()->FitAll();
-                    m_viewer->GetView()->Redraw();
-                }
-            }
-
-            // 2. 生成并显示临时面 
-            m_tempExtrudeProfiles.clear();
-            gp_Ax3 sketchCS = m_viewer->GetSketchCS();
-            TopoDS_Face profileFace = sketch->GetProfileFace(sketchCS);
-
-  
-
-            if (!profileFace.IsNull()) {
-                // 沿着法线向外平移 0.01mm 解决 Z-fighting 闪烁覆盖问题
-                gp_Trsf trsf;
-                trsf.SetTranslation(gp_Vec(normal) * 0.01);
-                BRepBuilderAPI_Transform transform(profileFace, trsf);
-                TopoDS_Shape offsetProfile = transform.Shape();
-
-                auto tempShape = std::make_shared<cad_core::Shape>(offsetProfile);
-                m_viewer->DisplayShape(tempShape);
-                //m_viewer->SetShapeTransparency(tempShape, 0.5);
-                m_tempExtrudeProfiles.push_back(tempShape);
-            }
-
-            m_viewer->SetSelectionMode(4);
-
-            // 3. 弹窗并抢占焦点
-            if (!m_currentExtrudeDialog) {
-                m_currentExtrudeDialog = new CreateExtrudeDialog(this);
-                connect(m_currentExtrudeDialog, &CreateExtrudeDialog::extrudeRequested, this, &MainWindow::OnExtrudeRequested);
-                connect(m_currentExtrudeDialog, &QDialog::finished, this, &MainWindow::OnExtrudeDialogClosed);
-            }
-            m_currentExtrudeDialog->show();
-            m_currentExtrudeDialog->raise();
-            m_currentExtrudeDialog->activateWindow();
-
-            // 保持在当前的 Face Mode (4) 状态中，让下一步点击时触发真正的选面逻辑！
-            statusBar()->showMessage("The sketch has been loaded. Please hover over and click on the area of the sketch that you want to stretch...");
-        }
-        else {
-            // 点错面了，状态不变，继续等待选面
-            statusBar()->showMessage("There are no sketched elements drawn on this surface. Please select another surface");
-        }
-        return; // 拦截结束
-    }
-
+    Q_UNUSED(face);
 }
 
 void MainWindow::OnFaceSelectedForSketch(const TopoDS_Face& face) {

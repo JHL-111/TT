@@ -34,7 +34,9 @@
 #include <Geom_CartesianPoint.hxx>
 #include <Aspect_TypeOfMarker.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include "cad_core/Shape.h"
 #include <QMessageBox>
+#include <QApplication>
 
 #ifdef _WIN32
 #include <WNT_Window.hxx>
@@ -47,9 +49,13 @@
 namespace cad_ui {
 
 
-QtOccView::QtOccView(QWidget* parent) 
-    : QWidget(parent), m_isInitialized(false), m_currentMouseButton(Qt::NoButton),
-      m_currentSelectedShape(nullptr), m_currentSelectionMode(0) {
+    QtOccView::QtOccView(QWidget* parent)
+        : QWidget(parent),
+        m_isInitialized(false),
+        m_isLeftDragging(false),
+        m_currentMouseButton(Qt::NoButton),
+        m_currentSelectedShape(nullptr),
+        m_currentSelectionMode(0) {
     
     // Set widget attributes to reduce flicker
     setAttribute(Qt::WA_PaintOnScreen);
@@ -141,36 +147,40 @@ bool QtOccView::InitViewer() {
         // Set up context
         m_context->SetDisplayMode(AIS_Shaded, Standard_False);
         
-        // 设置选中和高亮样式
-        // 使用更直接的方法设置高亮颜色
-        // 1. 全局选中样式 (Selected)
-        Handle(Prs3d_Drawer) hilightDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_Selected);
-        if (!hilightDrawer.IsNull()) {
-            hilightDrawer->SetColor(Quantity_NOC_RED);
-            hilightDrawer->SetDisplayMode(1); // Shaded mode
-        }
-        
-        // 2. 全局悬停样式 (Dynamic)
-        Handle(Prs3d_Drawer) preHilightDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_Dynamic);
-        if (!preHilightDrawer.IsNull()) {
-            preHilightDrawer->SetColor(Quantity_NOC_LIGHTSKYBLUE1);
-            preHilightDrawer->SetDisplayMode(1); // Shaded mode
-        }
-        
-        // 3. 局部选中样式 (Local Selected - 面被点击后)
-        Handle(Prs3d_Drawer) localSelDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalSelected);
-        if (!localSelDrawer.IsNull()) {
-            localSelDrawer->SetColor(Quantity_NOC_RED);
-            localSelDrawer->SetDisplayMode(1); // 强制填充内部
-            localSelDrawer->SetTransparency(0.3f); // 30% 透明度，形成红玻璃效果
+        // 设置统一的高亮样式
+// 普通实体：Hover = Dynamic，Selected = Selected
+// 子形状（Face/Edge/Vertex）：Hover = LocalDynamic，Selected = LocalSelected
+
+// 1. 全局选中样式（普通实体点击后的状态）
+        Handle(Prs3d_Drawer) selectedDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_Selected);
+        if (!selectedDrawer.IsNull()) {
+            selectedDrawer->SetColor(Quantity_NOC_RED);
+            selectedDrawer->SetDisplayMode(1);     // Shaded
+            selectedDrawer->SetTransparency(0.0f); // 不透明，作为最终选中状态
         }
 
-        // 4. 局部悬停样式 (Local Dynamic - 鼠标悬空在面上)
-        Handle(Prs3d_Drawer) localDynDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalDynamic);
-        if (!localDynDrawer.IsNull()) {
-            localDynDrawer->SetColor(Quantity_NOC_BLUE); // 淡蓝色
-            localDynDrawer->SetDisplayMode(1); // 强制填充内部
-            localDynDrawer->SetTransparency(0.3f); // 30% 透明度，形成淡蓝色玻璃效果
+        // 2. 全局悬停样式（普通实体 hover 预览）
+        Handle(Prs3d_Drawer) dynamicDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_Dynamic);
+        if (!dynamicDrawer.IsNull()) {
+            dynamicDrawer->SetColor(Quantity_NOC_LIGHTSKYBLUE1);
+            dynamicDrawer->SetDisplayMode(1);      // Shaded
+            dynamicDrawer->SetTransparency(0.15f); // 比选中更轻，作为预览状态
+        }
+
+        // 3. 局部选中样式（Face / Edge / Vertex 点击后的状态）
+        Handle(Prs3d_Drawer) localSelectedDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalSelected);
+        if (!localSelectedDrawer.IsNull()) {
+            localSelectedDrawer->SetColor(Quantity_NOC_RED);
+            localSelectedDrawer->SetDisplayMode(1);      // 强制填充显示
+            localSelectedDrawer->SetTransparency(0.25f); // 轻微透明，便于看清模型
+        }
+
+        // 4. 局部悬停样式（Face / Edge / Vertex hover 预览）
+        Handle(Prs3d_Drawer) localDynamicDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalDynamic);
+        if (!localDynamicDrawer.IsNull()) {
+            localDynamicDrawer->SetColor(Quantity_NOC_LIGHTBLUE);
+            localDynamicDrawer->SetDisplayMode(1);      // 强制填充显示
+            localDynamicDrawer->SetTransparency(0.25f); // 作为预览，不要过重
         }
 
         // Set up selection manager
@@ -527,7 +537,7 @@ void QtOccView::resizeEvent(QResizeEvent* event) {
 void QtOccView::mousePressEvent(QMouseEvent* event) {
     m_lastMousePos = event->pos();
     m_currentMouseButton = event->button();
-    
+
     // 优先处理草图模式
     if (IsInSketchMode()) {
         if (HasActiveSketchTool()) {
@@ -535,51 +545,64 @@ void QtOccView::mousePressEvent(QMouseEvent* event) {
             return;
         }
 
-        // 如果当前没有画图工具，先执行选择，然后再触发拖拽判定
+        // 草图模式下维持现有逻辑：左键点击可选中元素并交给 SketchMode 处理
         if (event->button() == Qt::LeftButton) {
-            HandleSelection(event->pos());         // 1. 先判断并选中目标（变成蓝线）
-            m_sketchMode->HandleMousePress(event); // 2. 通知 SketchMode 开启拖拽状态！
+            HandleSelection(event->pos());
+            m_sketchMode->HandleMousePress(event);
         }
         return;
     }
-    
+
+    // 非草图模式：左键按下时只记录状态，不立刻旋转，也不立刻选择
     if (event->button() == Qt::LeftButton) {
-        // Start rotation
-        if (!m_view.IsNull()) {
-            m_view->StartRotation(event->pos().x(), event->pos().y());
-        }
-        HandleSelection(event->pos());
+        m_leftPressPos = event->pos();
+        m_isLeftDragging = false;
+        return;
     }
 }
 
 void QtOccView::mouseMoveEvent(QMouseEvent* event) {
     if (m_view.IsNull()) return;
-    
-    // 发射鼠标位置信号（屏幕坐标）
+
     QPoint currentPos = event->pos();
     emit MousePositionChanged(currentPos.x(), currentPos.y());
-    
-    // 尝试获取3D世界坐标
+
     try {
-        // 将屏幕坐标转换为3D世界坐标
         Standard_Real X, Y, Z;
         m_view->Convert(currentPos.x(), currentPos.y(), X, Y, Z);
         emit Mouse3DPositionChanged(X, Y, Z);
-    } catch (...) {
-        // 如果3D转换失败，使用屏幕坐标
+    }
+    catch (...) {
         emit Mouse3DPositionChanged(currentPos.x(), currentPos.y(), 0.0);
     }
-    
+
     // 优先处理草图模式
     if (IsInSketchMode()) {
-        m_sketchMode->HandleMouseMove(event); // 保持悬停吸附
+        m_sketchMode->HandleMouseMove(event);
 
         if (!HasActiveSketchTool() && !m_context.IsNull()) {
-            // 将鼠标的 2D 坐标传递给底层的交互上下文，让它知道鼠标碰到了什么
             m_context->MoveTo(currentPos.x(), currentPos.y(), m_view, Standard_True);
+
+            // 已选中的对象不再显示 hover 预览颜色
+            if (m_context->HasDetected()) {
+                Handle(AIS_InteractiveObject) detectedObj = m_context->DetectedInteractive();
+                if (!detectedObj.IsNull()) {
+                    bool isAlreadySelected = false;
+
+                    for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
+                        if (m_context->SelectedInteractive() == detectedObj) {
+                            isAlreadySelected = true;
+                            break;
+                        }
+                    }
+
+                    if (isAlreadySelected) {
+                        m_context->ClearDetected(Standard_True);
+                    }
+                }
+            }
         }
 
-        // 允许中键平移和右键缩放，但屏蔽草图模式下的左键旋转
         if (m_currentMouseButton == Qt::MiddleButton) {
             QPoint delta = currentPos - m_lastMousePos;
             m_view->Pan(delta.x(), -delta.y());
@@ -592,33 +615,64 @@ void QtOccView::mouseMoveEvent(QMouseEvent* event) {
                 m_view->Redraw();
             }
         }
+
         m_lastMousePos = currentPos;
-        return; // 返回，不执行下面的 3D 旋转逻辑
+        return;
     }
 
+    // 非草图模式：鼠标悬停检测
     if (m_currentMouseButton == Qt::NoButton && !m_context.IsNull()) {
         m_context->MoveTo(currentPos.x(), currentPos.y(), m_view, Standard_True);
+
+        // 已经选中的对象，不再显示 hover 预览颜色
+        if (m_context->HasDetected()) {
+            Handle(AIS_InteractiveObject) detectedObj = m_context->DetectedInteractive();
+            if (!detectedObj.IsNull()) {
+                bool isAlreadySelected = false;
+
+                for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
+                    if (m_context->SelectedInteractive() == detectedObj) {
+                        isAlreadySelected = true;
+                        break;
+                    }
+                }
+
+                if (isAlreadySelected) {
+                    m_context->ClearDetected(Standard_True);
+                }
+            }
+        }
     }
-    
+
+    // 左键按住拖动才旋转
     if (m_currentMouseButton == Qt::LeftButton) {
-        // Rotate - use absolute position for rotation
-        m_view->Rotation(currentPos.x(), currentPos.y());
-        m_view->Redraw();  // 确保实时渲染
-    } else if (m_currentMouseButton == Qt::MiddleButton) {
-        // Pan - use delta for panning
+        const int dragThreshold = QApplication::startDragDistance();
+        const int moveDistance = (currentPos - m_leftPressPos).manhattanLength();
+
+        if (!m_isLeftDragging && moveDistance >= dragThreshold) {
+            m_isLeftDragging = true;
+            m_view->StartRotation(m_leftPressPos.x(), m_leftPressPos.y());
+        }
+
+        if (m_isLeftDragging) {
+            m_view->Rotation(currentPos.x(), currentPos.y());
+            m_view->Redraw();
+        }
+    }
+    else if (m_currentMouseButton == Qt::MiddleButton) {
         QPoint delta = currentPos - m_lastMousePos;
         m_view->Pan(delta.x(), -delta.y());
-        m_view->Redraw();  // 确保实时渲染
-    } else if (m_currentMouseButton == Qt::RightButton) {
-        // Zoom - use delta for zooming
+        m_view->Redraw();
+    }
+    else if (m_currentMouseButton == Qt::RightButton) {
         QPoint delta = currentPos - m_lastMousePos;
         if (delta.y() != 0) {
             double factor = (delta.y() > 0) ? 0.9 : 1.1;
             m_view->SetZoom(factor);
-            m_view->Redraw();  // 确保实时渲染
+            m_view->Redraw();
         }
     }
-    
+
     m_lastMousePos = currentPos;
 }
 
@@ -627,12 +681,19 @@ void QtOccView::mouseReleaseEvent(QMouseEvent* event) {
     if (IsInSketchMode()) {
         m_sketchMode->HandleMouseRelease(event);
         m_currentMouseButton = Qt::NoButton;
+        m_isLeftDragging = false;
         return;
     }
-    
-    Q_UNUSED(event);
+
+    // 非草图模式：左键释放时，如果没有拖动，则作为一次点击选择
+    if (event->button() == Qt::LeftButton) {
+        if (!m_isLeftDragging) {
+            HandleSelection(event->pos());
+        }
+        m_isLeftDragging = false;
+    }
+
     m_currentMouseButton = Qt::NoButton;
-    
 }
 
 void QtOccView::wheelEvent(QWheelEvent* event) {
@@ -686,20 +747,19 @@ void QtOccView::HandleSelection(const QPoint& point) {
     // =========================================================================
     // 【步骤 1：清理阶段】在新选择开始时，统一清除之前的高亮和选中状态
     // =========================================================================
-    if (m_currentSelectionMode != 2) { // 边模式支持多选，所以不清边
+    if (m_currentSelectionMode != 2) { // 边模式支持多选，不在这里清边
         UnhighlightAllVertices();
         UnhighlightAllFaces();
-
-        // 清除草图的临时高亮层（克隆体）
         UnhighlightSketchElement();
 
-        // 清除之前记录的普通实体单选状态
+        // 普通单选模式下，清掉之前记录的 shape 选中状态
         if (!m_currentSelectedAIS.IsNull()) {
+            m_context->SetSelected(m_currentSelectedAIS, Standard_False);
             m_currentSelectedAIS.Nullify();
             m_currentSelectedShape.reset();
         }
 
-        // 彻底清空 OCC 底层的选中池
+        // face / vertex / 普通单选模式下，清空 OCC 的当前选择池
         m_context->ClearSelected(Standard_False);
     }
 
@@ -810,7 +870,6 @@ void QtOccView::HandleSelection(const QPoint& point) {
                         TopoDS_Shape selectedShape = anOwner->Shape();
                         if (selectedShape.ShapeType() == TopAbs_FACE) {
                             TopoDS_Face face = TopoDS::Face(selectedShape);
-                            HighlightFace(face);
                             qDebug() << "Face selected, emitting FaceSelected signal";
                             emit FaceSelected(face);
                             break;
@@ -838,18 +897,21 @@ void QtOccView::HandleSelection(const QPoint& point) {
 
                 // --- 路线 A：点中的是草图元素 ---
                 if (m_sketchElementMap.find(selectedObj) != m_sketchElementMap.end()) {
-                    // 【高亮层核心逻辑】：克隆一个临时形状盖在上面，原物体属性分毫不动
+                    // 先清掉旧的草图高亮覆盖层，避免重复叠加
+                    UnhighlightSketchElement();
+
+                    // 克隆一个临时形状盖在草图元素上方，原对象自身属性不变
                     m_sketchHighlightAIS = new AIS_Shape(aisShape->Shape());
-                    m_sketchHighlightAIS->SetColor(Quantity_NOC_BLUE1);  // 设置为蓝色高亮
-                    m_sketchHighlightAIS->SetWidth(4.0);                 // 加粗以完美覆盖原本的红线
+                    m_sketchHighlightAIS->SetColor(Quantity_NOC_BLUE1);
+                    m_sketchHighlightAIS->SetWidth(4.0);
                     m_sketchHighlightAIS->SetZLayer(Graphic3d_ZLayerId_Topmost);
 
-                    // 仅仅在屏幕上显示这个克隆体，不要把它加入选中池
+                    // 仅显示这个覆盖层，不加入选中池
                     m_context->Display(m_sketchHighlightAIS, Standard_False);
 
-                    // 记录真实的本体
+                    // 记录真实本体
                     m_currentSelectedAIS = aisShape;
-                    qDebug() << "Sketch element selected natively and highlighted with Overlay.";
+                    qDebug() << "Sketch element selected natively and highlighted with overlay.";
                 }
                 // --- 路线 B：点中的是普通 3D 实体 ---
                 else {
@@ -1057,6 +1119,9 @@ std::map<cad_core::ShapePtr, std::vector<TopoDS_Edge>> QtOccView::GetSelectedEdg
     return result;
 }
 
+
+// 仅供边多选或特殊业务预览使用
+// 普通 hover / 选中优先使用 OCC 自带 LocalDynamic / LocalSelected
 void QtOccView::HighlightEdge(const TopoDS_Edge& edge) {
     if (m_context.IsNull()) return;
     
@@ -1087,6 +1152,9 @@ void QtOccView::UnhighlightAllEdges() {
     m_view->Redraw();
 }
 
+
+// 仅供特殊点选择或调试预览使用
+// 普通 hover / 选中优先使用 OCC 自带 LocalDynamic / LocalSelected
 void QtOccView::HighlightVertex(const TopoDS_Vertex& vertex) {
     if (m_context.IsNull()) return;
     
@@ -1131,6 +1199,9 @@ void QtOccView::UnhighlightAllVertices() {
     m_view->Redraw();
 }
 
+
+// 仅供特殊业务预览使用（如相邻面预览、辅助提示）
+// 不再作为普通点击选面的默认高亮方式
 void QtOccView::HighlightFace(const TopoDS_Face& face) {
     if (m_context.IsNull()) return;
     

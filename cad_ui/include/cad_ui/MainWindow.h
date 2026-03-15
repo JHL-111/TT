@@ -239,10 +239,7 @@ private:
     void SetDocumentModified(bool modified);
     
     CreateExtrudeDialog* m_currentExtrudeDialog = nullptr;
-    std::vector<cad_core::ShapePtr> m_tempExtrudeProfiles; // 存放临时的草图高亮面
-    // 状态标志位 (State Flag)
-    bool m_waitingForExtrudeBaseFace = false;
-
+ 
     // Actions
     QAction* m_newAction;
     QAction* m_openAction;

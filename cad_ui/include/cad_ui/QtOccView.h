@@ -132,6 +132,8 @@ public:
     void HighlightSketchFace(const TopoDS_Face& face);
     void ClearSketchFaceHighlight();
 
+   
+
 	// 获取选中的草图元素
     std::vector<cad_sketch::SketchElementPtr> GetSelectedSketchElements(); // 获取选中的草图元素
 
@@ -152,13 +154,7 @@ public:
 
     // 获取底层真正被选中的子形状 (比如选面模式下的那个具体的面)
     TopoDS_Shape GetSelectedSubShape() const;
-
-    // 进入和退出拉伸专用选择模式
-    void EnterExtrudeSelectionMode(std::shared_ptr<cad_sketch::Sketch> sketch);
-    void ExitExtrudeSelectionMode();
-
-    // 在拉伸模式下，获取用户最终选中的几何体 (面或线)
-    cad_core::ShapePtr GetExtrudeSelectedProfile();
+    
 
 
 signals:
@@ -196,9 +192,11 @@ private:
     Handle(AIS_InteractiveObject) m_previewFaceAIS;
     
     QPoint m_lastMousePos;
+    QPoint m_leftPressPos; // 记录左键按下时的位置
     Qt::MouseButton m_currentMouseButton;
     bool m_isInitialized;
-    
+    bool m_isLeftDragging = false;  // 左键是否已经进入拖动旋转状态
+
     QTimer* m_redrawTimer;
     
     // 选择管理器
@@ -245,9 +243,6 @@ private:
     void InitializeOCC();
     void RedrawView();
     void HandleSelection(const QPoint& point);
-
-	// 拉伸选择模式相关
-    Handle(AIS_Shape) m_tempExtrudeProfile;
 
  public slots:
      void ShowOpFace(int faceIndex);
