@@ -1379,6 +1379,7 @@ void MainWindow::OnExtrudeRequested(cad_core::ShapePtr baseShape, double distanc
         auto resultShape = extrudeFeature->CreateShape();
 
         if (resultShape) {
+            extrudeFeature->SetResultShape(resultShape);
             // 1. 把 3D 结果放进底层数据结构
             if (m_ocafManager->AddShape(resultShape, featureName)) {
 
@@ -1549,29 +1550,59 @@ void MainWindow::OnDocumentTreeSketchDeleted(const std::shared_ptr<cad_sketch::S
 void MainWindow::OnDocumentTreeFeatureDeleted(const cad_feature::FeaturePtr& feature) {
     if (!feature) return;
 
-    m_ocafManager->StartTransaction("Delete Feature/Sketch");
+    // 开启 OCAF 事务，使得删除特征可以被撤销 (Undo)
+    m_ocafManager->StartTransaction("Delete Feature");
 
     try {
-    
-        // 只要用户删除了草图特征，立刻清空 3D 视图中残留的草图视觉元素！
-        if (m_viewer) {
-            // 如果碰巧正在编辑这个草图，先强制退出
-            if (m_viewer->IsInSketchMode()) {
-                m_viewer->ExitSketchMode();
+        // 1. 获取该特征生成的 3D 实体 (3D Solid)
+        auto resultShape = feature->GetResultShape();
+        if (resultShape) {
+
+
+            // 从 OCAF 数据底层移除
+            m_ocafManager->RemoveShape(resultShape);
+
+            // 从 3D 视图中抹除
+            if (m_viewer) {
+                m_viewer->RemoveShape(resultShape);
             }
-            
-            // 毫不留情地抹除 QtOccView 中的所有草图特有记录
-            m_viewer->ClearSketchObjects();       // 清除黄色的草图线框
-            m_viewer->ClearSketchProfiles();      // 清除浅蓝色的闭合面
-            m_viewer->ClearSketchPreview();       // 清除青色的预览线
-            m_viewer->ClearSketchFaceHighlight(); // 清除基准面高亮
+
+            // 从左侧文档树的 Shapes 文件夹节点中移除
+            m_documentTree->RemoveShape(resultShape);
         }
 
-        // 从后端的特征管理器移除
+        // 2. 恢复底层草图的可见性 
+        // 尝试将其转换为拉伸特征以获取被其消耗的草图
+        auto extrudeFeature = std::dynamic_pointer_cast<cad_feature::ExtrudeFeature>(feature);
+        if (extrudeFeature) {
+
+            //恢复草图可见性的代码逻辑 
+            auto baseShape = extrudeFeature->GetProfileShape();
+            if (baseShape) {
+                std::shared_ptr<cad_sketch::Sketch> targetSketch = nullptr;
+                for (const auto& sketch : m_documentTree->GetAllSketches()) {
+                    for (const auto& profile : sketch->GetProfiles()) {
+                        if (profile->GetFace().IsSame(baseShape->GetOCCTShape())) {
+                            targetSketch = sketch;
+                            break;
+                        }
+                    }
+                    if (targetSketch) break;
+                }
+
+                // 如果找到了这个特征对应的草图，将其重新显示
+                if (targetSketch) {
+                    m_viewer->SetSketchVisibility(targetSketch, true);
+                    m_documentTree->SetSketchUIHidden(targetSketch, false);
+                }
+            }           
+        }
+
+        // 3. 从后端的特征管理器 (Feature Manager) 移除
         if (m_featureManager) {
             m_featureManager->RemoveFeature(feature);
         }
-        
+
         m_ocafManager->CommitTransaction();
         SetDocumentModified(true);
         UpdateActions();
@@ -1581,11 +1612,11 @@ void MainWindow::OnDocumentTreeFeatureDeleted(const cad_feature::FeaturePtr& fea
             m_viewer->update(); // 强制刷新屏幕
         }
 
-        statusBar()->showMessage("Sketch feature deleted successfully", 2000);
+        statusBar()->showMessage(QString("Feature '%1' deleted successfully").arg(QString::fromStdString(feature->GetName())), 2000);
     }
     catch (const std::exception& e) {
         m_ocafManager->AbortTransaction();
-        QMessageBox::critical(this, "Error", QString("Exception during deletion: %1").arg(e.what()));
+        QMessageBox::critical(this, "Error", QString("Exception during feature deletion: %1").arg(e.what()));
     }
 }
 
