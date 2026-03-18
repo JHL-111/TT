@@ -189,6 +189,10 @@ public:
      */
     virtual std::shared_ptr<cad_core::ICommand> CreateCommand() const = 0;
 
+    //  ===== 结果形状绑定方法 ===== 
+    void SetResultShape(const cad_core::ShapePtr& shape) { m_resultShape = shape; }
+    cad_core::ShapePtr GetResultShape() const { return m_resultShape; }
+
 protected:
     /** 特征类型 - 这个特征属于哪个"门派" */
     FeatureType m_type;
@@ -210,6 +214,9 @@ protected:
     
     /** 静态ID计数器 - 用来分配唯一ID的"号码机" */
     static int s_nextId;
+
+    /** 特征生成的最终 3D 实体引用 */
+    cad_core::ShapePtr m_resultShape = nullptr;
 };
 
 /** 特征智能指针类型别名 - 让特征管理更轻松 */

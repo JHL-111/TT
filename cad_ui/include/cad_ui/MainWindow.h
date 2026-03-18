@@ -179,7 +179,10 @@ private slots:
     void OnDocumentTreeShapeSelected(const cad_core::ShapePtr& shape);
     void OnDocumentTreeFeatureSelected(const cad_feature::FeaturePtr& feature);
     void OnDocumentTreeShapeDeleted(const cad_core::ShapePtr& shape);
+    void OnDocumentTreeFeatureDeleted(const cad_feature::FeaturePtr& feature);
+    void OnDocumentTreeSketchDeleted(const std::shared_ptr<cad_sketch::Sketch>& sketch);
     void OnDocumentTreeShapeVisibilityChanged(const cad_core::ShapePtr& shape, bool visible);
+    void OnDocumentTreeSketchVisibilityChanged(const std::shared_ptr<cad_sketch::Sketch>& sketch, bool visible);
 
     // 标签页管理
     void CloseDocumentTab(int index);

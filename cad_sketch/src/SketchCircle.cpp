@@ -50,6 +50,11 @@ void SketchCircle::Translate(double dx, double dy) {
     // 半径不变
 }
 
+void SketchCircle::Rotate(double cx, double cy, double angleRad) {
+    // 圆的半径不变，只需要旋转圆心 (Center Point)
+    if (m_center) m_center->Rotate(cx, cy, angleRad);
+}
+
 std::string SketchCircle::GetDescription() const {
     std::ostringstream oss;
     oss << "Circle (Radius: " << m_radius << ")";

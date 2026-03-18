@@ -280,6 +280,16 @@ namespace cad_ui {
         std::vector<cad_sketch::SketchElementPtr> m_draggedElements; // 正在被拖拽的元素
         std::vector<cad_sketch::SketchElementPtr> m_dragStartSnapshot; // 记录拖拽前的状态(用于Undo)
 
+		// 旋转状态变量
+        bool m_isRotating = false;
+        bool m_isFirstRotation = false;
+        double m_rotCenterU = 0.0;
+        double m_rotCenterV = 0.0;
+        double m_lastAngle = 0.0;
+
+        //计算所选元素质心 (Centroid) 的辅助函数
+        void CalculateSelectionCenter(double& outU, double& outV);
+
         // 历史操作记录结构体 (History Operation Record)
         struct SketchHistoryStep {
             enum ActionType { ADD, REMOVE };

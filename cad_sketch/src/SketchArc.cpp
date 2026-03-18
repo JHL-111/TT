@@ -84,6 +84,21 @@ void SketchArc::Translate(double dx, double dy) {
     // 半径和起止角度都不变
 }
 
+void SketchArc::Rotate(double cx, double cy, double angleRad) {
+    // 1. 旋转圆心
+    if (m_center) m_center->Rotate(cx, cy, angleRad);
+
+    // 2. 增加起止角度 (Start and End Angles)
+    m_startAngle += angleRad;
+    m_endAngle += angleRad;
+
+    // 角度归一化到 [0, 2π] 范围 (Normalize to 2 PI)
+    if (m_startAngle < 0) m_startAngle += 2 * M_PI;
+    if (m_startAngle >= 2 * M_PI) m_startAngle -= 2 * M_PI;
+    if (m_endAngle < 0) m_endAngle += 2 * M_PI;
+    if (m_endAngle >= 2 * M_PI) m_endAngle -= 2 * M_PI;
+}
+
 std::string SketchArc::GetDescription() const {
     std::ostringstream oss;
     oss << "Arc (Radius: " << m_radius << ", Sweep: " << GetSweepAngle() * 180.0 / M_PI << "°)";

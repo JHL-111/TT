@@ -12,6 +12,7 @@
 #include "cad_core/SelectionManager.h"
 #include "cad_ui/CreateExtrudeDialog.h"
 #include "cad_feature/ExtrudeFeature.h"
+#include "cad_sketch/SketchProfile.h"
 
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -988,8 +989,10 @@ void MainWindow::ConnectSignals() {
     connect(m_documentTree, &DocumentTree::ShapeSelected, this, &MainWindow::OnDocumentTreeShapeSelected);
     connect(m_documentTree, &DocumentTree::FeatureSelected, this, &MainWindow::OnDocumentTreeFeatureSelected);
     connect(m_documentTree, &DocumentTree::ShapeDeleted, this, &MainWindow::OnDocumentTreeShapeDeleted);
+    connect(m_documentTree, &DocumentTree::FeatureDeleted, this, &MainWindow::OnDocumentTreeFeatureDeleted);
+    connect(m_documentTree, &DocumentTree::SketchDeleted, this, &MainWindow::OnDocumentTreeSketchDeleted);
     connect(m_documentTree, &DocumentTree::ShapeVisibilityChanged, this, &MainWindow::OnDocumentTreeShapeVisibilityChanged);
-
+    connect(m_documentTree, &DocumentTree::SketchVisibilityChanged, this, &MainWindow::OnDocumentTreeSketchVisibilityChanged);
 }
 
 void MainWindow::UpdateActions() {
@@ -1360,77 +1363,73 @@ void MainWindow::OnCreateExtrude() {
 void MainWindow::OnExtrudeRequested(cad_core::ShapePtr baseShape, double distance) {
     if (!baseShape) return;
 
-    m_ocafManager->StartTransaction("Create Extrude");
+    m_ocafManager->StartTransaction("Create Extrude Feature");
 
     try {
-        TopoDS_Shape topoShape = baseShape->GetOCCTShape();
-        TopoDS_Face profileFace;
-        gp_Dir extrudeNormal(0, 0, 1);
+        // 创建并配置 Feature
+        // 生成形如 "Extrude_1", "Extrude_2" 的特征名称
+        std::string featureName = "Extrude_" + std::to_string(m_featureManager->GetFeatureCount() + 1);
+        auto extrudeFeature = std::make_shared<cad_feature::ExtrudeFeature>(featureName);
 
-        // 识别选中的是线框还是平面
-        if (topoShape.ShapeType() == TopAbs_WIRE || topoShape.ShapeType() == TopAbs_EDGE) {
-            BRepBuilderAPI_MakeWire wireMaker;
-            if (topoShape.ShapeType() == TopAbs_EDGE) {
-                wireMaker.Add(TopoDS::Edge(topoShape));
+        // 赋予配方参数
+        extrudeFeature->SetProfileShape(baseShape);
+        extrudeFeature->SetDistance(distance);
+
+        // 让 Feature 运行“配方”生成真实的 3D Shape
+        auto resultShape = extrudeFeature->CreateShape();
+
+        if (resultShape) {
+            // 1. 把 3D 结果放进底层数据结构
+            if (m_ocafManager->AddShape(resultShape, featureName)) {
+
+                // 2. 将 Feature 注册到特征管理器和文档树里！
+                m_featureManager->AddFeature(extrudeFeature);
+                m_documentTree->AddFeature(extrudeFeature);
+                // 注意：由于 DocumentTree 帮你区分了 Shape 和 Feature，
+                // 左侧树的 Features 文件夹下将会出现 "Extrude_1" 节点！
+
+                // 3. 将结果 Shape 显示在文档树和 3D 视图里
+                m_documentTree->AddShape(resultShape);
+                m_viewer->DisplayShape(resultShape);
+
+                // 特征消耗草图
+                // 4.根据参与拉伸的这个面(baseShape)，找到它属于哪个草图
+                std::shared_ptr<cad_sketch::Sketch> targetSketch = nullptr;
+                for (const auto& sketch : m_documentTree->GetAllSketches()) {
+                    for (const auto& profile : sketch->GetProfiles()) {
+                        // 利用 OCC 的 IsSame 精准比对底层拓扑面
+                        if (profile->GetFace().IsSame(baseShape->GetOCCTShape())) {
+                            targetSketch = sketch;
+                            break;
+                        }
+                    }
+                    if (targetSketch) break;
+                }
+
+                // 3D视图里隐藏，并且左侧树打上删除线
+                if (targetSketch) {
+                    m_viewer->SetSketchVisibility(targetSketch, false); 
+                    m_documentTree->SetSketchUIHidden(targetSketch, true);
+                }
+
+                m_viewer->ClearSelection();
+
+                m_ocafManager->CommitTransaction();
+                SetDocumentModified(true);
+                UpdateActions();
             }
             else {
-                wireMaker.Add(TopoDS::Wire(topoShape));
+                throw std::runtime_error("Failed to add shape to document.");
             }
-            if (!wireMaker.IsDone() || !wireMaker.Wire().Closed()) {
-                throw std::runtime_error("Sketch profile is not closed!");
-            }
-            BRepBuilderAPI_MakeFace faceMaker(wireMaker.Wire(), true);
-            if (!faceMaker.IsDone()) throw std::runtime_error("Failed to make face from profile.");
-            profileFace = faceMaker.Face();
-        }
-        else if (topoShape.ShapeType() == TopAbs_FACE) {
-            profileFace = TopoDS::Face(topoShape);
         }
         else {
-            throw std::runtime_error("Please select a Face or closed Wire.");
-        }
-
-        // 计算法线 (Normal Calculation)
-        Handle(Geom_Surface) surface = BRep_Tool::Surface(profileFace);
-        Standard_Real uMin, uMax, vMin, vMax;
-        BRepTools::UVBounds(profileFace, uMin, uMax, vMin, vMax);
-        Standard_Real uMid = (uMin + uMax) / 2.0;
-        Standard_Real vMid = (vMin + vMax) / 2.0;
-        GeomLProp_SLProps props(surface, uMid, vMid, 1, Precision::Confusion());
-
-        if (props.IsNormalDefined()) {
-            extrudeNormal = props.Normal();
-            if (profileFace.Orientation() == TopAbs_REVERSED) extrudeNormal.Reverse();
-        }
-
-        // 执行 3D 拉伸 (Make Prism)
-        gp_Vec extrudeVec(extrudeNormal.XYZ() * distance);
-        BRepPrimAPI_MakePrism prismMaker(profileFace, extrudeVec);
-        if (!prismMaker.IsDone()) throw std::runtime_error("Extrusion geometry failed!");
-
-        // 添加到模型树
-        auto resultShape = std::make_shared<cad_core::Shape>(prismMaker.Shape());
-        if (m_ocafManager->AddShape(resultShape, "Extrusion")) {
-            m_viewer->DisplayShape(resultShape);
-            m_documentTree->AddShape(resultShape);
-            m_viewer->ClearSketchObjects();
-            m_viewer->ClearSketchProfiles();
-            m_viewer->ClearSelection();
-            m_ocafManager->CommitTransaction();
-            SetDocumentModified(true);
-            UpdateActions();
-        }
-        else {
-            throw std::runtime_error("Failed to add shape to document.");
+            throw std::runtime_error("Extrude feature failed to generate shape.");
         }
     }
     catch (const std::exception& e) {
         m_ocafManager->AbortTransaction();
         QMessageBox::warning(this, "Extrude Error", e.what());
     }
-
-    // 成功执行完毕后，不需要手动调 OnExtrudeDialogClosed，
-    // 因为对话框会在 accept() 后自动触发 closeEvent 来清理！
 }
 
 void MainWindow::OnExtrudeDialogClosed() {
@@ -1521,6 +1520,75 @@ void MainWindow::OnDocumentTreeShapeDeleted(const cad_core::ShapePtr& shape) {
     }
 }
 
+void MainWindow::OnDocumentTreeSketchDeleted(const std::shared_ptr<cad_sketch::Sketch>& sketch) {
+    if (!sketch || !m_viewer) return;
+
+    try {
+        // 1. 从视图里移除该草图对应的所有图元和轮廓
+        m_viewer->RemoveSketch(sketch);
+
+        // 2. 如果删的是当前活动草图，则清空当前草图内容
+        auto activeSketch = m_viewer->GetActiveSketch();
+        if (activeSketch == sketch) {
+            sketch->ClearElements();
+            sketch->UpdateProfiles(gp_Ax3());
+        }
+
+        // 3. 清理选中状态与界面
+        m_viewer->ClearSelection();
+        SetDocumentModified(true);
+        UpdateActions();
+
+        statusBar()->showMessage("Sketch deleted successfully", 2000);
+    }
+    catch (const std::exception& e) {
+        QMessageBox::critical(this, "Error", QString("Exception during sketch deletion: %1").arg(e.what()));
+    }
+}
+
+void MainWindow::OnDocumentTreeFeatureDeleted(const cad_feature::FeaturePtr& feature) {
+    if (!feature) return;
+
+    m_ocafManager->StartTransaction("Delete Feature/Sketch");
+
+    try {
+    
+        // 只要用户删除了草图特征，立刻清空 3D 视图中残留的草图视觉元素！
+        if (m_viewer) {
+            // 如果碰巧正在编辑这个草图，先强制退出
+            if (m_viewer->IsInSketchMode()) {
+                m_viewer->ExitSketchMode();
+            }
+            
+            // 毫不留情地抹除 QtOccView 中的所有草图特有记录
+            m_viewer->ClearSketchObjects();       // 清除黄色的草图线框
+            m_viewer->ClearSketchProfiles();      // 清除浅蓝色的闭合面
+            m_viewer->ClearSketchPreview();       // 清除青色的预览线
+            m_viewer->ClearSketchFaceHighlight(); // 清除基准面高亮
+        }
+
+        // 从后端的特征管理器移除
+        if (m_featureManager) {
+            m_featureManager->RemoveFeature(feature);
+        }
+        
+        m_ocafManager->CommitTransaction();
+        SetDocumentModified(true);
+        UpdateActions();
+
+        if (m_viewer) {
+            m_viewer->ClearSelection();
+            m_viewer->update(); // 强制刷新屏幕
+        }
+
+        statusBar()->showMessage("Sketch feature deleted successfully", 2000);
+    }
+    catch (const std::exception& e) {
+        m_ocafManager->AbortTransaction();
+        QMessageBox::critical(this, "Error", QString("Exception during deletion: %1").arg(e.what()));
+    }
+}
+
 void MainWindow::OnDocumentTreeShapeVisibilityChanged(const cad_core::ShapePtr& shape, bool visible) {
     if (m_viewer && shape) {
         m_viewer->SetShapeVisibility(shape, visible);
@@ -1532,6 +1600,13 @@ void MainWindow::OnDocumentTreeShapeVisibilityChanged(const cad_core::ShapePtr& 
         else {
             statusBar()->showMessage("Shape is now hidden", 2000);
         }
+    }
+}
+
+void MainWindow::OnDocumentTreeSketchVisibilityChanged(const std::shared_ptr<cad_sketch::Sketch>& sketch, bool visible) {
+    if (m_viewer && sketch) {
+        m_viewer->SetSketchVisibility(sketch, visible);
+        statusBar()->showMessage(visible ? "Sketch is now visible" : "Sketch is now hidden", 2000);
     }
 }
 
@@ -2355,6 +2430,12 @@ void MainWindow::OnEnterSketchMode() {
 void MainWindow::OnExitSketchMode() {
     if (!m_viewer || !m_viewer->IsInSketchMode()) {
         return;
+    }
+
+    // 退出前抓取当前画的草图并上树
+    auto activeSketch = m_viewer->GetActiveSketch();
+    if (activeSketch && !activeSketch->GetElements().empty()) {
+        m_documentTree->AddSketch(activeSketch);
     }
 
     // 退出草图模式视图状态

@@ -1707,6 +1707,76 @@ std::vector<cad_sketch::SketchElementPtr> QtOccView::GetSelectedSketchElements()
     return result;
 }
 
+// 设置草图的可见性
+void QtOccView::SetSketchVisibility(const std::shared_ptr<cad_sketch::Sketch>& sketch, bool visible) {
+    if (!sketch || m_context.IsNull()) return;
+
+    // 1. 控制属于该草图的红线 (Elements)
+    for (const auto& elem : sketch->GetElements()) {
+        for (const auto& pair : m_sketchElementMap) {
+            if (pair.second == elem) {
+                if (visible) m_context->Display(pair.first, Standard_False);
+                else m_context->Erase(pair.first, Standard_False);
+            }
+        }
+    }
+
+    // 2. 控制属于该草图的浅蓝色面 (Profiles)
+    for (const auto& profile : sketch->GetProfiles()) {
+        TopoDS_Face face = profile->GetFace();
+        for (const auto& pair : m_sketchProfileMap) {
+            // 利用 OCC 底层的 IsSame 精准比对拓扑形状
+            if (pair.second && pair.second->GetOCCTShape().IsSame(face)) {
+                if (visible) m_context->Display(pair.first, Standard_False);
+                else m_context->Erase(pair.first, Standard_False);
+            }
+        }
+    }
+    m_view->Redraw();
+}
+
+void QtOccView::RemoveSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch) {
+    if (!sketch || m_context.IsNull()) return;
+
+    // 1. 删除该草图对应的所有元素 AIS
+    for (const auto& elem : sketch->GetElements()) {
+        for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ) {
+            if (it->second == elem) {
+                if (m_currentSelectedAIS == it->first) {
+                    UnhighlightSketchElement();
+                    m_currentSelectedAIS.Nullify();
+                    m_currentSelectedShape.reset();
+                }
+
+                m_context->Remove(it->first, Standard_False);
+                it = m_sketchElementMap.erase(it);
+            }
+            else {
+                ++it;
+            }
+        }
+    }
+
+    // 2. 删除该草图对应的所有 profile 面
+    for (const auto& profile : sketch->GetProfiles()) {
+        TopoDS_Face face = profile->GetFace();
+
+        for (auto it = m_sketchProfileMap.begin(); it != m_sketchProfileMap.end(); ) {
+            if (it->second && it->second->GetOCCTShape().IsSame(face)) {
+                m_context->Remove(it->first, Standard_False);
+                it = m_sketchProfileMap.erase(it);
+            }
+            else {
+                ++it;
+            }
+        }
+    }
+
+    m_context->ClearSelected(Standard_False);
+    m_context->UpdateCurrentViewer();
+    m_view->Redraw();
+}
+
 // 从屏幕上抹除指定的草图元素
 void QtOccView::RemoveSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements) {
     if (m_context.IsNull()) return;
@@ -1873,6 +1943,31 @@ void QtOccView::ClearSketchProfiles() {
     }
     m_sketchProfileObjects.clear();
     m_sketchProfileMap.clear(); // 清空映射表防止内存泄漏或野指针
+    m_view->Redraw();
+}
+
+void QtOccView::HideSingleSketchProfile(const cad_core::ShapePtr& profileShape) {
+    if (!profileShape || m_context.IsNull()) return;
+
+    // 遍历草图轮廓映射表，寻找匹配的业务对象
+    for (auto it = m_sketchProfileMap.begin(); it != m_sketchProfileMap.end(); ++it) {
+        if (it->second == profileShape) {
+            Handle(AIS_InteractiveObject) aisObj = it->first;
+
+            // 1. 从 3D 视图中隐藏该轮廓 (Erase)
+            m_context->Erase(aisObj, Standard_False);
+
+            // 2. 将其从对象渲染池中剔除
+            auto vecIt = std::find(m_sketchProfileObjects.begin(), m_sketchProfileObjects.end(), aisObj);
+            if (vecIt != m_sketchProfileObjects.end()) {
+                m_sketchProfileObjects.erase(vecIt);
+            }
+
+            // 3. 从映射表中移除，防止野指针
+            m_sketchProfileMap.erase(it);
+            break; // 找到了就退出循环
+        }
+    }
     m_view->Redraw();
 }
 

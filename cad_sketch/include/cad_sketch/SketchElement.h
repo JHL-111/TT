@@ -20,6 +20,8 @@ public:
 
     virtual void Translate(double dx, double dy) = 0; // 平移接口
 
+    virtual void Rotate(double cx, double cy, double angleRad) = 0;// 旋转接口
+
     SketchElementType GetType() const;
     int GetId() const;
     void SetId(int id);

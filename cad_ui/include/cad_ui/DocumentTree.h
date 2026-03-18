@@ -7,6 +7,7 @@
 #include <QAction>
 #include "cad_core/Shape.h"
 #include "cad_feature/Feature.h"
+#include "cad_sketch/Sketch.h"
 
 namespace cad_ui {
 
@@ -22,12 +23,23 @@ public:
     void AddFeature(const cad_feature::FeaturePtr& feature);
     void RemoveFeature(const cad_feature::FeaturePtr& feature);
     void Clear();
+    void AddSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch);
+    void RemoveSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch);
+
+    // 获取当前树里所有的草图
+    std::vector<std::shared_ptr<cad_sketch::Sketch>> GetAllSketches() const;
+    // 控制草图节点加上/取消删除线
+    void SetSketchUIHidden(const std::shared_ptr<cad_sketch::Sketch>& sketch, bool hidden);
 
 signals:
     void ShapeSelected(const cad_core::ShapePtr& shape);
     void FeatureSelected(const cad_feature::FeaturePtr& feature);
     void ShapeDeleted(const cad_core::ShapePtr& shape);
     void ShapeVisibilityChanged(const cad_core::ShapePtr& shape, bool visible);
+    void FeatureDeleted(const cad_feature::FeaturePtr& feature);
+    void SketchDeleted(const std::shared_ptr<cad_sketch::Sketch>& sketch);
+    void SketchVisibilityChanged(const std::shared_ptr<cad_sketch::Sketch>& sketch, bool visible);
+    
 
 protected:
     void contextMenuEvent(QContextMenuEvent* event) override;
@@ -38,6 +50,7 @@ private slots:
     void OnDeleteItem();
     void OnRenameItem();
     void OnToggleVisibility();
+   
 
 private:
     QTreeWidgetItem* m_shapesRoot;
@@ -46,7 +59,8 @@ private:
     QAction* m_deleteAction;
     QAction* m_renameAction;
     QAction* m_toggleVisibilityAction;
-    
+    QTreeWidgetItem* m_sketchesRoot;
+
     void CreateContextMenu();
     void SetupTree();
 };

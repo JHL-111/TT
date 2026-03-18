@@ -12,6 +12,7 @@ public:
     SketchPoint(const cad_core::Point& point);
     virtual ~SketchPoint() = default;
     void Translate(double dx, double dy) override;
+	void Rotate(double cx, double cy, double angleRad) override;
     const cad_core::Point& GetPoint() const;
     void SetPoint(const cad_core::Point& point);
     

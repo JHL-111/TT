@@ -56,6 +56,11 @@ void SketchLine::Translate(double dx, double dy) {
     m_endPoint->Translate(dx, dy);
 }
 
+void SketchLine::Rotate(double cx, double cy, double angleRad) {
+    if (m_startPoint) m_startPoint->Rotate(cx, cy, angleRad);
+    if (m_endPoint) m_endPoint->Rotate(cx, cy, angleRad);
+}
+
 std::string SketchLine::GetDescription() const {
     std::ostringstream oss;
     oss << "Line (Length: " << GetLength() << ")";

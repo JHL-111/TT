@@ -48,6 +48,21 @@ void SketchPoint::Translate(double dx, double dy) {
     m_point.SetY(m_point.Y() + dy);
 }
 
+void SketchPoint::Rotate(double cx, double cy, double angleRad) {
+    // 使用 GetX() 和 GetY() 获取当前坐标
+    double px = GetX();
+    double py = GetY();
+
+    // 计算旋转后的新坐标
+    double nx = (px - cx) * std::cos(angleRad) - (py - cy) * std::sin(angleRad) + cx;
+    double ny = (px - cx) * std::sin(angleRad) + (py - cy) * std::cos(angleRad) + cy;
+
+    // 使用 SetX() 和 SetY() 写入新坐标 (如果你的类里是叫 SetX/SetY)
+    SetX(nx);
+    SetY(ny);
+    // 注意：如果你的点类里没有 SetX/SetY，而是叫 SetCoordinate(nx, ny)，请替换为对应的方法
+}
+
 std::string SketchPoint::GetDescription() const {
     std::ostringstream oss;
     oss << "Point (" << GetX() << ", " << GetY() << ")";

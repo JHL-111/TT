@@ -580,19 +580,26 @@ namespace cad_ui {
     void SketchMode::HandleMousePress(QMouseEvent* event) {
         if (!m_isActive) return;
 
-        // 如果当前有激活的绘图工具，交给它处理
-  
         if (m_currentTool && event->button() == Qt::LeftButton) {
             m_currentTool->StartDrawing(event->pos());
         }
-
-        // 没有绘图工具时，准备开始拖拽选中图形
         else if (!m_currentTool && event->button() == Qt::LeftButton) {
             auto selected = m_viewer->GetSelectedSketchElements();
             if (!selected.empty()) {
-                m_isDragging = true;
                 m_draggedElements = selected;
-                GetPlaneCoordinate(event->pos(), m_lastDragU, m_lastDragV);
+
+                // 按下 Ctrl 键，进入旋转模式
+                if (event->modifiers() & Qt::ControlModifier) {
+                    m_isRotating = true;
+                    m_isFirstRotation = true; // 标记这是旋转的第一帧
+                    GetPlaneCoordinate(event->pos(), m_rotCenterU, m_rotCenterV);
+                    m_lastAngle = 0.0;
+                }
+                // 否则进入平移模式
+                else {
+                    m_isDragging = true;
+                    GetPlaneCoordinate(event->pos(), m_lastDragU, m_lastDragV);
+                }
             }
         }
     }
@@ -600,38 +607,58 @@ namespace cad_ui {
     void SketchMode::HandleMouseMove(QMouseEvent* event) {
         if (!m_isActive) return;
 
-        // 如果当前有激活的绘图工具，交给它处理
         if (m_currentTool) {
             m_currentTool->HoverMove(event->pos());
             if (m_currentTool->IsDrawing()) {
                 m_currentTool->UpdateDrawing(event->pos());
             }
         }
-
-        // 处理图形平移拖拽
         else {
-            if (m_isDragging && !m_draggedElements.empty()) {
+            // --- 旋转逻辑 ---
+            if (m_isRotating && !m_draggedElements.empty()) {
                 double currentU = 0.0, currentV = 0.0;
                 GetPlaneCoordinate(event->pos(), currentU, currentV);
 
-                // 计算位移差值
+                // 计算当前鼠标角度
+                double currentAngle = std::atan2(currentV - m_rotCenterV, currentU - m_rotCenterU);
+
+                // 如果是刚按下鼠标的第一帧拖拽，只记录初始角度，不发生旋转
+                if (m_isFirstRotation) {
+                    m_lastAngle = currentAngle;
+                    m_isFirstRotation = false;
+                    return;
+                }
+
+                // 计算角度差值
+                double deltaAngle = currentAngle - m_lastAngle;
+
+                for (auto& elem : m_draggedElements) {
+                    elem->Rotate(m_rotCenterU, m_rotCenterV, deltaAngle);
+                    m_viewer->UpdateSketchElementVisuals(elem);
+                }
+
+                m_lastAngle = currentAngle;
+            }
+            // --- 平移逻辑 ---
+            else if (m_isDragging && !m_draggedElements.empty()) {
+                double currentU = 0.0, currentV = 0.0;
+                GetPlaneCoordinate(event->pos(), currentU, currentV);
+
                 double dx = currentU - m_lastDragU;
                 double dy = currentV - m_lastDragV;
 
-                // 应用平移并刷新视图
                 for (auto& elem : m_draggedElements) {
                     elem->Translate(dx, dy);
                     m_viewer->UpdateSketchElementVisuals(elem);
                 }
 
-                // 更新上一帧位置
                 m_lastDragU = currentU;
                 m_lastDragV = currentV;
             }
         }
     }
 
-    void SketchMode::HandleMouseRelease(QMouseEvent* event) {
+    void SketchMode::HandleMouseRelease(QMouseEvent * event) {
         if (!m_isActive) return;
 
         // 如果当前有激活的绘图工具，交由它完成绘制
@@ -641,8 +668,9 @@ namespace cad_ui {
 
         // 结束平移拖拽
         else if (!m_currentTool && event->button() == Qt::LeftButton) {
-            if (m_isDragging) {
+            if (m_isDragging || m_isRotating) {
                 m_isDragging = false;
+                m_isRotating = false;
                 m_draggedElements.clear();
 
                 // 拖拽松开后，线条位置发生变化，重新计算并渲染轮廓
@@ -655,6 +683,7 @@ namespace cad_ui {
                 emit sketchHistoryChanged();
             }
         }
+        
     }
 
     void SketchMode::HandleKeyPress(QKeyEvent* event) {

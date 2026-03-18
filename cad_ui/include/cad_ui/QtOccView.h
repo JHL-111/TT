@@ -53,8 +53,10 @@ public:
     // 形状显示
     void DisplayShape(const cad_core::ShapePtr& shape);
     void RemoveShape(const cad_core::ShapePtr& shape);
+    void RemoveSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch);
     void ClearShapes();
     void RedrawAll();
+
     // 切换形状的可见性
     void SetShapeVisibility(const cad_core::ShapePtr& shape, bool visible);
     virtual QPaintEngine* paintEngine() const;
@@ -126,6 +128,7 @@ public:
     void ClearSketchPreview();
     void AddSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS);
     void ClearSketchObjects();
+    void SetSketchVisibility(const std::shared_ptr<cad_sketch::Sketch>& sketch, bool visible);
 
     // 控制吸附提示符的显示和隐藏
     void ShowSnapIndicator(const gp_Pnt& pnt, cad_sketch::SnapType snapType);
@@ -144,6 +147,9 @@ public:
 
     void RemoveSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements); // 从视图中移除
     void ClearSketchElementMap(); // 清空映射表
+
+    // 隐藏特定的草图轮廓
+    void HideSingleSketchProfile(const cad_core::ShapePtr& profileShape);
 
     // 移动刷新草图元素
     void UpdateSketchElementVisuals(const cad_sketch::SketchElementPtr& elem);
