@@ -1,10 +1,15 @@
 ﻿#include "cad_ui/PropertyPanel.h"
+#include "cad_feature/RectangularFaceFeature.h"
+#include <QLabel>
+#include <QDoubleSpinBox>
+#include <QFormLayout> 
+#include <QGroupBox>
 
 namespace cad_ui {
 
 PropertyPanel::PropertyPanel(QWidget* parent) : QWidget(parent) {
     m_mainLayout = new QVBoxLayout(this);
-    
+   
     m_scrollArea = new QScrollArea(this);
     m_scrollArea->setWidgetResizable(true);
     m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -19,7 +24,7 @@ PropertyPanel::PropertyPanel(QWidget* parent) : QWidget(parent) {
     setLayout(m_mainLayout);
     
     // Initialize with empty state
-    Clear();
+    ClearProperties();
 }
 
 void PropertyPanel::SetShape(const cad_core::ShapePtr& shape) {
@@ -33,20 +38,59 @@ void PropertyPanel::SetShape(const cad_core::ShapePtr& shape) {
 void PropertyPanel::SetFeature(const cad_feature::FeaturePtr& feature) {
     m_currentFeature = feature;
     m_currentShape.reset();
-    
+
     ClearProperties();
-    CreateFeatureProperties();
+
+    if (!feature) return;
+
+    auto faceFeature = std::dynamic_pointer_cast<cad_feature::RectangularFaceFeature>(feature);
+
+    if (faceFeature) {
+        QGroupBox* groupBox = new QGroupBox(QString::fromStdString(faceFeature->GetName()), m_contentWidget);
+        QFormLayout* formLayout = new QFormLayout(groupBox);
+
+        QDoubleSpinBox* widthSpin = new QDoubleSpinBox(groupBox);
+        widthSpin->setRange(0.1, 10000.0);
+        widthSpin->setSingleStep(1.0);
+        widthSpin->setDecimals(2);
+        widthSpin->setValue(faceFeature->GetWidth());
+
+        QDoubleSpinBox* heightSpin = new QDoubleSpinBox(groupBox);
+        heightSpin->setRange(0.1, 10000.0);
+        heightSpin->setSingleStep(1.0);
+        heightSpin->setDecimals(2);
+        heightSpin->setValue(faceFeature->GetHeight());
+
+        formLayout->addRow(new QLabel("Width (mm):"), widthSpin);
+        formLayout->addRow(new QLabel("Height (mm):"), heightSpin);
+
+        m_contentLayout->addWidget(groupBox);
+
+        connect(widthSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, [this, faceFeature](double newValue) {
+                faceFeature->SetWidth(newValue);
+                emit FeatureParameterChanged(faceFeature);
+            });
+
+        connect(heightSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, [this, faceFeature](double newValue) {
+                faceFeature->SetHeight(newValue);
+                emit FeatureParameterChanged(faceFeature);
+            });
+    }
+
+    m_contentLayout->addStretch();
 }
 
-void PropertyPanel::Clear() {
-    m_currentShape.reset();
-    m_currentFeature.reset();
-    ClearProperties();
-    
-    QLabel* label = new QLabel("No selection");
-    label->setAlignment(Qt::AlignCenter);
-    m_contentLayout->addWidget(label);
-    m_contentLayout->addStretch();
+void PropertyPanel::ClearPanel() {
+    // 清空现有的所有控件
+    QLayoutItem* item;
+    while ((item = m_mainLayout->takeAt(0)) != nullptr) {
+        if (item->widget()) {
+            delete item->widget();
+        }
+        delete item;
+    }
 }
 
 void PropertyPanel::CreateShapeProperties() {
@@ -121,9 +165,16 @@ void PropertyPanel::CreateFeatureProperties() {
 }
 
 void PropertyPanel::ClearProperties() {
+    if (!m_contentLayout) return;
+
     QLayoutItem* item;
     while ((item = m_contentLayout->takeAt(0)) != nullptr) {
-        delete item->widget();
+        if (item->widget()) {
+            delete item->widget();
+        }
+        if (item->layout()) {
+            delete item->layout();
+        }
         delete item;
     }
 }

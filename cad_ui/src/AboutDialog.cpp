@@ -5,7 +5,7 @@
 namespace cad_ui {
 
 AboutDialog::AboutDialog(QWidget* parent) : QDialog(parent) {
-    setWindowTitle("About Ander CAD");
+    setWindowTitle("About JLi CAD");
     setModal(true);
     setFixedSize(400, 300);
     
@@ -16,7 +16,7 @@ void AboutDialog::SetupUI() {
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     
     // Application name and version
-    QLabel* nameLabel = new QLabel("Ander CAD");
+    QLabel* nameLabel = new QLabel("JLi CAD");
     nameLabel->setAlignment(Qt::AlignCenter);
     QFont nameFont = nameLabel->font();
     nameFont.setPointSize(18);

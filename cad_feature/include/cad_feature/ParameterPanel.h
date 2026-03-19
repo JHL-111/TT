@@ -30,6 +30,7 @@ public:
     // Callbacks
     void SetParameterChangedCallback(std::function<void(const std::string&, double)> callback);
 
+
 private slots:
     void OnParameterChanged();
 

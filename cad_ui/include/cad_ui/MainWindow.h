@@ -17,7 +17,6 @@
 #include <QResizeEvent>
 #include <QComboBox>
 #include <QTextEdit>
-#include <QSplitter>
 
 #include "QtOccView.h"
 #include "DocumentTree.h"
@@ -76,6 +75,9 @@ public:
     void ShowGrid(bool show);
     void ShowAxes(bool show);
 
+public slots:
+    void OnFeatureParameterChanged(const cad_feature::FeaturePtr& feature);
+
 protected:
     void closeEvent(QCloseEvent* event) override;
 
@@ -104,6 +106,7 @@ private slots:
     void OnSetTransparency();
     void OnSetShapeTransparency();
     
+    void OnCreateFace();
     void OnCreateBox();
     void OnCreateCylinder();
     void OnCreateSphere();
@@ -268,6 +271,7 @@ private:
     QAction* m_viewOrthographicAction;
     QAction* m_viewPerspectiveAction;
     
+    QAction* m_createFaceAction;
     QAction* m_createBoxAction;
     QAction* m_createCylinderAction;
     QAction* m_createSphereAction;

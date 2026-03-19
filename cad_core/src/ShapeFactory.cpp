@@ -4,8 +4,32 @@
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <gp_Pln.hxx>
 
 namespace cad_core {
+
+ShapePtr ShapeFactory::CreateRectangleFace(double width, double height) {
+    try {
+        // 1. 定义一个基于原点的 XY 平面 (XY Plane)
+        gp_Pln xyPlane = gp::XOY();
+
+        // 2. 计算矩形的边界范围 (使其中心在原点)
+        double halfWidth = width / 2.0;
+        double halfHeight = height / 2.0;
+
+        // 3. 直接利用平面和边界生成面 (Face)
+        BRepBuilderAPI_MakeFace faceMaker(xyPlane, -halfWidth, halfWidth, -halfHeight, halfHeight);
+
+        if (faceMaker.IsDone()) {
+            return std::make_shared<Shape>(faceMaker.Shape());
+        }
+    }
+    catch (...) {
+        // 异常处理
+    }
+    return nullptr;
+}
 
 ShapePtr ShapeFactory::CreateBox(const Point& corner1, const Point& corner2) {
     try {

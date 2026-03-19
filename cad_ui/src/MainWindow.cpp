@@ -15,6 +15,7 @@
 #include "cad_sketch/SketchProfile.h"
 #include "cad_feature/BooleanFeature.h"
 #include "cad_feature/FilletChamferFeature.h"
+#include "cad_feature/RectangularFaceFeature.h"
 
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -221,6 +222,10 @@ void MainWindow::CreateActions() {
     m_projectionModeGroup->addAction(m_viewPerspectiveAction);
     
     // Create actions with 30x30 icons (icon-only display)
+    m_createFaceAction = new QAction("", this);
+    m_createFaceAction->setText("Face");
+    m_createFaceAction->setStatusTip("Create a face");
+
     m_createBoxAction = new QAction("", this);
     m_createBoxAction->setText("Box");
     m_createBoxAction->setStatusTip("Create a box");
@@ -508,6 +513,22 @@ void MainWindow::CreateToolBars() {
     QHBoxLayout* primitivesButtonsLayout = new QHBoxLayout();
     primitivesButtonsLayout->setSpacing(8);
     
+    // Face button with label below
+    QVBoxLayout* faceLayout = new QVBoxLayout();
+    QToolButton* faceBtn = new QToolButton();
+    faceBtn->setDefaultAction(m_createFaceAction);
+    faceBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    faceBtn->setIconSize(QSize(30, 30));
+    faceBtn->setFixedSize(30, 30);
+    QLabel* faceLabel = new QLabel("Face");
+    faceLabel->setAlignment(Qt::AlignCenter);
+    faceLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
+    faceLayout->addWidget(faceBtn);
+    faceLayout->addWidget(faceLabel);
+    faceLayout->setSpacing(1);
+    faceLayout->setContentsMargins(0, 0, 0, 0);
+    primitivesButtonsLayout->addLayout(faceLayout);
+
     // Box button with label below
     QVBoxLayout* boxLayout = new QVBoxLayout();
     QToolButton* boxBtn = new QToolButton();
@@ -942,6 +963,7 @@ void MainWindow::ConnectSignals() {
     connect(m_setShapeTransparencyAction, &QAction::triggered, this, &MainWindow::OnSetShapeTransparency);
 
     // Create actions
+    connect(m_createFaceAction, &QAction::triggered, this, &MainWindow::OnCreateFace);
     connect(m_createBoxAction, &QAction::triggered, this, &MainWindow::OnCreateBox);
     connect(m_createCylinderAction, &QAction::triggered, this, &MainWindow::OnCreateCylinder);
     connect(m_createSphereAction, &QAction::triggered, this, &MainWindow::OnCreateSphere);
@@ -995,6 +1017,10 @@ void MainWindow::ConnectSignals() {
     connect(m_documentTree, &DocumentTree::SketchDeleted, this, &MainWindow::OnDocumentTreeSketchDeleted);
     connect(m_documentTree, &DocumentTree::ShapeVisibilityChanged, this, &MainWindow::OnDocumentTreeShapeVisibilityChanged);
     connect(m_documentTree, &DocumentTree::SketchVisibilityChanged, this, &MainWindow::OnDocumentTreeSketchVisibilityChanged);
+
+    // 监听属性面板发出的修改信号
+    connect(m_propertyPanel, &PropertyPanel::FeatureParameterChanged,
+        this, &MainWindow::OnFeatureParameterChanged);
 }
 
 void MainWindow::UpdateActions() {
@@ -1101,7 +1127,7 @@ void MainWindow::RefreshUIFromOCAF() {
 }
 
 void MainWindow::UpdateWindowTitle() {
-    QString title = "Ander CAD";
+    QString title = "JLi CAD";
     if (!m_currentFileName.isEmpty()) {
         title += " - " + QFileInfo(m_currentFileName).baseName();
         if (m_documentModified) {
@@ -1279,6 +1305,53 @@ void MainWindow::OnSetShapeTransparency() {
     if (ok) {
         m_viewer->SetShapeTransparency(selectedShape, transparency);
         statusBar()->showMessage(QString("Transparency set to %1").arg(transparency), 2000);
+    }
+}
+
+void MainWindow::OnCreateFace() {
+    m_ocafManager->StartTransaction("Create Planar Face");
+
+    try {
+        // 1. 实例化参数化特征 (Instantiate Feature)
+        std::string featureName = "PlaneFace_" + std::to_string(m_featureManager->GetFeatureCount() + 1);
+        auto faceFeature = std::make_shared<cad_feature::RectangularFaceFeature>(featureName);
+
+        // 使用默认值 10x10
+        faceFeature->SetWidth(10.0);
+        faceFeature->SetHeight(10.0);
+
+        // 2. 让特征执行算法生成 3D 实体 (Generate Shape)
+        auto resultShape = faceFeature->CreateShape();
+
+        if (resultShape) {
+            // 绑定实体到特征！这步最关键！
+            faceFeature->SetResultShape(resultShape);
+
+            if (m_ocafManager->AddShape(resultShape, featureName)) {
+                // 3. 将特征注册到后端管理器与前端文档树
+                m_featureManager->AddFeature(faceFeature);
+                m_documentTree->AddFeature(faceFeature);
+
+                // 显示最终实体
+                m_viewer->DisplayShape(resultShape);
+                m_documentTree->AddShape(resultShape);
+
+                m_ocafManager->CommitTransaction();
+                SetDocumentModified(true);
+                UpdateActions();
+                statusBar()->showMessage("Planar face feature created.");
+            }
+            else {
+                throw std::runtime_error("Failed to add shape to document.");
+            }
+        }
+        else {
+            throw std::runtime_error("Failed to create face shape.");
+        }
+    }
+    catch (const std::exception& e) {
+        m_ocafManager->AbortTransaction();
+        QMessageBox::warning(this, "Error", e.what());
     }
 }
 
@@ -1525,12 +1598,10 @@ void MainWindow::OnDocumentTreeShapeSelected(const cad_core::ShapePtr& shape) {
 }
 
 void MainWindow::OnDocumentTreeFeatureSelected(const cad_feature::FeaturePtr& feature) {
-    // Handle feature selection from document tree
-    if (feature) {
-        // Update property panel to show feature properties
-        // This would require extending PropertyPanel to handle features
-        qDebug() << "Feature selected:" << QString::fromStdString(feature->GetName());
-    }
+    if (!feature) return;
+
+    m_propertyPanel->SetFeature(feature);
+    qDebug() << "Feature selected:" << QString::fromStdString(feature->GetName());
 }
 
 void MainWindow::OnDocumentTreeShapeDeleted(const cad_core::ShapePtr& shape) {
@@ -2380,6 +2451,56 @@ void MainWindow::OnTransformResetRequested() {
     // Update display
     m_viewer->update();
 }
+
+void MainWindow::OnFeatureParameterChanged(const cad_feature::FeaturePtr& feature) {
+    if (!feature) return;
+
+    // 开启事务：记录修改操作，允许用户 Ctrl+Z 撤销这次参数修改
+    m_ocafManager->StartTransaction("Modify Feature Parameter");
+
+    try {
+        // 1. 揪出这个特征对应的旧 3D 实体 (Old Shape)
+        auto oldShape = feature->GetResultShape();
+        if (oldShape) {
+            // 从底层数据 (OCAF)、3D 视图 (Viewer) 和左侧树 (DocumentTree) 中彻底抹除它
+            m_ocafManager->RemoveShape(oldShape);
+            m_viewer->RemoveShape(oldShape);
+            m_documentTree->RemoveShape(oldShape);
+        }
+
+        // 2. 召唤特征执行新的运算 (CreateShape 会读取刚才刚更新的 Width 和 Height)
+        auto newShape = feature->CreateShape();
+
+        if (newShape) {
+            // 3. 将新实体重新绑定到特征上
+            feature->SetResultShape(newShape);
+
+            // 4. 将新实体重新注册进三大系统
+            if (m_ocafManager->AddShape(newShape, feature->GetName())) {
+                m_viewer->DisplayShape(newShape);
+                m_documentTree->AddShape(newShape);
+
+                m_ocafManager->CommitTransaction();
+                SetDocumentModified(true);
+
+                // 刷新屏幕，让用户立刻看到变大/变小的效果
+                m_viewer->update();
+            }
+            else {
+                throw std::runtime_error("Failed to add modified shape to document.");
+            }
+        }
+        else {
+            throw std::runtime_error("Failed to generate new shape with current parameters.");
+        }
+    }
+    catch (const std::exception& e) {
+        m_ocafManager->AbortTransaction();
+        QMessageBox::warning(this, "Parameter Update Error", e.what());
+
+    }
+}
+
 
 // =============================================================================
 // Sketch Mode Implementation

@@ -65,7 +65,7 @@ void ParameterPanel::CreateParameterWidgets() {
     // 根据特征类型创建参数控件
     switch (m_feature->GetType()) {
         case FeatureType::Extrude: {
-            CreateGroupBox("拉伸参数");
+            CreateGroupBox("Extrude parameters");
             CreateDoubleParameter("distance", m_feature->GetParameter("distance"), 0.1, 1000.0);
             CreateDoubleParameter("direction_x", m_feature->GetParameter("direction_x"), -1.0, 1.0);
             CreateDoubleParameter("direction_y", m_feature->GetParameter("direction_y"), -1.0, 1.0);
@@ -75,7 +75,7 @@ void ParameterPanel::CreateParameterWidgets() {
             break;
         }
         case FeatureType::Revolve: {
-            CreateGroupBox("旋转参数");
+            CreateGroupBox("Revolve parameters");
             CreateDoubleParameter("angle", m_feature->GetParameter("angle"), 0.1, 360.0);
             CreateDoubleParameter("axis_x", m_feature->GetParameter("axis_x"), -1.0, 1.0);
             CreateDoubleParameter("axis_y", m_feature->GetParameter("axis_y"), -1.0, 1.0);
@@ -84,14 +84,14 @@ void ParameterPanel::CreateParameterWidgets() {
             break;
         }
         case FeatureType::Sweep: {
-            CreateGroupBox("扫描参数");
+            CreateGroupBox("Sweep parameters");
             CreateDoubleParameter("twist_angle", m_feature->GetParameter("twist_angle"), -360.0, 360.0);
             CreateDoubleParameter("scale_factor", m_feature->GetParameter("scale_factor"), 0.1, 10.0);
             CreateBoolParameter("keep_orientation", m_feature->GetParameter("keep_orientation") != 0.0);
             break;
         }
         case FeatureType::Loft: {
-            CreateGroupBox("放样参数");
+            CreateGroupBox("Loft parameters");
             CreateBoolParameter("solid", m_feature->GetParameter("solid") != 0.0);
             CreateBoolParameter("ruled", m_feature->GetParameter("ruled") != 0.0);
             CreateBoolParameter("closed", m_feature->GetParameter("closed") != 0.0);

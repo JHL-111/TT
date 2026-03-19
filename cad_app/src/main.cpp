@@ -1,6 +1,6 @@
 ﻿/**
  * @file main.cpp
- * @brief Ander CAD的主程序入口 - 一切故事开始的地方！
+ * @brief 主程序入口 - 一切故事开始的地方！
  * 
  * 这里是整个CAD应用程序的"大门"，负责初始化所有必要的组件，
  * 设置应用程序属性，创建主窗口，然后把控制权交给Qt的事件循环。
@@ -47,32 +47,19 @@ int main(int argc, char *argv[])
     qInitResources_resources();
     
     // 设置应用程序属性 - 给我们的程序一个"身份证"
-    app.setApplicationName("Ander CAD");        // 应用名称 - 我们的"艺名"
-    app.setApplicationVersion("1.0.0");         // 版本号 - 我们现在还是"新生儿"
-    app.setOrganizationName("Ander CAD");       // 组织名称 - 我们的"厂牌"
-    app.setOrganizationDomain("andercad.com");  // 域名 - 我们的"网络地址"
-    
-    // 设置应用程序图标（如果有的话）
-    // TODO: 设计一个酷炫的图标，让用户一眼就能认出我们
-    // app.setWindowIcon(QIcon(":/icons/app-icon.png"));
+    app.setApplicationName("JLi CAD");       
+    app.setApplicationVersion("1.0.0");        
+    app.setOrganizationName("JLiCAD");       
+
     
     // 初始化OpenCASCADE消息系统 - 让几何引擎能够"说话"
     // 这样我们就能知道OpenCASCADE在干什么，出了什么问题
     Handle(Message_PrinterOStream) printer = new Message_PrinterOStream();
     Message::DefaultMessenger()->AddPrinter(printer);
     
-    // 创建启动画面（可选功能）- 给用户一个"正在加载"的安全感
+    // 创建启动画面
     QSplashScreen* splash = nullptr;
-    /*
-    // TODO: 设计一个炫酷的启动画面，让等待变得有趣
-    QPixmap splashPixmap(":/images/splash.png");
-    if (!splashPixmap.isNull()) {
-        splash = new QSplashScreen(splashPixmap);
-        splash->show();
-        splash->showMessage("正在启动 Ander CAD...", Qt::AlignBottom | Qt::AlignCenter, Qt::white);
-        app.processEvents();  // 让界面响应一下，不要让用户以为程序卡死了
-    }
-    */
+
     
     // 创建主窗口 - 我们程序的"脸面"
     cad_ui::MainWindow mainWindow;
@@ -80,7 +67,7 @@ int main(int argc, char *argv[])
     // 初始化主窗口 - 这一步很重要，相当于"开机自检"
     if (!mainWindow.Initialize()) {
         // 如果初始化失败，礼貌地告诉用户发生了什么
-        // 而不是神秘地崩溃，让用户摸不着头脑
+
         QMessageBox::critical(nullptr, "初始化失败", 
             "抱歉，应用程序初始化失败了 😢\n\n"
             "请检查以下项目：\n"
@@ -114,23 +101,6 @@ int main(int argc, char *argv[])
         delete splash;               // 记得清理内存，好习惯要保持
     }
     
-    // 显示欢迎消息（可选功能）- 给新用户一个热情的拥抱
-    /*
-    // TODO: 设计一个更友好的新手引导系统
-    QTimer::singleShot(1000, [&mainWindow]() {
-        QMessageBox::information(&mainWindow, "欢迎使用 Ander CAD", 
-            "欢迎来到 Ander CAD v1.0.0！🎉\n\n"
-            "这是一个受 Fusion 360 启发的CAD应用程序，\n"
-            "基于 Qt5 和 OpenCASCADE 构建。\n\n"
-            "主要功能：\n"
-            "• 参数化3D建模\n"
-            "• 约束草图绘制\n"
-            "• STEP/IGES/STL 导入导出\n"
-            "• 交互式3D查看器\n"
-            "• 现代化深色/浅色主题\n\n"
-            "按F1获取帮助，或查看帮助菜单了解更多信息。");
-    });
-    */
     
     // 运行应用程序 - 把控制权交给Qt的事件循环
     // 从这里开始，程序就"活"起来了，开始响应用户的操作

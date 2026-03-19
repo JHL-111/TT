@@ -4,6 +4,7 @@ set(TARGET_NAME cad_feature)
 set(HEADERS
     include/cad_feature/Feature.h
     include/cad_feature/BooleanFeature.h
+    include/cad_feature/RectangularFaceFeature.h
     include/cad_feature/FilletChamferFeature.h
     include/cad_feature/ExtrudeFeature.h
     include/cad_feature/RevolveFeature.h
@@ -18,6 +19,7 @@ set(HEADERS
 set(SOURCES
     src/Feature.cpp
     src/BooleanFeature.cpp
+    src/RectangularFaceFeature.cpp
     src/FilletChamferFeature.cpp
     src/ExtrudeFeature.cpp
     src/RevolveFeature.cpp

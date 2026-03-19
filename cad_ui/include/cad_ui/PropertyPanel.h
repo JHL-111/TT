@@ -22,7 +22,11 @@ public:
 
     void SetShape(const cad_core::ShapePtr& shape);
     void SetFeature(const cad_feature::FeaturePtr& feature);
-    void Clear();
+    void ClearPanel();
+
+signals:
+    // 当属性面板里的任何参数被修改时触发
+    void FeatureParameterChanged(const cad_feature::FeaturePtr& feature);
 
 private:
     QVBoxLayout* m_mainLayout;

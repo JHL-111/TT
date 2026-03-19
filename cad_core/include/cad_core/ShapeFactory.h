@@ -7,6 +7,9 @@ namespace cad_core {
 
 class ShapeFactory {
 public:
+    // 创建一个基于 XY 平面的矩形面 
+    static ShapePtr CreateRectangleFace(double width, double height);
+
     static ShapePtr CreateBox(const Point& corner1, const Point& corner2);
     static ShapePtr CreateBox(double width, double height, double depth);
     
