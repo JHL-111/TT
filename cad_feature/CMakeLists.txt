@@ -3,6 +3,8 @@ set(TARGET_NAME cad_feature)
 # 头文件
 set(HEADERS
     include/cad_feature/Feature.h
+    include/cad_feature/BooleanFeature.h
+    include/cad_feature/FilletChamferFeature.h
     include/cad_feature/ExtrudeFeature.h
     include/cad_feature/RevolveFeature.h
     include/cad_feature/SweepFeature.h
@@ -15,6 +17,8 @@ set(HEADERS
 # 源文件
 set(SOURCES
     src/Feature.cpp
+    src/BooleanFeature.cpp
+    src/FilletChamferFeature.cpp
     src/ExtrudeFeature.cpp
     src/RevolveFeature.cpp
     src/SweepFeature.cpp

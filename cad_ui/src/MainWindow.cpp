@@ -13,6 +13,8 @@
 #include "cad_ui/CreateExtrudeDialog.h"
 #include "cad_feature/ExtrudeFeature.h"
 #include "cad_sketch/SketchProfile.h"
+#include "cad_feature/BooleanFeature.h"
+#include "cad_feature/FilletChamferFeature.h"
 
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -1022,37 +1024,80 @@ void MainWindow::UpdateActions() {
 }
 
 void MainWindow::RefreshUIFromOCAF() {
-    if (!m_ocafManager) {
-        return;
-    }
-    
-    qDebug() << "Refreshing UI from OCAF document state";
-    
-    // Clear current UI state
+    if (!m_ocafManager) return;
+
+    // 1. 清理当前 UI
     m_viewer->ClearShapes();
-    m_documentTree->Clear();
-    
-    // Reload all shapes from OCAF document
+    m_documentTree->Clear(); // 注意：Clear 默认不清理草图树(Sketches)
+
+    // 2. 获取 OCAF 中当前存活的所有 3D 实体
     auto allShapes = m_ocafManager->GetAllShapes();
-    qDebug() << "Found" << allShapes.size() << "shapes in OCAF document";
-    
-    for (const auto& shape : allShapes) {
-        if (shape) {
-            // Display in 3D viewer
-            m_viewer->DisplayShape(shape);
-            // Add to document tree
-            m_documentTree->AddShape(shape);
+
+    // 3. 动态解析特征依赖树：找出存活的特征，以及被它们“吃掉”的父级实体
+    std::vector<cad_feature::FeaturePtr> activeFeatures;
+    std::vector<cad_core::ShapePtr> absorbedShapes; // 被吸收隐藏的实体
+
+    if (m_featureManager) {
+        for (const auto& feature : m_featureManager->GetFeatures()) {
+            auto resultShape = feature->GetResultShape();
+            bool isFeatureAlive = false;
+
+            // 检查该特征的产物是否在 OCAF 中存活
+            // 使用 OCC 的 IsSame 精准比对底层拓扑
+            if (resultShape) {
+                for (const auto& s : allShapes) {
+                    if (s && s->GetOCCTShape().IsSame(resultShape->GetOCCTShape())) {
+                        isFeatureAlive = true;
+                        break;
+                    }
+                }
+            }
+
+            if (isFeatureAlive) {
+                feature->SetActive(true);
+                activeFeatures.push_back(feature);
+                m_documentTree->AddFeature(feature); // 特征存活，重新挂载到 UI 树
+
+                // 收集被这个活跃特征“吃掉”的输入实体
+                auto boolFeat = std::dynamic_pointer_cast<cad_feature::BooleanFeature>(feature);
+                if (boolFeat) {
+                    for (const auto& t : boolFeat->GetTargets()) absorbedShapes.push_back(t);
+                    for (const auto& t : boolFeat->GetTools()) absorbedShapes.push_back(t);
+                }
+                auto fcFeat = std::dynamic_pointer_cast<cad_feature::FilletChamferFeature>(feature);
+                if (fcFeat && fcFeat->GetBaseShape()) {
+                    absorbedShapes.push_back(fcFeat->GetBaseShape());
+                }
+            }
+            else {
+                // 特征的产物不在了（比如用户执行了删除或撤销），标记为休眠
+                feature->SetActive(false);
+            }
         }
     }
-    
-    // Clear any selections
+
+    // 4. 将 Shapes 恢复到视图和文档树，但跳过那些被活着特征“吃掉”的
+    for (const auto& shape : allShapes) {
+        if (shape) {
+            bool isAbsorbed = false;
+            for (const auto& absorbed : absorbedShapes) {
+                if (absorbed && absorbed->GetOCCTShape().IsSame(shape->GetOCCTShape())) {
+                    isAbsorbed = true;
+                    break;
+                }
+            }
+
+            // 如果它没被吸收，才是可见的最终实体
+            if (!isAbsorbed) {
+                m_viewer->DisplayShape(shape);
+                m_documentTree->AddShape(shape);
+            }
+        }
+    }
+
     m_viewer->ClearSelection();
     m_viewer->ClearEdgeSelection();
-    
-    // Force redraw
     m_viewer->RedrawAll();
-    
-    qDebug() << "UI refresh completed";
 }
 
 void MainWindow::UpdateWindowTitle() {
@@ -1547,70 +1592,29 @@ void MainWindow::OnDocumentTreeSketchDeleted(const std::shared_ptr<cad_sketch::S
     }
 }
 
+
 void MainWindow::OnDocumentTreeFeatureDeleted(const cad_feature::FeaturePtr& feature) {
     if (!feature) return;
 
-    // 开启 OCAF 事务，使得删除特征可以被撤销 (Undo)
+    // 开启 OCAF 事务，使得删除特征的动作被底层记录，支持撤销
     m_ocafManager->StartTransaction("Delete Feature");
 
     try {
-        // 1. 获取该特征生成的 3D 实体 (3D Solid)
         auto resultShape = feature->GetResultShape();
         if (resultShape) {
-
-
-            // 从 OCAF 数据底层移除
+            // 仅仅从 OCAF 和视图中抹除 3D 实体
             m_ocafManager->RemoveShape(resultShape);
-
-            // 从 3D 视图中抹除
-            if (m_viewer) {
-                m_viewer->RemoveShape(resultShape);
-            }
-
-            // 从左侧文档树的 Shapes 文件夹节点中移除
-            m_documentTree->RemoveShape(resultShape);
         }
 
-        // 2. 恢复底层草图的可见性 
-        // 尝试将其转换为拉伸特征以获取被其消耗的草图
-        auto extrudeFeature = std::dynamic_pointer_cast<cad_feature::ExtrudeFeature>(feature);
-        if (extrudeFeature) {
-
-            //恢复草图可见性的代码逻辑 
-            auto baseShape = extrudeFeature->GetProfileShape();
-            if (baseShape) {
-                std::shared_ptr<cad_sketch::Sketch> targetSketch = nullptr;
-                for (const auto& sketch : m_documentTree->GetAllSketches()) {
-                    for (const auto& profile : sketch->GetProfiles()) {
-                        if (profile->GetFace().IsSame(baseShape->GetOCCTShape())) {
-                            targetSketch = sketch;
-                            break;
-                        }
-                    }
-                    if (targetSketch) break;
-                }
-
-                // 如果找到了这个特征对应的草图，将其重新显示
-                if (targetSketch) {
-                    m_viewer->SetSketchVisibility(targetSketch, true);
-                    m_documentTree->SetSketchUIHidden(targetSketch, false);
-                }
-            }           
-        }
-
-        // 3. 从后端的特征管理器 (Feature Manager) 移除
-        if (m_featureManager) {
-            m_featureManager->RemoveFeature(feature);
-        }
+        // 【关键改动1】：千万不要调用 m_featureManager->RemoveFeature(feature)
+        // 把它保留在内存管理器中，当作“休眠”状态。这样撤销时才能找回它的参数！
 
         m_ocafManager->CommitTransaction();
         SetDocumentModified(true);
         UpdateActions();
 
-        if (m_viewer) {
-            m_viewer->ClearSelection();
-            m_viewer->update(); // 强制刷新屏幕
-        }
+        // 【关键改动2】：触发全局状态刷新，UI 会自动算出哪些旧实体该释放
+        RefreshUIFromOCAF();
 
         statusBar()->showMessage(QString("Feature '%1' deleted successfully").arg(QString::fromStdString(feature->GetName())), 2000);
     }
@@ -1619,7 +1623,6 @@ void MainWindow::OnDocumentTreeFeatureDeleted(const cad_feature::FeaturePtr& fea
         QMessageBox::critical(this, "Error", QString("Exception during feature deletion: %1").arg(e.what()));
     }
 }
-
 void MainWindow::OnDocumentTreeShapeVisibilityChanged(const cad_core::ShapePtr& shape, bool visible) {
     if (m_viewer && shape) {
         m_viewer->SetShapeVisibility(shape, visible);
@@ -2040,125 +2043,103 @@ void MainWindow::OnObjectSelected(const cad_core::ShapePtr& shape) {
     }
 }
 
-void MainWindow::OnBooleanOperationRequested(BooleanOperationType type, 
-                                           const std::vector<cad_core::ShapePtr>& targets,
-                                           const std::vector<cad_core::ShapePtr>& tools) {
-    // Validate selection based on operation type
+void MainWindow::OnBooleanOperationRequested(BooleanOperationType type,
+    const std::vector<cad_core::ShapePtr>& targets,
+    const std::vector<cad_core::ShapePtr>& tools) {
+    // 1. 基础校验 (与原来保持一致)
     if (type == BooleanOperationType::Union) {
-        if (targets.empty()) {
-            QMessageBox::warning(this, "Boolean Union", "Please select multiple objects to merge.");
+        if (targets.empty() && tools.empty()) {
+            QMessageBox::warning(this, "Boolean Union", "Please select objects to merge.");
             return;
         }
-        if (targets.size() < 2 && tools.empty()) {
-            QMessageBox::warning(this, "Boolean Union", "Please select at least 2 objects to merge.");
-            return;
-        }
-    } else {
+    }
+    else {
         if (targets.empty() || tools.empty()) {
             QMessageBox::warning(this, "Boolean Operation", "Please select both target and tool objects.");
             return;
         }
     }
-    
-    // Start OCAF transaction
+
+    // 2. 准备特征名称和事务
     QString operationName;
+    cad_feature::BooleanType featureType;
     switch (type) {
-        case BooleanOperationType::Union:
-            operationName = "Boolean Union";
-            break;
-        case BooleanOperationType::Intersection:
-            operationName = "Boolean Intersection";
-            break;
-        case BooleanOperationType::Difference:
-            operationName = "Boolean Difference";
-            break;
+    case BooleanOperationType::Union:
+        operationName = "Boolean Union";
+        featureType = cad_feature::BooleanType::Union;
+        break;
+    case BooleanOperationType::Intersection:
+        operationName = "Boolean Intersection";
+        featureType = cad_feature::BooleanType::Intersection;
+        break;
+    case BooleanOperationType::Difference:
+        operationName = "Boolean Difference";
+        featureType = cad_feature::BooleanType::Difference;
+        break;
     }
-    
+
     m_ocafManager->StartTransaction(operationName.toStdString());
-    
-    cad_core::ShapePtr result;
+
     try {
-        if (type == BooleanOperationType::Union) {
-            // Combine all targets and tools for union
-            std::vector<cad_core::ShapePtr> allShapes = targets;
-            allShapes.insert(allShapes.end(), tools.begin(), tools.end());
-            result = cad_core::BooleanOperations::Union(allShapes);
-        } else if (type == BooleanOperationType::Intersection) {
-            // Use first target as base, intersect with all others
-            result = targets[0];
-            for (size_t i = 1; i < targets.size(); ++i) {
-                if (result) {
-                    result = cad_core::BooleanOperations::Intersection({result, targets[i]});
-                }
-            }
-            for (const auto& tool : tools) {
-                if (result) {
-                    result = cad_core::BooleanOperations::Intersection({result, tool});
-                }
-            }
-        } else if (type == BooleanOperationType::Difference) {
-            // Use first target as base, subtract all tools
-            result = targets[0];
-            for (const auto& tool : tools) {
-                if (result) {
-                    result = cad_core::BooleanOperations::Difference(result, tool);
-                }
-            }
-        }
-        
+        // 3. 实例化布尔特征 (Boolean Feature)
+        std::string featureName = operationName.toStdString() + "_" + std::to_string(m_featureManager->GetFeatureCount() + 1);
+        auto booleanFeature = std::make_shared<cad_feature::BooleanFeature>(featureName);
+
+        // 4. 传入参数 (Inputs)
+        booleanFeature->SetOperationType(featureType);
+        booleanFeature->SetTargets(targets);
+        booleanFeature->SetTools(tools);
+
+        // 5. 让特征对象去生成 3D 实体
+        cad_core::ShapePtr result = booleanFeature->CreateShape();
+
         if (result) {
-            // Add result to document
-            if (m_ocafManager->AddShape(result, (operationName + " Result").toStdString())) {
-                // Display the new result shape
+            // 【极其重要】：将生成的实体与特征绑定
+            booleanFeature->SetResultShape(result);
+
+            // 将新生成的实体注册到 OCAF 底层
+            if (m_ocafManager->AddShape(result, featureName)) {
+
+                // 将特征注册到特征管理器和左侧文档树的 Features 节点
+                m_featureManager->AddFeature(booleanFeature);
+                m_documentTree->AddFeature(booleanFeature);
+
+                // 在 3D 视图和文档树中显示生成的新实体
                 m_viewer->DisplayShape(result);
                 m_documentTree->AddShape(result);
-                
-                // For Union: Remove all original objects (targets and tools) from OCAF
-                // For Intersection/Difference: Remove original and tool objects from OCAF, keep only result
-                if (type == BooleanOperationType::Union) {
-                    // Union: Remove all input objects (targets + tools) from OCAF document
-                    for (const auto& shape : targets) {
-                        m_ocafManager->RemoveShape(shape);  // Remove from OCAF
-                        m_viewer->RemoveShape(shape);       // Remove from 3D view
-                        m_documentTree->RemoveShape(shape); // Remove from document tree
+
+                // 隐藏被消耗的父级实体 (Absorbed Bodies)
+                auto hideAbsorbedShapes = [&](const std::vector<cad_core::ShapePtr>& shapes) {
+                    for (const auto& shape : shapes) {
+                        m_viewer->SetShapeVisibility(shape, false); // 在 3D 视图中隐藏
+                        m_documentTree->RemoveShape(shape);         // 从文档树的 Shapes 列表中移除(让它看起来被消耗了)
                     }
-                    for (const auto& shape : tools) {
-                        m_ocafManager->RemoveShape(shape);  // Remove from OCAF
-                        m_viewer->RemoveShape(shape);       // Remove from 3D view
-                        m_documentTree->RemoveShape(shape); // Remove from document tree
-                    }
-                } else {
-                    // Intersection/Difference: Remove original and tool objects from OCAF
-                    for (const auto& shape : targets) {
-                        m_ocafManager->RemoveShape(shape);  // Remove from OCAF
-                        m_viewer->RemoveShape(shape);       // Remove from 3D view
-                        m_documentTree->RemoveShape(shape); // Remove from document tree
-                    }
-                    for (const auto& shape : tools) {
-                        m_ocafManager->RemoveShape(shape);  // Remove from OCAF
-                        m_viewer->RemoveShape(shape);       // Remove from 3D view
-                        m_documentTree->RemoveShape(shape); // Remove from document tree
-                    }
-                }
-                
+                    };
+
+                hideAbsorbedShapes(targets);
+                hideAbsorbedShapes(tools);
+
                 m_ocafManager->CommitTransaction();
                 SetDocumentModified(true);
                 UpdateActions();
                 statusBar()->showMessage(operationName + " completed successfully");
-            } else {
+            }
+            else {
                 m_ocafManager->AbortTransaction();
                 QMessageBox::warning(this, "Error", "Failed to add result to document.");
             }
-        } else {
+        }
+        else {
             m_ocafManager->AbortTransaction();
             QMessageBox::warning(this, "Error", operationName + " operation failed.");
         }
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e) {
         m_ocafManager->AbortTransaction();
         QMessageBox::warning(this, "Error", QString("Boolean operation failed: %1").arg(e.what()));
     }
-    
-    // Clean up dialog
+
+    // 清理对话框
     if (m_currentBooleanDialog) {
         m_currentBooleanDialog->deleteLater();
         m_currentBooleanDialog = nullptr;
@@ -2185,50 +2166,50 @@ void MainWindow::OnFilletChamferOperationRequested(FilletChamferType type,
     // Start OCAF transaction
     QString operationName = (type == FilletChamferType::Fillet) ? "Fillet" : "Chamfer";
     m_ocafManager->StartTransaction(operationName.toStdString());
-    
+
     try {
         bool anySuccess = false;
-        
-        // Process each shape that has selected edges
+
         for (const auto& shapeEdgePair : edgesByShape) {
             cad_core::ShapePtr baseShape = shapeEdgePair.first;
-            const std::vector<TopoDS_Edge>& edges = shapeEdgePair.second;
-            
-            if (!baseShape || edges.empty()) {
-                continue;
-            }
-            
-            qDebug() << "Processing" << edges.size() << "edges on shape";
-            
-            // Perform the operation on this shape with its edges
-            cad_core::ShapePtr result;
-            if (type == FilletChamferType::Fillet) {
-                result = cad_core::FilletChamferOperations::CreateFillet(baseShape, edges, radius);
-            }
-            else {
-                // 确保把 distance2 也传递给核心层
-                result = cad_core::FilletChamferOperations::CreateChamfer(baseShape, edges, distance1, distance2);
-            }
-            
-            if (result) {
-                QString shapeName = QString("%1 Result on Shape").arg(operationName);
-                if (m_ocafManager->AddShape(result, shapeName.toStdString())) {
-                    // Remove the original shape from OCAF, viewer, and document tree
-                    qDebug() << "Removing original shape before displaying" << operationName << "result";
-                    m_ocafManager->RemoveShape(baseShape);  // Remove from OCAF
-                    m_viewer->RemoveShape(baseShape);       // Remove from 3D view
-                    m_documentTree->RemoveShape(baseShape); // Remove from document tree
-                    
-                    // Display the new result
-                    m_viewer->DisplayShape(result);
-                    m_documentTree->AddShape(result);
+            const std::vector<TopoDS_Edge>& faceEdges = shapeEdgePair.second; // 避免变量名遮蔽
+
+            if (!baseShape || faceEdges.empty()) continue;
+
+            // 1. 创建特征对象 (Feature)
+            std::string featureName = operationName.toStdString() + "_" + std::to_string(m_featureManager->GetFeatureCount() + 1);
+            auto fcFeature = std::make_shared<cad_feature::FilletChamferFeature>(featureName);
+
+            // 2. 赋予参数
+            fcFeature->SetOperationType(type == FilletChamferType::Fillet ? cad_feature::FCType::Fillet : cad_feature::FCType::Chamfer);
+            fcFeature->SetBaseShape(baseShape);
+            fcFeature->SetEdges(faceEdges);
+            fcFeature->SetRadius(radius);
+            fcFeature->SetDistance1(distance1);
+            fcFeature->SetDistance2(distance2);
+
+            // 3. 运行算法，生成结果
+            auto resultShape = fcFeature->CreateShape();
+
+            if (resultShape) {
+                // 绑定结果
+                fcFeature->SetResultShape(resultShape);
+
+                if (m_ocafManager->AddShape(resultShape, featureName)) {
+                    // 将特征上树
+                    m_featureManager->AddFeature(fcFeature);
+                    m_documentTree->AddFeature(fcFeature);
+
+                    // 将新实体上树并显示
+                    m_viewer->DisplayShape(resultShape);
+                    m_documentTree->AddShape(resultShape);
+
+                    // 隐藏并移除原实体 
+                    m_viewer->SetShapeVisibility(baseShape, false);
+                    m_documentTree->RemoveShape(baseShape);
+
                     anySuccess = true;
-                    qDebug() << "Successfully created" << operationName << "with" << edges.size() << "edges";
-                } else {
-                    qDebug() << "Failed to add" << operationName << "result to OCAF";
                 }
-            } else {
-                qDebug() << operationName << "operation failed for this shape";
             }
         }
         
