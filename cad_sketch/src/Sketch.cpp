@@ -2,6 +2,7 @@
 #include "cad_sketch/SketchLine.h"
 #include "cad_sketch/SketchCircle.h"
 #include "cad_sketch/SketchArc.h"
+#include "cad_sketch/SketchCurve.h" 
 
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
@@ -18,6 +19,9 @@
 #include <algorithm>
 #include <TopTools_HSequenceOfShape.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
+#include <GeomAPI_Interpolate.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
+#include <Geom_BSplineCurve.hxx>
 
 
 // 这是一个将局部 2D 点转为世界 3D 坐标并生成 OCC Edge 的内部辅助函数
@@ -42,6 +46,32 @@ static TopoDS_Shape CreateEdgeFromElement(const cad_sketch::SketchElementPtr& el
         gp_Pnt center = Sketch2DToWorld(arc->GetCenter(), cs);
         gp_Ax2 ax2(center, cs.Direction(), cs.XDirection());
         return BRepBuilderAPI_MakeEdge(gp_Circ(ax2, arc->GetRadius()), arc->GetStartAngle(), arc->GetEndAngle());
+    }
+    else if (auto curve = std::dynamic_pointer_cast<cad_sketch::SketchCurve>(elem)) {
+        const auto& rawPoints = curve->GetControlPoints();
+        std::vector<gp_Pnt> validPoints;
+        for (const auto& pt : rawPoints) {
+            gp_Pnt worldPt = Sketch2DToWorld(pt, cs);
+            if (validPoints.empty() || validPoints.back().Distance(worldPt) > 1e-5) {
+                validPoints.push_back(worldPt);
+            }
+        }
+
+        if (validPoints.size() >= 2) {
+            Handle(TColgp_HArray1OfPnt) occPoints = new TColgp_HArray1OfPnt(1, validPoints.size());
+            for (size_t i = 0; i < validPoints.size(); ++i) occPoints->SetValue(i + 1, validPoints[i]);
+
+            try {
+                GeomAPI_Interpolate interpolator(occPoints, Standard_False, Precision::Confusion());
+                interpolator.Perform();
+                if (interpolator.IsDone()) {
+                    return BRepBuilderAPI_MakeEdge(interpolator.Curve());
+                }
+            }
+            catch (...) {
+                return TopoDS_Shape();
+            }
+        }
     }
     return TopoDS_Shape();
 }
@@ -201,6 +231,35 @@ TopoDS_Wire Sketch::GetProfileWire(const gp_Ax3& cs) const {
                 hasEdges = true;
             }
         }
+        else if (element->GetType() == SketchElementType::Curve) {
+            auto curve = std::dynamic_pointer_cast<SketchCurve>(element);
+            if (curve) {
+                const auto& rawPoints = curve->GetControlPoints();
+                std::vector<gp_Pnt> validPoints;
+                for (const auto& pt : rawPoints) {
+                    gp_Pnt worldPt = LocalToWorld(pt->GetX(), pt->GetY());
+                    if (validPoints.empty() || validPoints.back().Distance(worldPt) > 1e-5) {
+                        validPoints.push_back(worldPt);
+                    }
+                }
+
+                if (validPoints.size() >= 2) {
+                    Handle(TColgp_HArray1OfPnt) occPoints = new TColgp_HArray1OfPnt(1, validPoints.size());
+                    for (size_t i = 0; i < validPoints.size(); ++i) occPoints->SetValue(i + 1, validPoints[i]);
+
+                    try {
+                        GeomAPI_Interpolate interpolator(occPoints, Standard_False, Precision::Confusion());
+                        interpolator.Perform();
+                        if (interpolator.IsDone()) {
+                            wireMaker.Add(BRepBuilderAPI_MakeEdge(interpolator.Curve()));
+                            hasEdges = true;
+                        }
+                    }
+                    catch (...) {
+                    }
+                }
+            }
+        }
     }
 
     if (!hasEdges || !wireMaker.IsDone()) return TopoDS_Wire();
@@ -232,21 +291,19 @@ void Sketch::UpdateProfiles(const gp_Ax3& cs) {
 
     if (edges->IsEmpty()) return;
 
-    // 2. 自动缝合乱序的边生成线框 (Wires)
+    // 2. 退回：使用稳定可靠的 FreeBounds 算法，要求必须首尾相连才能缝合为 Wire
     Handle(TopTools_HSequenceOfShape) wires = new TopTools_HSequenceOfShape();
     double tolerance = 1e-5;
-    // 使用 ShapeAnalysis_FreeBounds 自动处理相连关系
     ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edges, tolerance, Standard_False, wires);
 
-    // 3. 构建当前草图的平面基准 (Planar surface)
+    // 3. 构建当前草图的平面基准
     gp_Pln sketchPlane(cs.Location(), cs.Direction());
 
-    // 4. 检查生成的线框是否闭合，并转换为面 (Faces)
+    // 4. 检查生成的线框是否闭合，并直接转换为面
     for (int i = 1; i <= wires->Length(); ++i) {
         TopoDS_Wire wire = TopoDS::Wire(wires->Value(i));
 
         if (wire.Closed()) {
-            // 使用线框和草图平面生成面
             BRepBuilderAPI_MakeFace faceMaker(sketchPlane, wire);
             if (faceMaker.IsDone()) {
                 m_profiles.push_back(std::make_shared<SketchProfile>(faceMaker.Face()));

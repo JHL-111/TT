@@ -149,6 +149,7 @@ private slots:
     void OnSketchLineTool();
     void OnSketchCircleTool();
     void OnSketchArcTool();
+    void OnSketchCurveTool(); 
     void OnSketchToolChanged(const QString& toolName);
 
     // 对话框交互槽
@@ -300,6 +301,7 @@ private:
     QAction* m_sketchLineAction;
     QAction* m_sketchCircleAction;
     QAction* m_sketchArcAction;
+    QAction* m_sketchCurveAction;
 
     // Selection mode combo box
     QComboBox* m_selectionModeCombo;

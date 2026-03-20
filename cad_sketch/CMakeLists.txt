@@ -6,6 +6,7 @@ set(HEADERS
     include/cad_sketch/SketchLine.h
     include/cad_sketch/SketchCircle.h
     include/cad_sketch/SketchArc.h
+    include/cad_sketch/SketchCurve.h
     include/cad_sketch/SketchElement.h
     include/cad_sketch/Constraint.h
     include/cad_sketch/ConstraintSolver.h
@@ -20,6 +21,7 @@ set(SOURCES
     src/SketchLine.cpp
     src/SketchCircle.cpp
     src/SketchArc.cpp
+    src/SketchCurve.cpp
     src/SketchElement.cpp
     src/Constraint.cpp
     src/ConstraintSolver.cpp

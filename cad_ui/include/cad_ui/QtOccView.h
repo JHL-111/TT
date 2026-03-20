@@ -122,6 +122,7 @@ public:
     void StartLineTool();
     void StartCircleTool();
 	void StartArcTool();
+    void StartCurveTool();
 
     // 草图预览与渲染接口
     void ShowSketchPreviewElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS);

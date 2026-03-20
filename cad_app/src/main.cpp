@@ -69,7 +69,7 @@ int main(int argc, char *argv[])
         // 如果初始化失败，礼貌地告诉用户发生了什么
 
         QMessageBox::critical(nullptr, "初始化失败", 
-            "抱歉，应用程序初始化失败了 😢\n\n"
+            "抱歉，应用程序初始化失败了 \n\n"
             "请检查以下项目：\n"
             "• OpenCASCADE 7.8 是否正确安装\n"
             "• 显卡驱动是否是最新版本\n"

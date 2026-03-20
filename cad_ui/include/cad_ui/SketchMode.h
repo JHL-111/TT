@@ -23,6 +23,7 @@
 #include "cad_sketch/SketchLine.h"
 #include "cad_sketch/SketchCircle.h"
 #include "cad_sketch/SketchArc.h"
+#include "cad_sketch/SketchCurve.h"
 #include "cad_sketch/SnappingManager.h"
 
 // === 开始定义自定义命名空间 ===
@@ -201,6 +202,30 @@ namespace cad_ui {
     };
 
     /**
+     * @class SketchCurveTool
+     * @brief 样条曲线绘制工具 (Spline Curve Drawing Tool)
+     * 支持连续点击添加节点，右键或回车完成绘制。
+     */
+    class SketchCurveTool : public SketchToolBase {
+        Q_OBJECT
+    public:
+        explicit SketchCurveTool(QObject* parent = nullptr);
+
+        void StartDrawing(const QPoint& startPoint) override;
+        void UpdateDrawing(const QPoint& currentPoint) override;
+        void FinishDrawing(const QPoint& endPoint) override;
+        void CancelDrawing() override;
+        void HoverMove(const QPoint& currentPoint) override;
+
+        // 确认并结束绘制 (Confirm and finish drawing)
+        void ConfirmDrawing();
+
+    private:
+        std::vector<cad_sketch::SketchPointPtr> m_points; // 记录已点击的点
+        std::vector<cad_sketch::SketchElementPtr> m_currentElements; // 当前预览图元
+    };
+
+    /**
      * @class SketchMode
      * @brief 草图模式管理器 (Sketch Mode Manager)
      * * 负责管理草图环境的进入、退出、视图切换，以及分发事件给当前激活的绘制工具。
@@ -237,6 +262,7 @@ namespace cad_ui {
         void StartLineTool();
         void StartCircleTool();
 		void StartArcTool();
+		void StartCurveTool();
         void StopCurrentTool();
 
         // 交互事件处理 (Event Handling)

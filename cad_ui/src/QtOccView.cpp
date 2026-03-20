@@ -42,6 +42,10 @@
 #include <BRepTools.hxx>
 #include <GeomLProp_SLProps.hxx>
 #include <Precision.hxx>
+#include <GeomAPI_Interpolate.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include "cad_sketch/SketchCurve.h"
 
 
 #ifdef _WIN32
@@ -1366,7 +1370,7 @@ namespace {
     // 根据元素类型生成对应的 OCC 拓扑形状
     static TopoDS_Shape MakeShapeFromSketchElement(const cad_sketch::SketchElementPtr& elem, const gp_Ax3& cs) {
         if (!elem) return TopoDS_Shape();
-        
+
         if (auto point = std::dynamic_pointer_cast<cad_sketch::SketchPoint>(elem)) {
             gp_Pnt worldPt = Sketch2DToWorld(point, cs);
             return BRepBuilderAPI_MakeVertex(worldPt); // 生成 OCC 的顶点
@@ -1407,569 +1411,699 @@ namespace {
                 return BRepBuilderAPI_MakeEdge(gpCirc, startAngle, endAngle);
             }
         }
-        return TopoDS_Shape();
-    }
-   
-}
 
+        // 4. 如果是样条曲线
+        else if (auto curve = std::dynamic_pointer_cast<cad_sketch::SketchCurve>(elem)) {
+            const auto& rawPoints = curve->GetControlPoints();
 
-bool QtOccView::IsInSketchMode() const {
-    return m_sketchMode && m_sketchMode->IsInSketchMode();
-}
+            // 1. 数据清洗：过滤掉距离过近的点
+            std::vector<gp_Pnt> validPoints;
+            const double MIN_DISTANCE = 1e-5; // 设定一个最小容差距离
 
-void QtOccView::EnterSketchMode(const TopoDS_Face& face) {
-    // Lazy initialization of sketch mode
-    if (!m_sketchMode) {
-        try {
-            m_sketchMode = std::make_unique<SketchMode>(this, this);
-            
-            // Connect sketch mode signals
-            if (m_sketchMode) {
-                connect(m_sketchMode.get(), &SketchMode::sketchModeEntered,
-                        this, &QtOccView::SketchModeEntered);
-                connect(m_sketchMode.get(), &SketchMode::sketchModeExited,
-                        this, &QtOccView::SketchModeExited);
-                connect(m_sketchMode.get(), &SketchMode::sketchHistoryChanged, 
-                        this, &QtOccView::SketchHistoryChanged);
-                connect(m_sketchMode.get(), &SketchMode::toolChanged, 
-                        this, &QtOccView::SketchToolChanged);
-
+            for (const auto& pt : rawPoints) {
+                gp_Pnt worldPt = Sketch2DToWorld(pt, cs);
+                // 如果是第一个点，或者当前点与上一个有效点的距离大于最小容差，才加入有效列表
+                if (validPoints.empty() || validPoints.back().Distance(worldPt) > MIN_DISTANCE) {
+                    validPoints.push_back(worldPt);
+                }
             }
-            qDebug() << "Sketch mode initialized successfully";
-        }
-        catch (const std::exception& e) {
-            qDebug() << "Failed to initialize sketch mode:" << e.what();
-            return;
-        }
-    }
-    
-    try {
-        if (m_sketchMode->EnterSketchMode(face)) {
-            qDebug() << "Successfully entered sketch mode";
-            if (!m_context.IsNull()) {
-                m_context->ClearSelected(Standard_False);
-                m_context->Deactivate();   // 禁用普通模型选择
-                // 重新启用当前草图元素的选择能力
-                for (const auto& obj : m_sketchObjects) {
-                    if (!obj.IsNull()) {
-                        m_context->SetSelectionModeActive(obj, 0, Standard_True);
+
+            // 2. 至少需要两个有效点才能进行插值 
+            if (validPoints.size() >= 2) {
+                // OCC 的数组索引是从 1 开始的
+                Handle(TColgp_HArray1OfPnt) occPoints = new TColgp_HArray1OfPnt(1, validPoints.size());
+
+                for (size_t i = 0; i < validPoints.size(); ++i) {
+                    occPoints->SetValue(i + 1, validPoints[i]);
+                }
+
+                // 3. 捕获 OCC 底层抛出的异常 
+                try {
+                    GeomAPI_Interpolate interpolator(occPoints, Standard_False, Precision::Confusion());
+                    interpolator.Perform();
+
+                    if (interpolator.IsDone()) {
+                        Handle(Geom_BSplineCurve) splineCurve = interpolator.Curve();
+                        return BRepBuilderAPI_MakeEdge(splineCurve);
                     }
                 }
-
-                // 草图模式下默认按单对象选择处理
-                m_currentSelectionMode = 0;
+                catch (...) { // 捕获 Standard_Failure 或其他底层异常
+                    qDebug() << "Curve interpolation failed due to invalid geometric input.";
+                    // 发生异常时返回空形状，只丢弃这一帧的渲染，绝不让程序闪退
+                    return TopoDS_Shape();
+                }
             }
-            emit SketchModeEntered();
-        } else {
-            qDebug() << "Failed to enter sketch mode";
+        }
+        return TopoDS_Shape();
+    }
+
+    // 用于追踪每个草图拥有的蓝色轮廓面，防止互相误删
+    static std::map<cad_sketch::Sketch*, std::vector<Handle(AIS_InteractiveObject)>> s_sketchProfileCache;
+}
+     
+
+    bool QtOccView::IsInSketchMode() const {
+        return m_sketchMode && m_sketchMode->IsInSketchMode();
+    }
+
+    void QtOccView::EnterSketchMode(const TopoDS_Face& face) {
+        // Lazy initialization of sketch mode
+        if (!m_sketchMode) {
+            try {
+                m_sketchMode = std::make_unique<SketchMode>(this, this);
+            
+                // Connect sketch mode signals
+                if (m_sketchMode) {
+                    connect(m_sketchMode.get(), &SketchMode::sketchModeEntered,
+                            this, &QtOccView::SketchModeEntered);
+                    connect(m_sketchMode.get(), &SketchMode::sketchModeExited,
+                            this, &QtOccView::SketchModeExited);
+                    connect(m_sketchMode.get(), &SketchMode::sketchHistoryChanged, 
+                            this, &QtOccView::SketchHistoryChanged);
+                    connect(m_sketchMode.get(), &SketchMode::toolChanged, 
+                            this, &QtOccView::SketchToolChanged);
+
+                }
+                qDebug() << "Sketch mode initialized successfully";
+            }
+            catch (const std::exception& e) {
+                qDebug() << "Failed to initialize sketch mode:" << e.what();
+                return;
+            }
+        }
+    
+        try {
+            if (m_sketchMode->EnterSketchMode(face)) {
+                qDebug() << "Successfully entered sketch mode";
+                if (!m_context.IsNull()) {
+                    m_context->ClearSelected(Standard_False);
+                    m_context->Deactivate();   // 禁用普通模型选择
+                    // 重新启用当前草图元素的选择能力
+                    for (const auto& obj : m_sketchObjects) {
+                        if (!obj.IsNull()) {
+                            m_context->SetSelectionModeActive(obj, 0, Standard_True);
+                        }
+                    }
+
+                    // 草图模式下默认按单对象选择处理
+                    m_currentSelectionMode = 0;
+                }
+                emit SketchModeEntered();
+            } else {
+                qDebug() << "Failed to enter sketch mode";
+            }
+        }
+        catch (const std::exception& e) {
+            qDebug() << "Exception in EnterSketchMode:" << e.what();
         }
     }
-    catch (const std::exception& e) {
-        qDebug() << "Exception in EnterSketchMode:" << e.what();
-    }
-}
 
-void QtOccView::ExitSketchMode() {
-    if (!m_sketchMode) {
-        return;
-    }
+    void QtOccView::ExitSketchMode() {
+        if (!m_sketchMode) {
+            return;
+        }
     
-    try {
-        m_sketchMode->ExitSketchMode();
+        try {
+            m_sketchMode->ExitSketchMode();
         
-        qDebug() << "Exited sketch mode";
-        emit SketchModeExited();
+            qDebug() << "Exited sketch mode";
+            emit SketchModeExited();
+        }
+        catch (const std::exception& e) {
+            qDebug() << "Exception in ExitSketchMode:" << e.what();
+        }
     }
-    catch (const std::exception& e) {
-        qDebug() << "Exception in ExitSketchMode:" << e.what();
-    }
-}
 
-// 启动草图工具
-void QtOccView::StartRectangleTool() {
-    if (!m_sketchMode || !m_sketchMode->IsInSketchMode()) {
-        qDebug() << "Cannot start rectangle tool: not in sketch mode";
-        return;
-    }
+    // 启动草图工具
+    void QtOccView::StartRectangleTool() {
+        if (!m_sketchMode || !m_sketchMode->IsInSketchMode()) {
+            qDebug() << "Cannot start rectangle tool: not in sketch mode";
+            return;
+        }
     
-    m_sketchMode->StartRectangleTool();
-    qDebug() << "Started rectangle tool";
-}
-
-void QtOccView::StartPointTool() {
-    if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
-        m_sketchMode->StartPointTool();
-    }
-}
-
-void QtOccView::StartLineTool() {
-    if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
-        m_sketchMode->StartLineTool();
-    }
-}
-
-void QtOccView::StartCircleTool() {
-    if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
-        m_sketchMode->StartCircleTool();
-    }
-}
-
-void QtOccView::StartArcTool() {
-    if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
-        m_sketchMode->StartArcTool();
-    }
-}
-
-
-// 高亮选中的草图面
-void QtOccView::HighlightSketchFace(const TopoDS_Face& face) {
-    if (m_context.IsNull() || face.IsNull()) return;
-
-    // 1. 清理可能存在的旧高亮
-    ClearSketchFaceHighlight();
-
-    // 2. 将选中的拓扑面包装成可显示的 AIS_Shape
-    Handle(AIS_Shape) aisFace = new AIS_Shape(face);
-
-    // 3. 设置视觉效果 (浅蓝色 + 半透明)
-    aisFace->SetColor(Quantity_NOC_LIGHTSKYBLUE1); // 浅天蓝色
-    aisFace->SetTransparency(0.6);                
-
-    // 4. 强化面的边界线 (Boundary Draw)，让边缘更清晰
-    Handle(Prs3d_Drawer) drawer = aisFace->Attributes();
-    drawer->SetFaceBoundaryDraw(Standard_True);
-    drawer->FaceBoundaryAspect()->SetColor(Quantity_NOC_BLUE1); // 边界线用深蓝色
-    drawer->FaceBoundaryAspect()->SetWidth(2.0);                // 稍微加粗
-
-    // 5. 显示并保存引用
-    m_context->Display(aisFace, Standard_False);
-    m_context->Deactivate(aisFace);
-    m_highlightedFace = aisFace;
-    aisFace->SetPolygonOffsets(Aspect_POM_Fill, 1.0f, -2.0f);
-    m_view->Redraw();
-}
-
-void QtOccView::ClearSketchFaceHighlight() {
-    if (m_context.IsNull() || m_highlightedFace.IsNull()) return;
-
-    m_context->Remove(m_highlightedFace, Standard_False);
-    m_highlightedFace.Nullify(); // 清空句柄
-    m_view->Redraw();
-}
-
-// 显示预览线（通常用于鼠标移动时的青色反馈）
-void QtOccView::ShowSketchPreviewElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS) {
-    if (m_context.IsNull()) return;
-    ClearSketchPreview();
-
-    for (const auto& elem : elements) {
-        TopoDS_Shape shape = MakeShapeFromSketchElement(elem, sketchCS);
-        if (shape.IsNull()) continue;
-
-        Handle(AIS_Shape) aisLine = new AIS_Shape(shape);
-        aisLine->SetColor(Quantity_NOC_CYAN1);
-        aisLine->SetWidth(2.0);
-        m_context->Display(aisLine, Standard_False);
-        m_sketchPreviewObjects.push_back(aisLine);
-    }
-    m_view->Redraw();
-}
-
-// 添加正式草图线（点击完成后确认留在屏幕上的线条）
-void QtOccView::AddSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS) {
-    if (m_context.IsNull()) return;
-
-    for (const auto& elem : elements) {
-        TopoDS_Shape shape = MakeShapeFromSketchElement(elem, sketchCS);
-        if (shape.IsNull()) continue;
-
-        Handle(AIS_Shape) aisLine = new AIS_Shape(shape);
-        aisLine->SetColor(Quantity_NOC_RED);
-        aisLine->SetWidth(2.0);
-        aisLine->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
-        m_context->Display(aisLine, Standard_False); 
-        m_sketchElementMap[aisLine] = elem;
-        m_sketchObjects.push_back(aisLine);
-    }
-    m_view->Redraw();
-}
-
-// 仅清理预览对象
-void QtOccView::ClearSketchPreview() {
-    if (m_context.IsNull()) return;
-
-    for (auto& obj : m_sketchPreviewObjects) {
-        m_context->Remove(obj, Standard_False);
-    }
-    m_sketchPreviewObjects.clear();
-}
-// 移除高亮的草图元素（通常在取消选择或切换工具时调用）
-void QtOccView::UnhighlightSketchElement() {
-    // 如果高亮存在，就把它从屏幕上彻底移除并销毁
-    if (!m_sketchHighlightAIS.IsNull() && !m_context.IsNull()) {
-        m_context->Remove(m_sketchHighlightAIS, Standard_False);
-        m_sketchHighlightAIS.Nullify();
-    }
-}
-
-// 清理所有正式草图几何体
-void QtOccView::ClearSketchObjects() {
-    if (m_context.IsNull()) return;
-
-    for (auto& obj : m_sketchObjects) {
-        m_context->Remove(obj, Standard_False);
-    }
-    m_sketchObjects.clear();
-    m_sketchElementMap.clear();
-    m_view->Redraw();
-}
-
-// 显示吸附辅助图形
-void QtOccView::ShowSnapIndicator(const gp_Pnt& pnt, cad_sketch::SnapType snapType) {
-    if (m_context.IsNull()) return;
-
-    // 1. 根据底层传来的捕捉类型，选择 OCC 中对应的图标形状
-    Aspect_TypeOfMarker markerType = Aspect_TOM_RING1; // 默认用圆圈
-    Quantity_NameOfColor markerColor = Quantity_NOC_MAGENTA1; // 默认紫红色
-
-    switch (snapType) {
-    case cad_sketch::SnapType::Endpoint:
-        markerType = Aspect_TOM_PLUS;       // 端点：十字 
-        markerColor = Quantity_NOC_GREEN;   // 端点用绿色
-        break;
-    case cad_sketch::SnapType::Midpoint:
-        markerType = Aspect_TOM_O_STAR;     // 中点：圆圈里带星号 
-        markerColor = Quantity_NOC_CYAN1;   // 中点用青色
-        break;
-    case cad_sketch::SnapType::Center:
-        markerType = Aspect_TOM_RING1;      // 圆心：空心圆 
-        markerColor = Quantity_NOC_MAGENTA1;// 圆心用紫红色
-        break;
-    case cad_sketch::SnapType::Nearest:
-        markerType = Aspect_TOM_X;          // 最近点：X型
-        markerColor = Quantity_NOC_BLACK;  //  最近点用黄色
-        break;
-    case cad_sketch::SnapType::Grid:
-        markerType = Aspect_TOM_POINT;      // 网格：实心小点
-        markerColor = Quantity_NOC_ORANGE;  // 网格用橙色
-        break;
-    default:
-        break;
+        m_sketchMode->StartRectangleTool();
+        qDebug() << "Started rectangle tool";
     }
 
-    // 2. 创建或更新图标
-    if (m_snapIndicator.IsNull()) {
-        Handle(Geom_CartesianPoint) geomPt = new Geom_CartesianPoint(pnt);
-        Handle(AIS_Point) aisPt = new AIS_Point(geomPt);
-
-        aisPt->SetMarker(markerType);
-        aisPt->SetColor(markerColor);
-        aisPt->SetZLayer(Graphic3d_ZLayerId_Topmost); // 确保不被模型遮挡
-        m_snapIndicator = aisPt;
-    }
-    else {
-        Handle(AIS_Point) aisPt = Handle(AIS_Point)::DownCast(m_snapIndicator);
-        aisPt->SetMarker(markerType); // 动态更新图标形状
-        aisPt->SetColor(markerColor); // 动态更新图标颜色
-
-        Handle(Geom_CartesianPoint) geomPt = Handle(Geom_CartesianPoint)::DownCast(aisPt->Component());
-        geomPt->SetPnt(pnt);
-        m_context->Redisplay(m_snapIndicator, Standard_False);
+    void QtOccView::StartPointTool() {
+        if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
+            m_sketchMode->StartPointTool();
+        }
     }
 
-    m_context->Display(m_snapIndicator, Standard_False);
-    m_view->Redraw();
-}
+    void QtOccView::StartLineTool() {
+        if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
+            m_sketchMode->StartLineTool();
+        }
+    }
 
-// 隐藏小圆圈
-void QtOccView::HideSnapIndicator() {
-    if (!m_context.IsNull() && !m_snapIndicator.IsNull()) {
-        m_context->Remove(m_snapIndicator, Standard_False);
-        m_snapIndicator.Nullify();
+    void QtOccView::StartCircleTool() {
+        if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
+            m_sketchMode->StartCircleTool();
+        }
+    }
+
+    void QtOccView::StartArcTool() {
+        if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
+            m_sketchMode->StartArcTool();
+        }
+    }
+
+    void QtOccView::StartCurveTool() {
+        if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
+            m_sketchMode->StartCurveTool();
+        }
+    }
+
+    // 高亮选中的草图面
+    void QtOccView::HighlightSketchFace(const TopoDS_Face& face) {
+        if (m_context.IsNull() || face.IsNull()) return;
+
+        // 1. 清理可能存在的旧高亮
+        ClearSketchFaceHighlight();
+
+        // 2. 将选中的拓扑面包装成可显示的 AIS_Shape
+        Handle(AIS_Shape) aisFace = new AIS_Shape(face);
+
+        // 3. 设置视觉效果 (浅蓝色 + 半透明)
+        aisFace->SetColor(Quantity_NOC_LIGHTSKYBLUE1); // 浅天蓝色
+        aisFace->SetTransparency(0.6);                
+
+        // 4. 强化面的边界线 (Boundary Draw)，让边缘更清晰
+        Handle(Prs3d_Drawer) drawer = aisFace->Attributes();
+        drawer->SetFaceBoundaryDraw(Standard_True);
+        drawer->FaceBoundaryAspect()->SetColor(Quantity_NOC_BLUE1); // 边界线用深蓝色
+        drawer->FaceBoundaryAspect()->SetWidth(2.0);                // 稍微加粗
+
+        // 5. 显示并保存引用
+        m_context->Display(aisFace, Standard_False);
+        m_context->Deactivate(aisFace);
+        m_highlightedFace = aisFace;
+        aisFace->SetPolygonOffsets(Aspect_POM_Fill, 1.0f, -2.0f);
         m_view->Redraw();
     }
-}
 
+    void QtOccView::ClearSketchFaceHighlight() {
+        if (m_context.IsNull() || m_highlightedFace.IsNull()) return;
 
-// 获取当前被选中的草图元素 
-std::vector<cad_sketch::SketchElementPtr> QtOccView::GetSelectedSketchElements() {
-    std::vector<cad_sketch::SketchElementPtr> result;
-    if (m_context.IsNull()) return result;
-
-    // 遍历 OCC 上下文中所有被选中的对象
-    for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
-        Handle(AIS_InteractiveObject) obj = m_context->SelectedInteractive();
-        // 如果在我们的映射表里能找到，就提取出来
-        if (m_sketchElementMap.find(obj) != m_sketchElementMap.end()) {
-            result.push_back(m_sketchElementMap[obj]);
-        }
-    }
-    return result;
-}
-
-// 设置草图的可见性
-void QtOccView::SetSketchVisibility(const std::shared_ptr<cad_sketch::Sketch>& sketch, bool visible) {
-    if (!sketch || m_context.IsNull()) return;
-
-    // 1. 控制属于该草图的红线 (Elements)
-    for (const auto& elem : sketch->GetElements()) {
-        for (const auto& pair : m_sketchElementMap) {
-            if (pair.second == elem) {
-                if (visible) m_context->Display(pair.first, Standard_False);
-                else m_context->Erase(pair.first, Standard_False);
-            }
-        }
+        m_context->Remove(m_highlightedFace, Standard_False);
+        m_highlightedFace.Nullify(); // 清空句柄
+        m_view->Redraw();
     }
 
-    // 2. 控制属于该草图的浅蓝色面 (Profiles)
-    for (const auto& profile : sketch->GetProfiles()) {
-        TopoDS_Face face = profile->GetFace();
-        for (const auto& pair : m_sketchProfileMap) {
-            // 利用 OCC 底层的 IsSame 精准比对拓扑形状
-            if (pair.second && pair.second->GetOCCTShape().IsSame(face)) {
-                if (visible) m_context->Display(pair.first, Standard_False);
-                else m_context->Erase(pair.first, Standard_False);
-            }
+    // 显示预览线（通常用于鼠标移动时的青色反馈）
+    void QtOccView::ShowSketchPreviewElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS) {
+        if (m_context.IsNull()) return;
+        ClearSketchPreview();
+
+        for (const auto& elem : elements) {
+            TopoDS_Shape shape = MakeShapeFromSketchElement(elem, sketchCS);
+            if (shape.IsNull()) continue;
+
+            Handle(AIS_Shape) aisLine = new AIS_Shape(shape);
+            aisLine->SetColor(Quantity_NOC_CYAN1);
+            aisLine->SetWidth(2.0);
+            m_context->Display(aisLine, Standard_False);
+            m_sketchPreviewObjects.push_back(aisLine);
         }
+        m_view->Redraw();
     }
-    m_view->Redraw();
-}
 
-void QtOccView::RemoveSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch) {
-    if (!sketch || m_context.IsNull()) return;
+    // 添加正式草图线（点击完成后确认留在屏幕上的线条）
+    void QtOccView::AddSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS) {
+        if (m_context.IsNull()) return;
 
-    // 1. 删除该草图对应的所有元素 AIS
-    for (const auto& elem : sketch->GetElements()) {
-        for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ) {
-            if (it->second == elem) {
-                if (m_currentSelectedAIS == it->first) {
-                    UnhighlightSketchElement();
-                    m_currentSelectedAIS.Nullify();
-                    m_currentSelectedShape.reset();
-                }
+        for (const auto& elem : elements) {
+            TopoDS_Shape shape = MakeShapeFromSketchElement(elem, sketchCS);
+            if (shape.IsNull()) continue;
 
-                m_context->Remove(it->first, Standard_False);
-                it = m_sketchElementMap.erase(it);
-            }
-            else {
-                ++it;
-            }
+            Handle(AIS_Shape) aisLine = new AIS_Shape(shape);
+            aisLine->SetColor(Quantity_NOC_RED);
+            aisLine->SetWidth(2.0);
+            aisLine->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
+            m_context->Display(aisLine, Standard_False); 
+            m_sketchElementMap[aisLine] = elem;
+            m_sketchObjects.push_back(aisLine);
+        }
+        m_view->Redraw();
+    }
+
+    // 仅清理预览对象
+    void QtOccView::ClearSketchPreview() {
+        if (m_context.IsNull()) return;
+
+        for (auto& obj : m_sketchPreviewObjects) {
+            m_context->Remove(obj, Standard_False);
+        }
+        m_sketchPreviewObjects.clear();
+    }
+    // 移除高亮的草图元素（通常在取消选择或切换工具时调用）
+    void QtOccView::UnhighlightSketchElement() {
+        // 如果高亮存在，就把它从屏幕上彻底移除并销毁
+        if (!m_sketchHighlightAIS.IsNull() && !m_context.IsNull()) {
+            m_context->Remove(m_sketchHighlightAIS, Standard_False);
+            m_sketchHighlightAIS.Nullify();
         }
     }
 
-    // 2. 删除该草图对应的所有 profile 面
-    for (const auto& profile : sketch->GetProfiles()) {
-        TopoDS_Face face = profile->GetFace();
+    // 清理所有正式草图几何体
+    void QtOccView::ClearSketchObjects() {
+        if (m_context.IsNull()) return;
 
-        for (auto it = m_sketchProfileMap.begin(); it != m_sketchProfileMap.end(); ) {
-            if (it->second && it->second->GetOCCTShape().IsSame(face)) {
-                m_context->Remove(it->first, Standard_False);
-                it = m_sketchProfileMap.erase(it);
-            }
-            else {
-                ++it;
-            }
+        for (auto& obj : m_sketchObjects) {
+            m_context->Remove(obj, Standard_False);
         }
+        m_sketchObjects.clear();
+        m_sketchElementMap.clear();
+        m_view->Redraw();
     }
 
-    m_context->ClearSelected(Standard_False);
-    m_context->UpdateCurrentViewer();
-    m_view->Redraw();
-}
+    // 显示吸附辅助图形
+    void QtOccView::ShowSnapIndicator(const gp_Pnt& pnt, cad_sketch::SnapType snapType) {
+        if (m_context.IsNull()) return;
 
-// 从屏幕上抹除指定的草图元素
-void QtOccView::RemoveSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements) {
-    if (m_context.IsNull()) return;
+        // 1. 根据底层传来的捕捉类型，选择 OCC 中对应的图标形状
+        Aspect_TypeOfMarker markerType = Aspect_TOM_RING1; // 默认用圆圈
+        Quantity_NameOfColor markerColor = Quantity_NOC_MAGENTA1; // 默认紫红色
 
-    // 反向查找：通过元素指针找到对应的 AIS 对象并移除
-    for (const auto& elem : elements) {
-        for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ++it) {
-            if (it->second == elem) {
-                if (m_currentSelectedAIS == it->first) {
-                    UnhighlightSketchElement();       // 移除蓝色的高亮克隆体
-                    m_currentSelectedAIS.Nullify();   // 清空选中记录
-                    m_currentSelectedShape.reset();
-                    m_context->ClearSelected(Standard_False); // 顺便清空 OCC 底层选中池
-                }
-                m_context->Remove(it->first, Standard_False);
-                m_sketchElementMap.erase(it); // 从映射表中注销
-                break; // 找到了就跳出内层循环
-            }
-        }
-    }
-    m_context->UpdateCurrentViewer(); // 刷新屏幕
-}
-
-// 移动元素后的刷新
-void QtOccView::UpdateSketchElementVisuals(const cad_sketch::SketchElementPtr& elem) {
-    if (m_context.IsNull() || !m_sketchMode) return;
-
-    // 遍历映射表，找到该数据对应的 AIS 渲染对象
-    for (const auto& pair : m_sketchElementMap) {
-        if (pair.second == elem) {
-            Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(pair.first);
-            if (!aisShape.IsNull()) {
-                // 重新生成新的拓扑形状
-                TopoDS_Shape newShape = MakeShapeFromSketchElement(elem, m_sketchMode->GetSketchCS());
-                aisShape->SetShape(newShape);
-                m_context->Redisplay(aisShape, Standard_False); // 更新红色本体
-
-                // 如果这个对象当前正好被选中（也就是我们正在拖拽它），同时更新蓝色高亮克隆体
-                if (m_currentSelectedAIS == pair.first && !m_sketchHighlightAIS.IsNull()) {
-                    m_sketchHighlightAIS->SetShape(newShape);
-                    m_context->Redisplay(m_sketchHighlightAIS, Standard_False); // 更新蓝色高亮
-                }
-            }
+        switch (snapType) {
+        case cad_sketch::SnapType::Endpoint:
+            markerType = Aspect_TOM_PLUS;       // 端点：十字 
+            markerColor = Quantity_NOC_GREEN;   // 端点用绿色
+            break;
+        case cad_sketch::SnapType::Midpoint:
+            markerType = Aspect_TOM_O_STAR;     // 中点：圆圈里带星号 
+            markerColor = Quantity_NOC_CYAN1;   // 中点用青色
+            break;
+        case cad_sketch::SnapType::Center:
+            markerType = Aspect_TOM_RING1;      // 圆心：空心圆 
+            markerColor = Quantity_NOC_MAGENTA1;// 圆心用紫红色
+            break;
+        case cad_sketch::SnapType::Nearest:
+            markerType = Aspect_TOM_X;          // 最近点：X型
+            markerColor = Quantity_NOC_BLACK;  //  最近点用黄色
+            break;
+        case cad_sketch::SnapType::Grid:
+            markerType = Aspect_TOM_POINT;      // 网格：实心小点
+            markerColor = Quantity_NOC_ORANGE;  // 网格用橙色
+            break;
+        default:
             break;
         }
-    }
-    m_view->Redraw(); // 强制刷新屏幕
-}
 
-std::shared_ptr<cad_sketch::Sketch> QtOccView::GetActiveSketch() const {
-    return m_sketchMode ? m_sketchMode->GetCurrentSketch() : nullptr;
-}
+        // 2. 创建或更新图标
+        if (m_snapIndicator.IsNull()) {
+            Handle(Geom_CartesianPoint) geomPt = new Geom_CartesianPoint(pnt);
+            Handle(AIS_Point) aisPt = new AIS_Point(geomPt);
 
-TopoDS_Face QtOccView::GetSketchFace() const {
-    if (m_sketchMode) {
-        return m_sketchMode->GetSketchFace(); // 调用在 SketchMode 中加好的接口
-    }
-    return TopoDS_Face(); // 如果草图模式未初始化，返回一个空的面
-}
-
-TopoDS_Shape QtOccView::GetSelectedSubShape() const {
-    if (!m_context.IsNull()) {
-        m_context->InitSelected();
-        if (m_context->MoreSelected() && m_context->HasSelectedShape()) {
-            return m_context->SelectedShape(); // 返回精确选中的 Face / Edge 等
+            aisPt->SetMarker(markerType);
+            aisPt->SetColor(markerColor);
+            aisPt->SetZLayer(Graphic3d_ZLayerId_Topmost); // 确保不被模型遮挡
+            m_snapIndicator = aisPt;
         }
-    }
-    return TopoDS_Shape();
-}
+        else {
+            Handle(AIS_Point) aisPt = Handle(AIS_Point)::DownCast(m_snapIndicator);
+            aisPt->SetMarker(markerType); // 动态更新图标形状
+            aisPt->SetColor(markerColor); // 动态更新图标颜色
 
-gp_Ax3 QtOccView::GetSketchCS() const {
-    if (m_sketchMode) {
-        return m_sketchMode->GetSketchCS();
-    }
-    return gp_Ax3();
-}
-
-void QtOccView::ClearSketchElementMap() {
-    m_sketchElementMap.clear();
-}
-
-bool QtOccView::HasActiveSketchTool() const {
-    return m_sketchMode && m_sketchMode->HasActiveTool();
-}
-
-void QtOccView::StopSketchTool() {
-    if (m_sketchMode) {
-        m_sketchMode->StopCurrentTool();
-    }
-}
-
-//草图历史记录管理
-void QtOccView::UndoSketch() { 
-    if (IsInSketchMode()) m_sketchMode->Undo(); 
-}
-void QtOccView::RedoSketch() { 
-    if (IsInSketchMode()) m_sketchMode->Redo(); 
-}
-bool QtOccView::CanUndoSketch() const { 
-    return IsInSketchMode() && m_sketchMode->CanUndo(); 
-}
-bool QtOccView::CanRedoSketch() const { 
-    return IsInSketchMode() && m_sketchMode->CanRedo(); 
-}
-
-// 渲染草图闭合线框
-void QtOccView::RenderSketchProfiles(const std::vector<cad_sketch::SketchProfilePtr>& profiles) {
-    if (m_context.IsNull()) return;
-
-    // 先清理旧的轮廓渲染
-    ClearSketchProfiles();
-
-    for (const auto& profile : profiles) {
-        TopoDS_Face face = profile->GetFace();
-        if (face.IsNull()) continue;
-
-        // ===== 1. 计算该 profile 面的法向 =====
-        Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
-        if (surface.IsNull()) continue;
-
-        Standard_Real uMin, uMax, vMin, vMax;
-        BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
-        Standard_Real uMid = (uMin + uMax) * 0.5;
-        Standard_Real vMid = (vMin + vMax) * 0.5;
-
-        GeomLProp_SLProps props(surface, uMid, vMid, 1, Precision::Confusion());
-        if (!props.IsNormalDefined()) continue;
-
-        gp_Dir normal = props.Normal();
-        if (face.Orientation() == TopAbs_REVERSED) {
-            normal.Reverse();
+            Handle(Geom_CartesianPoint) geomPt = Handle(Geom_CartesianPoint)::DownCast(aisPt->Component());
+            geomPt->SetPnt(pnt);
+            m_context->Redisplay(m_snapIndicator, Standard_False);
         }
 
-        // ===== 2. 只把“显示用的 face”微微抬起，避免和橙色底面共面闪烁 =====
-        const Standard_Real previewOffset = 0.1; // 可以在 0.05 ~ 0.2 之间试
-        gp_Trsf trsf;
-        trsf.SetTranslation(gp_Vec(normal) * previewOffset);
-
-        TopoDS_Shape liftedShape = BRepBuilderAPI_Transform(face, trsf, true).Shape();
-        TopoDS_Face liftedFace = TopoDS::Face(liftedShape);
-
-        Handle(AIS_Shape) aisFace = new AIS_Shape(liftedFace);
-
-        aisFace->SetColor(Quantity_NOC_LIGHTSKYBLUE1);
-        aisFace->SetTransparency(0.6);
-        aisFace->SetDisplayMode(AIS_Shaded);
-        aisFace->SetPolygonOffsets(Aspect_POM_Fill, 1.0f, -4.0f); // 比现在再强一点
-        m_context->Display(aisFace, Standard_False);
-        m_sketchProfileObjects.push_back(aisFace);
-
-        // ===== 3. 映射仍然保存“原始 face”，拉伸时用原始 profile =====
-        cad_core::ShapePtr profileShape = std::make_shared<cad_core::Shape>(face);
-        m_sketchProfileMap[aisFace] = profileShape;
+        m_context->Display(m_snapIndicator, Standard_False);
+        m_view->Redraw();
     }
 
-    m_view->Redraw();
-}
-
-void QtOccView::ClearSketchProfiles() {
-    if (m_context.IsNull()) return;
-
-    for (auto& obj : m_sketchProfileObjects) {
-        m_context->Remove(obj, Standard_False);
+    // 隐藏小圆圈
+    void QtOccView::HideSnapIndicator() {
+        if (!m_context.IsNull() && !m_snapIndicator.IsNull()) {
+            m_context->Remove(m_snapIndicator, Standard_False);
+            m_snapIndicator.Nullify();
+            m_view->Redraw();
+        }
     }
-    m_sketchProfileObjects.clear();
-    m_sketchProfileMap.clear(); // 清空映射表防止内存泄漏或野指针
-    m_view->Redraw();
-}
 
-void QtOccView::HideSingleSketchProfile(const cad_core::ShapePtr& profileShape) {
-    if (!profileShape || m_context.IsNull()) return;
 
-    // 遍历草图轮廓映射表，寻找匹配的业务对象
-    for (auto it = m_sketchProfileMap.begin(); it != m_sketchProfileMap.end(); ++it) {
-        if (it->second == profileShape) {
-            Handle(AIS_InteractiveObject) aisObj = it->first;
+    // 获取当前被选中的草图元素 
+    std::vector<cad_sketch::SketchElementPtr> QtOccView::GetSelectedSketchElements() {
+        std::vector<cad_sketch::SketchElementPtr> result;
+        if (m_context.IsNull()) return result;
 
-            // 1. 从 3D 视图中隐藏该轮廓 (Erase)
-            m_context->Erase(aisObj, Standard_False);
+        // 遍历 OCC 上下文中所有被选中的对象
+        for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
+            Handle(AIS_InteractiveObject) obj = m_context->SelectedInteractive();
+            // 如果在我们的映射表里能找到，就提取出来
+            if (m_sketchElementMap.find(obj) != m_sketchElementMap.end()) {
+                result.push_back(m_sketchElementMap[obj]);
+            }
+        }
+        return result;
+    }
 
-            // 2. 将其从对象渲染池中剔除
-            auto vecIt = std::find(m_sketchProfileObjects.begin(), m_sketchProfileObjects.end(), aisObj);
-            if (vecIt != m_sketchProfileObjects.end()) {
-                m_sketchProfileObjects.erase(vecIt);
+    // 设置草图的可见性
+    void QtOccView::SetSketchVisibility(const std::shared_ptr<cad_sketch::Sketch>& sketch, bool visible) {
+        if (!sketch || m_context.IsNull()) return;
+
+        // 1. 控制属于该草图的红线 (Elements)
+        for (const auto& elem : sketch->GetElements()) {
+            for (const auto& pair : m_sketchElementMap) {
+                if (pair.second == elem) {
+                    if (visible) m_context->Display(pair.first, Standard_False);
+                    else m_context->Erase(pair.first, Standard_False);
+                }
+            }
+        }
+
+        // 2. 控制属于该草图的浅蓝色面 (Profiles)
+        for (const auto& profile : sketch->GetProfiles()) {
+            TopoDS_Face face = profile->GetFace();
+            for (const auto& pair : m_sketchProfileMap) {
+                // 利用 OCC 底层的 IsSame 精准比对拓扑形状
+                if (pair.second && pair.second->GetOCCTShape().IsSame(face)) {
+                    if (visible) m_context->Display(pair.first, Standard_False);
+                    else m_context->Erase(pair.first, Standard_False);
+                }
+            }
+        }
+        m_view->Redraw();
+    }
+
+    void QtOccView::RemoveSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch) {
+        if (!sketch || m_context.IsNull()) return;
+
+        // 1. 删除该草图对应的所有元素 AIS
+        for (const auto& elem : sketch->GetElements()) {
+            for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ) {
+                if (it->second == elem) {
+                    if (m_currentSelectedAIS == it->first) {
+                        UnhighlightSketchElement();
+                        m_currentSelectedAIS.Nullify();
+                        m_currentSelectedShape.reset();
+                    }
+
+                    m_context->Remove(it->first, Standard_False);
+
+                    // 从渲染池中安全剔除
+                    auto vecIt = std::find(m_sketchObjects.begin(), m_sketchObjects.end(), it->first);
+                    if (vecIt != m_sketchObjects.end()) m_sketchObjects.erase(vecIt);
+
+                    it = m_sketchElementMap.erase(it);
+                }
+                else {
+                    ++it;
+                }
+            }
+        }
+
+        // 2. 精准删除该草图对应的所有轮廓面
+        cad_sketch::Sketch* sketchKey = sketch.get();
+        auto cacheIt = s_sketchProfileCache.find(sketchKey);
+        if (cacheIt != s_sketchProfileCache.end()) {
+            // 利用精准缓存快速移除面
+            for (auto& ais : cacheIt->second) {
+                m_context->Remove(ais, Standard_False);
+                auto vecIt = std::find(m_sketchProfileObjects.begin(), m_sketchProfileObjects.end(), ais);
+                if (vecIt != m_sketchProfileObjects.end()) m_sketchProfileObjects.erase(vecIt);
+                m_sketchProfileMap.erase(ais);
+            }
+            s_sketchProfileCache.erase(cacheIt); // 释放缓存
+        }
+        else {
+            // 缓存中没有（如读档恢复的数据），走遍历删除
+            for (const auto& profile : sketch->GetProfiles()) {
+                TopoDS_Face face = profile->GetFace();
+                for (auto it = m_sketchProfileMap.begin(); it != m_sketchProfileMap.end(); ) {
+                    if (it->second && it->second->GetOCCTShape().IsSame(face)) {
+                        m_context->Remove(it->first, Standard_False);
+                        auto vecIt = std::find(m_sketchProfileObjects.begin(), m_sketchProfileObjects.end(), it->first);
+                        if (vecIt != m_sketchProfileObjects.end()) m_sketchProfileObjects.erase(vecIt);
+                        it = m_sketchProfileMap.erase(it);
+                    }
+                    else {
+                        ++it;
+                    }
+                }
+            }
+        }
+
+        m_context->ClearSelected(Standard_False);
+        m_context->UpdateCurrentViewer();
+        m_view->Redraw();
+    }
+
+    // 从屏幕上抹除指定的草图元素
+    void QtOccView::RemoveSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements) {
+        if (m_context.IsNull()) return;
+
+        // 反向查找：通过元素指针找到对应的 AIS 对象并移除
+        for (const auto& elem : elements) {
+            for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ++it) {
+                if (it->second == elem) {
+                    if (m_currentSelectedAIS == it->first) {
+                        UnhighlightSketchElement();       // 移除蓝色的高亮克隆体
+                        m_currentSelectedAIS.Nullify();   // 清空选中记录
+                        m_currentSelectedShape.reset();
+                        m_context->ClearSelected(Standard_False); // 顺便清空 OCC 底层选中池
+                    }
+                    m_context->Remove(it->first, Standard_False);
+                    m_sketchElementMap.erase(it); // 从映射表中注销
+                    break; // 找到了就跳出内层循环
+                }
+            }
+        }
+        m_context->UpdateCurrentViewer(); // 刷新屏幕
+    }
+
+    // 移动元素后的刷新
+    // 移动元素后的刷新 (Update visuals after dragging)
+    void QtOccView::UpdateSketchElementVisuals(const cad_sketch::SketchElementPtr& elem) {
+        if (m_context.IsNull() || !m_sketchMode) return;
+
+        // 遍历映射表，寻找受拖拽影响的所有图元
+        for (const auto& pair : m_sketchElementMap) {
+            bool shouldUpdate = false;
+
+            // 1. 如果是当前拖拽的本体，必须更新
+            if (pair.second == elem) {
+                shouldUpdate = true;
+            }
+            // 2. 如果拖拽的是一个“点”，我们需要检查有没有直线或曲线依赖这个点
+            else if (elem->GetType() == cad_sketch::SketchElementType::Point) {
+                // 如果图元是直线，检查它的起点或终点是不是当前拖拽的点
+                if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(pair.second)) {
+                    if (line->GetStartPoint() == elem || line->GetEndPoint() == elem) {
+                        shouldUpdate = true;
+                    }
+                }
+                // 如果图元是曲线，遍历它的控制点，看看包不包含当前拖拽的点
+                else if (auto curve = std::dynamic_pointer_cast<cad_sketch::SketchCurve>(pair.second)) {
+                    for (const auto& pt : curve->GetControlPoints()) {
+                        if (pt == elem) {
+                            shouldUpdate = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            // 3. 反过来，如果拖拽的是一整条曲线，底下的控制点视觉也要跟着平移
+            else if (elem->GetType() == cad_sketch::SketchElementType::Curve && pair.second->GetType() == cad_sketch::SketchElementType::Point) {
+                auto curve = std::dynamic_pointer_cast<cad_sketch::SketchCurve>(elem);
+                for (const auto& pt : curve->GetControlPoints()) {
+                    if (pt == pair.second) {
+                        shouldUpdate = true;
+                        break;
+                    }
+                }
             }
 
-            // 3. 从映射表中移除，防止野指针
-            m_sketchProfileMap.erase(it);
-            break; // 找到了就退出循环
+            // 统一执行重绘
+            if (shouldUpdate) {
+                Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(pair.first);
+                if (!aisShape.IsNull()) {
+                    // 重新生成拓扑形状并刷新
+                    TopoDS_Shape newShape = MakeShapeFromSketchElement(pair.second, m_sketchMode->GetSketchCS());
+                    aisShape->SetShape(newShape);
+                    m_context->Redisplay(aisShape, Standard_False);
+
+                    // 如果这玩意儿正处于蓝色高亮选中状态，高亮层也要跟着刷
+                    if (m_currentSelectedAIS == pair.first && !m_sketchHighlightAIS.IsNull()) {
+                        m_sketchHighlightAIS->SetShape(newShape);
+                        m_context->Redisplay(m_sketchHighlightAIS, Standard_False);
+                    }
+                }
+            }
+        }
+        m_view->Redraw(); // 强制刷新屏幕
+    }
+
+    std::shared_ptr<cad_sketch::Sketch> QtOccView::GetActiveSketch() const {
+        return m_sketchMode ? m_sketchMode->GetCurrentSketch() : nullptr;
+    }
+
+    TopoDS_Face QtOccView::GetSketchFace() const {
+        if (m_sketchMode) {
+            return m_sketchMode->GetSketchFace(); // 调用在 SketchMode 中加好的接口
+        }
+        return TopoDS_Face(); // 如果草图模式未初始化，返回一个空的面
+    }
+
+    TopoDS_Shape QtOccView::GetSelectedSubShape() const {
+        if (!m_context.IsNull()) {
+            m_context->InitSelected();
+            if (m_context->MoreSelected() && m_context->HasSelectedShape()) {
+                return m_context->SelectedShape(); // 返回精确选中的 Face / Edge 等
+            }
+        }
+        return TopoDS_Shape();
+    }
+
+    gp_Ax3 QtOccView::GetSketchCS() const {
+        if (m_sketchMode) {
+            return m_sketchMode->GetSketchCS();
+        }
+        return gp_Ax3();
+    }
+
+    void QtOccView::ClearSketchElementMap() {
+        m_sketchElementMap.clear();
+    }
+
+    bool QtOccView::HasActiveSketchTool() const {
+        return m_sketchMode && m_sketchMode->HasActiveTool();
+    }
+
+    void QtOccView::StopSketchTool() {
+        if (m_sketchMode) {
+            m_sketchMode->StopCurrentTool();
         }
     }
-    m_view->Redraw();
-}
+
+    //草图历史记录管理
+    void QtOccView::UndoSketch() { 
+        if (IsInSketchMode()) m_sketchMode->Undo(); 
+    }
+    void QtOccView::RedoSketch() { 
+        if (IsInSketchMode()) m_sketchMode->Redo(); 
+    }
+    bool QtOccView::CanUndoSketch() const { 
+        return IsInSketchMode() && m_sketchMode->CanUndo(); 
+    }
+    bool QtOccView::CanRedoSketch() const { 
+        return IsInSketchMode() && m_sketchMode->CanRedo(); 
+    }
+
+    // 渲染草图闭合线框
+    void QtOccView::RenderSketchProfiles(const std::vector<cad_sketch::SketchProfilePtr>& profiles) {
+        if (m_context.IsNull()) return;
+
+        // 1. 获取当前正在活跃编辑的草图
+        auto activeSketch = GetActiveSketch();
+        cad_sketch::Sketch* sketchKey = activeSketch ? activeSketch.get() : nullptr;
+
+        // 2. 精准清理当前活跃草图的旧轮廓面，不要碰其他草图的
+        if (sketchKey) {
+            auto it = s_sketchProfileCache.find(sketchKey);
+            if (it != s_sketchProfileCache.end()) {
+                for (auto& ais : it->second) {
+                    m_context->Remove(ais, Standard_False);
+                    // 从全局渲染池中剔除
+                    auto vecIt = std::find(m_sketchProfileObjects.begin(), m_sketchProfileObjects.end(), ais);
+                    if (vecIt != m_sketchProfileObjects.end()) m_sketchProfileObjects.erase(vecIt);
+                    m_sketchProfileMap.erase(ais);
+                }
+                s_sketchProfileCache.erase(it);
+            }
+        }
+        else {
+            // 如果没有活跃草图（如文件刚加载时），走全局清理兜底
+            ClearSketchProfiles();
+        }
+
+        // 3. 生成并显示新的轮廓面
+        for (const auto& profile : profiles) {
+            TopoDS_Face face = profile->GetFace();
+            if (face.IsNull()) continue;
+
+            Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+            if (surface.IsNull()) continue;
+
+            Standard_Real uMin, uMax, vMin, vMax;
+            BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
+            Standard_Real uMid = (uMin + uMax) * 0.5;
+            Standard_Real vMid = (vMin + vMax) * 0.5;
+
+            GeomLProp_SLProps props(surface, uMid, vMid, 1, Precision::Confusion());
+            if (!props.IsNormalDefined()) continue;
+
+            gp_Dir normal = props.Normal();
+            if (face.Orientation() == TopAbs_REVERSED) {
+                normal.Reverse();
+            }
+
+            const Standard_Real previewOffset = 0.1;
+            gp_Trsf trsf;
+            trsf.SetTranslation(gp_Vec(normal) * previewOffset);
+
+            TopoDS_Shape liftedShape = BRepBuilderAPI_Transform(face, trsf, true).Shape();
+            TopoDS_Face liftedFace = TopoDS::Face(liftedShape);
+
+            Handle(AIS_Shape) aisFace = new AIS_Shape(liftedFace);
+
+            aisFace->SetColor(Quantity_NOC_LIGHTSKYBLUE1);
+            aisFace->SetTransparency(0.6);
+            aisFace->SetDisplayMode(AIS_Shaded);
+            aisFace->SetPolygonOffsets(Aspect_POM_Fill, 1.0f, -4.0f);
+            m_context->Display(aisFace, Standard_False);
+            m_sketchProfileObjects.push_back(aisFace);
+
+            cad_core::ShapePtr profileShape = std::make_shared<cad_core::Shape>(face);
+            m_sketchProfileMap[aisFace] = profileShape;
+
+            // 4. 将新面注册到当前草图的缓存中，供下次精准清理
+            if (sketchKey) {
+                s_sketchProfileCache[sketchKey].push_back(aisFace);
+            }
+        }
+
+        m_view->Redraw();
+    }
+
+    void QtOccView::ClearSketchProfiles() {
+        if (m_context.IsNull()) return;
+
+        for (auto& obj : m_sketchProfileObjects) {
+            m_context->Remove(obj, Standard_False);
+        }
+        m_sketchProfileObjects.clear();
+        m_sketchProfileMap.clear(); // 清空映射表防止内存泄漏或野指针
+        m_view->Redraw();
+    }
+
+    void QtOccView::HideSingleSketchProfile(const cad_core::ShapePtr& profileShape) {
+        if (!profileShape || m_context.IsNull()) return;
+
+        // 遍历草图轮廓映射表，寻找匹配的业务对象
+        for (auto it = m_sketchProfileMap.begin(); it != m_sketchProfileMap.end(); ++it) {
+            if (it->second == profileShape) {
+                Handle(AIS_InteractiveObject) aisObj = it->first;
+
+                // 1. 从 3D 视图中隐藏该轮廓 (Erase)
+                m_context->Erase(aisObj, Standard_False);
+
+                // 2. 将其从对象渲染池中剔除
+                auto vecIt = std::find(m_sketchProfileObjects.begin(), m_sketchProfileObjects.end(), aisObj);
+                if (vecIt != m_sketchProfileObjects.end()) {
+                    m_sketchProfileObjects.erase(vecIt);
+                }
+
+                // 3. 从映射表中移除，防止野指针
+                m_sketchProfileMap.erase(it);
+                break; // 找到了就退出循环
+            }
+        }
+        m_view->Redraw();
+    }
 
 } // namespace cad_ui
 

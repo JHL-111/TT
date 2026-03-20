@@ -309,6 +309,11 @@ void MainWindow::CreateActions() {
     m_sketchArcAction->setStatusTip("Draw arc in sketch mode");
     m_sketchArcAction->setEnabled(false);
 
+    m_sketchCurveAction = new QAction("C&urve", this);
+    m_sketchCurveAction->setCheckable(true);
+    m_sketchCurveAction->setStatusTip("Draw spline curve in sketch mode");
+    m_sketchCurveAction->setEnabled(false);
+
     // Theme actions
     m_darkThemeAction = new QAction("&Dark Theme", this);
     m_darkThemeAction->setCheckable(true);
@@ -393,7 +398,7 @@ void MainWindow::CreateMenus() {
     sketchMenu->addAction(m_sketchLineAction);
     sketchMenu->addAction(m_sketchCircleAction);
     sketchMenu->addAction(m_sketchArcAction);
-
+    sketchMenu->addAction(m_sketchCurveAction);
     
     // Tools menu
     QMenu* toolsMenu = menuBar()->addMenu("&Tools");
@@ -891,6 +896,11 @@ void MainWindow::CreateToolBars() {
     arcBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     sketchToolsButtonsLayout->addWidget(arcBtn);
 
+    QToolButton* curveBtn = new QToolButton();
+    curveBtn->setDefaultAction(m_sketchCurveAction);
+    curveBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    sketchToolsButtonsLayout->addWidget(curveBtn);
+
     sketchToolsLayout->addLayout(sketchToolsButtonsLayout);
     sketchLayout->addWidget(sketchToolsFrame);
     
@@ -989,6 +999,7 @@ void MainWindow::ConnectSignals() {
     connect(m_sketchLineAction, &QAction::triggered, this, &MainWindow::OnSketchLineTool);
     connect(m_sketchCircleAction, &QAction::triggered, this, &MainWindow::OnSketchCircleTool);
     connect(m_sketchArcAction, &QAction::triggered, this, &MainWindow::OnSketchArcTool); 
+    connect(m_sketchCurveAction, &QAction::triggered, this, &MainWindow::OnSketchCurveTool);
 
     // Selection mode combo box connected in CreateSelectionModeCombo()
     
@@ -2650,6 +2661,18 @@ void MainWindow::OnSketchArcTool() {
     }
 }
 
+void MainWindow::OnSketchCurveTool() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+
+    if (m_sketchCurveAction->isChecked()) {
+        m_viewer->StartCurveTool(); // 调用 QtOccView 暴露出来的接口
+        statusBar()->showMessage("The curve tool is activated - click points to generate a curve, right-click to finish");
+    }
+    else {
+        m_viewer->StopSketchTool();
+    }
+}
+
 void MainWindow::OnFaceSelected(const TopoDS_Face& face) {
     // 进入草图模式前选基准面的逻辑
     if (m_waitingForFaceSelection) {
@@ -2711,6 +2734,7 @@ void MainWindow::OnSketchModeEntered() {
     m_sketchLineAction->setEnabled(true);
     m_sketchCircleAction->setEnabled(true);
     m_sketchArcAction->setEnabled(true);
+    m_sketchCurveAction->setEnabled(true);
 
     // Reset selection mode
     //m_viewer->SetSelectionMode(0);  // Shape selection mode
@@ -2731,6 +2755,7 @@ void MainWindow::OnSketchModeExited() {
     m_sketchLineAction->setEnabled(false); 
     m_sketchCircleAction->setEnabled(false); 
     m_sketchArcAction->setEnabled(false);
+    m_sketchCurveAction->setEnabled(false);
 
     m_viewer->SetSelectionMode(0);
 
@@ -2752,6 +2777,7 @@ void MainWindow::OnSketchToolChanged(const QString& toolName) {
     m_sketchCircleAction->blockSignals(true);
     m_sketchArcAction->blockSignals(true);   
     m_sketchPointAction->blockSignals(true); 
+    m_sketchCurveAction->blockSignals(true);
 
     if (toolName == "None") {
         // 状态 1：没有任何工具激活时（比如按了 Esc 或主动取消了当前工具）
@@ -2761,6 +2787,7 @@ void MainWindow::OnSketchToolChanged(const QString& toolName) {
         m_sketchCircleAction->setEnabled(true);
         m_sketchArcAction->setEnabled(true);
         m_sketchPointAction->setEnabled(true);
+        m_sketchCurveAction->setEnabled(true);
 
         // 所有按钮状态设为未选中 (Unchecked / 弹起)
         m_sketchRectangleAction->setChecked(false);
@@ -2768,6 +2795,7 @@ void MainWindow::OnSketchToolChanged(const QString& toolName) {
         m_sketchCircleAction->setChecked(false);
         m_sketchArcAction->setChecked(false);
         m_sketchPointAction->setChecked(false);
+        m_sketchCurveAction->setChecked(false);
 
         statusBar()->showMessage("Ready - Select sketch elements to modify or delete.");
     }
@@ -2779,6 +2807,7 @@ void MainWindow::OnSketchToolChanged(const QString& toolName) {
         m_sketchCircleAction->setEnabled(toolName == "Circle");
         m_sketchArcAction->setEnabled(toolName == "Arc");
         m_sketchPointAction->setEnabled(toolName == "Point");
+        m_sketchCurveAction->setEnabled(toolName == "Curve");
 
         // 只有当前激活的按钮保持选中 (Checked / 按下)
         m_sketchRectangleAction->setChecked(toolName == "Rectangle");
@@ -2786,6 +2815,7 @@ void MainWindow::OnSketchToolChanged(const QString& toolName) {
         m_sketchCircleAction->setChecked(toolName == "Circle");
         m_sketchArcAction->setChecked(toolName == "Arc");
         m_sketchPointAction->setChecked(toolName == "Point");
+        m_sketchCurveAction->setChecked(toolName == "Curve");
     }
 
     // 恢复信号传递
@@ -2794,6 +2824,7 @@ void MainWindow::OnSketchToolChanged(const QString& toolName) {
     m_sketchCircleAction->blockSignals(false);
     m_sketchArcAction->blockSignals(false);
     m_sketchPointAction->blockSignals(false);
+    m_sketchCurveAction->blockSignals(false);
 }
 
 } // namespace cad_ui

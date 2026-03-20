@@ -10,7 +10,8 @@ enum class SketchElementType {
     Point,
     Line,
     Circle,
-    Arc
+    Arc,
+    Curve
 };
 
 class SketchElement {

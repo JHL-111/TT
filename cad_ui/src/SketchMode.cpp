@@ -388,6 +388,92 @@ namespace cad_ui {
     }
 
     // =============================================================================
+// SketchCurveTool Implementation (曲线工具实现)
+// =============================================================================
+    SketchCurveTool::SketchCurveTool(QObject* parent) : SketchToolBase(parent) {}
+
+    void SketchCurveTool::StartDrawing(const QPoint& startPoint) {
+        m_isDrawing = true;
+        Standard_Real u, v;
+        GetSnappedCoordinate(startPoint, u, v);
+
+        // 防止在同一个位置重复点击 (Prevent duplicate points)
+        if (!m_points.empty()) {
+            auto lastPt = m_points.back();
+            if (std::hypot(lastPt->GetX() - u, lastPt->GetY() - v) < Precision::Confusion()) {
+                return;
+            }
+        }
+
+        // 每次点击加入一个新控制点 (Add a new control point)
+        m_points.push_back(std::make_shared<cad_sketch::SketchPoint>(u, v));
+    }
+
+    void SketchCurveTool::UpdateDrawing(const QPoint& currentPoint) {
+        if (!m_isDrawing || m_points.empty()) return;
+
+        Standard_Real u, v;
+        GetSnappedCoordinate(currentPoint, u, v);
+
+        // 构造动态预览曲线 (Dynamic Preview Curve)
+        auto previewCurve = std::make_shared<cad_sketch::SketchCurve>();
+        for (const auto& pt : m_points) {
+            previewCurve->AddControlPoint(pt);
+        }
+        // 加入当前鼠标位置作为临时终点
+        previewCurve->AddControlPoint(std::make_shared<cad_sketch::SketchPoint>(u, v));
+
+        m_currentElements.clear();
+        m_currentElements.push_back(previewCurve);
+        emit previewUpdated(m_currentElements);
+    }
+
+    void SketchCurveTool::FinishDrawing(const QPoint& endPoint) {
+        // 曲线的结束不由鼠标松开(Release)决定，而是由确认方法(ConfirmDrawing)决定
+        // 所以这里留空
+        Q_UNUSED(endPoint);
+    }
+
+    void SketchCurveTool::CancelDrawing() {
+        m_isDrawing = false;
+        m_points.clear();
+        m_currentElements.clear();
+        emit drawingCancelled();
+    }
+
+    void SketchCurveTool::HoverMove(const QPoint& currentPoint) {
+        SketchToolBase::HoverMove(currentPoint); // 保持捕捉提示
+        UpdateDrawing(currentPoint);             // 移动时更新曲线拖拽预览
+    }
+
+    void SketchCurveTool::ConfirmDrawing() {
+        // 需要至少2个点才能成线
+        if (!m_isDrawing || m_points.size() < 2) {
+            CancelDrawing();
+            return;
+        }
+
+        auto finalCurve = std::make_shared<cad_sketch::SketchCurve>();
+        m_currentElements.clear();
+
+        // 将所有控制点也加入草图图元列表
+        // 这样这些点就会在屏幕上渲染为独立的顶点，并且能被鼠标左键选中并拖拽
+        for (const auto& pt : m_points) {
+            finalCurve->AddControlPoint(pt);
+            m_currentElements.push_back(pt);
+        }
+
+        // 最后把整条曲线加进去
+        m_currentElements.push_back(finalCurve);
+
+        emit elementsCreated(m_currentElements); // 提交所有图元
+
+        m_isDrawing = false;
+        m_points.clear();
+        m_currentElements.clear();
+    }
+
+    // =============================================================================
     // SketchMode Implementation (草图模式主控逻辑)
     // =============================================================================
 
@@ -450,6 +536,7 @@ namespace cad_ui {
         // 清理并数据
         m_isActive = false;
         m_viewer->ClearSketchFaceHighlight();
+        m_currentSketch.reset();
         emit sketchModeExited();
         emit statusMessageChanged("Exited sketch mode");
     }
@@ -562,6 +649,28 @@ namespace cad_ui {
         emit toolChanged("Arc");
     }
 
+    void SketchMode::StartCurveTool() {
+        if (!m_isActive) return;
+        StopCurrentTool();
+
+        m_currentTool = std::make_unique<SketchCurveTool>(this);
+        m_currentTool->SetSketchPlane(m_sketchPlane);
+        m_currentTool->SetView(m_viewer->GetView());
+
+        if (m_currentSketch) {
+            m_currentTool->SetSnappingContext(&m_snappingManager, &(m_currentSketch->GetElements()));
+        }
+
+        connect(m_currentTool.get(), &SketchToolBase::previewUpdated, this, &SketchMode::OnPreviewUpdated);
+        connect(m_currentTool.get(), &SketchToolBase::elementsCreated, this, &SketchMode::OnElementsCreated);
+        connect(m_currentTool.get(), &SketchToolBase::drawingCancelled, this, &SketchMode::OnDrawingCancelled);
+        connect(m_currentTool.get(), &SketchToolBase::snapPointDetected, this, &SketchMode::OnSnapPointDetected);
+        connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
+
+        emit statusMessageChanged("Started curve tool");
+        emit toolChanged("Curve");
+    }
+
     void SketchMode::StopCurrentTool() {
         if (m_viewer) m_viewer->HideSnapIndicator();
 
@@ -580,22 +689,37 @@ namespace cad_ui {
     void SketchMode::HandleMousePress(QMouseEvent* event) {
         if (!m_isActive) return;
 
-        if (m_currentTool && event->button() == Qt::LeftButton) {
-            m_currentTool->StartDrawing(event->pos());
+        // 1. 如果当前有被激活的绘图工具
+        if (m_currentTool) {
+            if (event->button() == Qt::LeftButton) {
+                // 左键：开始绘制或添加控制点
+                m_currentTool->StartDrawing(event->pos());
+            }
+            else if (event->button() == Qt::RightButton) {
+                // 右键：针对多次点击的工具（如曲线）进行确认，或其他工具取消
+                auto curveTool = dynamic_cast<SketchCurveTool*>(m_currentTool.get());
+                if (curveTool) {
+                    curveTool->ConfirmDrawing(); // 确认并生成曲线
+                }
+                else {
+                    m_currentTool->CancelDrawing(); // 其他单次点击工具如果按右键则取消
+                }
+            }
         }
+        // 2. 如果当前没有激活绘图工具，并且按下了左键（进入选择或修改模式）
         else if (!m_currentTool && event->button() == Qt::LeftButton) {
             auto selected = m_viewer->GetSelectedSketchElements();
             if (!selected.empty()) {
                 m_draggedElements = selected;
 
-                // 按下 Ctrl 键，进入旋转模式
+                // 按下 Ctrl 键，进入旋转模式 
                 if (event->modifiers() & Qt::ControlModifier) {
                     m_isRotating = true;
                     m_isFirstRotation = true; // 标记这是旋转的第一帧
                     GetPlaneCoordinate(event->pos(), m_rotCenterU, m_rotCenterV);
                     m_lastAngle = 0.0;
                 }
-                // 否则进入平移模式
+                // 否则进入平移模式 
                 else {
                     m_isDragging = true;
                     GetPlaneCoordinate(event->pos(), m_lastDragU, m_lastDragV);
@@ -688,6 +812,17 @@ namespace cad_ui {
 
     void SketchMode::HandleKeyPress(QKeyEvent* event) {
         if (!m_isActive) return;
+
+        // 回车键确认曲线
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+            if (m_currentTool) {
+                auto curveTool = dynamic_cast<SketchCurveTool*>(m_currentTool.get());
+                if (curveTool) {
+                    curveTool->ConfirmDrawing();
+                }
+            }
+            return;
+        }
 
         // 拦截 Delete 键或退格键 Backspace
         if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
@@ -900,10 +1035,9 @@ namespace cad_ui {
     void SketchMode::RefreshSketchView() {
         if (!m_viewer) return;
 
-        m_viewer->ClearSketchObjects();
-        m_viewer->ClearSketchProfiles();
-
         if (m_currentSketch) {
+            m_viewer->RemoveSketch(m_currentSketch); // 精准擦除当前草图的旧图元
+
             m_viewer->AddSketchElements(m_currentSketch->GetElements(), m_sketchCS);
             m_currentSketch->UpdateProfiles(m_sketchCS);
             m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());
