@@ -143,6 +143,7 @@ private slots:
     
     // 草图操作
     void OnEnterSketchMode();
+    void OnEditSketchRequested(const std::shared_ptr<cad_sketch::Sketch>& sketch);
     void OnExitSketchMode();
     void OnSketchRectangleTool();
     void OnSketchPointTool();

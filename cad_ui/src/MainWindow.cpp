@@ -1026,6 +1026,7 @@ void MainWindow::ConnectSignals() {
     connect(m_documentTree, &DocumentTree::ShapeDeleted, this, &MainWindow::OnDocumentTreeShapeDeleted);
     connect(m_documentTree, &DocumentTree::FeatureDeleted, this, &MainWindow::OnDocumentTreeFeatureDeleted);
     connect(m_documentTree, &DocumentTree::SketchDeleted, this, &MainWindow::OnDocumentTreeSketchDeleted);
+    connect(m_documentTree, &DocumentTree::SketchEditRequested, this, &MainWindow::OnEditSketchRequested);
     connect(m_documentTree, &DocumentTree::ShapeVisibilityChanged, this, &MainWindow::OnDocumentTreeShapeVisibilityChanged);
     connect(m_documentTree, &DocumentTree::SketchVisibilityChanged, this, &MainWindow::OnDocumentTreeSketchVisibilityChanged);
 
@@ -1666,7 +1667,7 @@ void MainWindow::OnDocumentTreeSketchDeleted(const std::shared_ptr<cad_sketch::S
         m_viewer->ClearSelection();
         SetDocumentModified(true);
         UpdateActions();
-
+        m_viewer->RedrawAll();
         statusBar()->showMessage("Sketch deleted successfully", 2000);
     }
     catch (const std::exception& e) {
@@ -2744,6 +2745,18 @@ void MainWindow::OnSketchModeEntered() {
     UpdateActions();
 
     qDebug() << "Sketch mode entered, UI updated";
+}
+
+void MainWindow::OnEditSketchRequested(const std::shared_ptr<cad_sketch::Sketch>& sketch) {
+    if (!sketch || !m_viewer) return;
+
+    m_viewer->ClearSelection();
+
+    m_viewer->setFocus();
+
+    m_viewer->EditSketch(sketch);
+
+    UpdateActions();
 }
 
 void MainWindow::OnSketchModeExited() {

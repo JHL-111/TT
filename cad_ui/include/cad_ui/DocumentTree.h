@@ -39,10 +39,11 @@ signals:
     void FeatureDeleted(const cad_feature::FeaturePtr& feature);
     void SketchDeleted(const std::shared_ptr<cad_sketch::Sketch>& sketch);
     void SketchVisibilityChanged(const std::shared_ptr<cad_sketch::Sketch>& sketch, bool visible);
-    
+    void SketchEditRequested(std::shared_ptr<cad_sketch::Sketch> sketch); 
 
 protected:
     void contextMenuEvent(QContextMenuEvent* event) override;
+
 
 private slots:
     void OnItemClicked(QTreeWidgetItem* item, int column);
@@ -50,7 +51,7 @@ private slots:
     void OnDeleteItem();
     void OnRenameItem();
     void OnToggleVisibility();
-   
+    void OnEditSketch();
 
 private:
     QTreeWidgetItem* m_shapesRoot;
@@ -60,6 +61,7 @@ private:
     QAction* m_renameAction;
     QAction* m_toggleVisibilityAction;
     QTreeWidgetItem* m_sketchesRoot;
+    QAction* m_editSketchAction;
 
     void CreateContextMenu();
     void SetupTree();

@@ -76,7 +76,8 @@ namespace cad_ui {
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
     setAutoFillBackground(false);  // Don't fill background to reduce flicker
-    
+    setFocusPolicy(Qt::StrongFocus);
+
     // Initialize timer for redraw
     m_redrawTimer = new QTimer(this);
     m_redrawTimer->setSingleShot(true);
@@ -728,6 +729,38 @@ void QtOccView::mouseReleaseEvent(QMouseEvent* event) {
     m_currentMouseButton = Qt::NoButton;
 }
 
+void QtOccView::keyPressEvent(QKeyEvent* event) {
+    // 1. 优先拦截空格键，用于开启临时 3D 视角
+    if (event->key() == Qt::Key_Space) {
+        if (!event->isAutoRepeat() && m_sketchMode && m_sketchMode->IsInSketchMode()) {
+            m_sketchMode->StartTemporary3DView();
+        }
+        event->accept();
+        return; // 拦截完毕直接返回，不要往下传了
+    }
+
+    // 转发事件给草图模式
+    if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
+        m_sketchMode->HandleKeyPress(event);
+    }
+
+    // 3. 原有的父类调用
+    QWidget::keyPressEvent(event);
+}
+
+void QtOccView::keyReleaseEvent(QKeyEvent* event) {
+    // 如果松开的是空格键
+    if (event->key() == Qt::Key_Space) {
+        if (!event->isAutoRepeat() && m_sketchMode && m_sketchMode->IsInSketchMode()) {
+            m_sketchMode->StopTemporary3DView();
+        }
+        event->accept();
+        return;
+    }
+
+    QWidget::keyReleaseEvent(event);
+}
+
 void QtOccView::wheelEvent(QWheelEvent* event) {
     if (m_view.IsNull()) return;
     
@@ -738,28 +771,6 @@ void QtOccView::wheelEvent(QWheelEvent* event) {
     m_view->Redraw();
 }
 
-void QtOccView::keyPressEvent(QKeyEvent* event) {
-    // 优先处理草图模式
-    if (IsInSketchMode()) {
-        m_sketchMode->HandleKeyPress(event);
-        return;
-    }
-    
-    switch (event->key()) {
-        case Qt::Key_F:
-            FitAll();
-            break;
-        case Qt::Key_W:
-            SetViewMode("wireframe");
-            break;
-        case Qt::Key_S:
-            SetViewMode("shaded");
-            break;
-        default:
-            QWidget::keyPressEvent(event);
-            break;
-    }
-}
 
 void QtOccView::InitializeOCC() {
     // This is called in constructor, actual initialization happens in InitViewer
@@ -1515,6 +1526,12 @@ namespace {
         }
         catch (const std::exception& e) {
             qDebug() << "Exception in EnterSketchMode:" << e.what();
+        }
+    }
+
+    void QtOccView::EditSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch) {
+        if (m_sketchMode) {
+            m_sketchMode->EditSketch(sketch);
         }
     }
 

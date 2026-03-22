@@ -239,6 +239,8 @@ namespace cad_ui {
         // 草图生命周期管理
         bool EnterSketchMode(const TopoDS_Face& face); // 进入草图模式
         void ExitSketchMode();                         // 退出草图模式
+        // 编辑旧草图的函数 
+        bool EditSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch);
         bool IsInSketchMode() const { return m_isActive; }
         bool HasActiveTool() const { return m_currentTool != nullptr; }
         void Undo();
@@ -255,6 +257,10 @@ namespace cad_ui {
         const gp_Pln& GetSketchPlane() const { return m_sketchPlane; }
         const gp_Ax3& GetSketchCoordinateSystem() const { return m_sketchCS; }
         
+        // 临时 3D 观察控制
+        void StartTemporary3DView();
+        void StopTemporary3DView();
+        bool IsTemporary3DViewActive() const { return m_isTemporary3DView; }
 
         // 绘图工具控制 (Tool Control)
         void StartRectangleTool();
@@ -333,6 +339,15 @@ namespace cad_ui {
         gp_Dir m_savedUp;      // 摄像机向上的向量
         double m_savedScale;   // 缩放比例
         Graphic3d_Camera::Projection m_savedProjectionType; // 投影类型 (透视或正交)
+
+        // 用于临时存放正交草图视角的变量
+        gp_Pnt m_tempSketchEye;
+        gp_Pnt m_tempSketchAt;
+        gp_Dir m_tempSketchUp;
+        Standard_Real m_tempSketchScale;
+        Graphic3d_Camera::Projection m_tempSketchProj;
+
+        bool m_isTemporary3DView = false; // 标记是否正处于按住空格的状态
 
         // 利用多态智能指针管理当前激活的工具 (Current Active Tool)
         std::unique_ptr<SketchToolBase> m_currentTool;

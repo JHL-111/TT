@@ -505,9 +505,13 @@ namespace cad_ui {
             m_undoStack.clear();
             m_redoStack.clear();
 
-            // 3. 如果有未销毁的草图数据则复用，否则才实例化
+            // 3. 如果是全新进入，则实例化并记录基准面
             if (!m_currentSketch) {
                 m_currentSketch = std::make_shared<cad_sketch::Sketch>("Sketch_001");
+
+                // 把刚刚计算出的面和坐标系存入 Sketch 中
+                m_currentSketch->SetBaseFace(m_sketchFace);
+                m_currentSketch->SetBaseCS(m_sketchCS);
             }
 
             // 4. 将摄像机切换到正交的草图视角
@@ -519,6 +523,52 @@ namespace cad_ui {
             if (m_viewer) m_viewer->HighlightSketchFace(face);
             emit sketchModeEntered();
             emit statusMessageChanged("Enter Sketch Mode");
+            return true;
+        }
+        catch (...) { return false; }
+    }
+
+    bool SketchMode::EditSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch) {
+        if (m_isActive) ExitSketchMode();
+        if (!sketch || !m_viewer) return false;
+
+        try {
+            // 1. 备份当前 3D 视口状态 (Camera Backup)
+            if (!m_viewer->GetView().IsNull()) {
+                Handle(Graphic3d_Camera) camera = m_viewer->GetView()->Camera();
+                if (!camera.IsNull()) {
+                    m_savedEye = camera->Eye();
+                    m_savedAt = camera->Center();
+                    m_savedUp = camera->Up();
+                    m_savedScale = camera->Scale();
+                    m_savedProjectionType = camera->ProjectionType();
+                }
+            }
+
+            // 2. 注入要编辑的旧草图 (Dependency Injection)
+            m_currentSketch = sketch;
+
+            // 3. 从草图中恢复基准面和局部坐标系 (Restore Context)
+            m_sketchFace = sketch->GetBaseFace();
+            m_sketchCS = sketch->GetBaseCS();
+
+            // 重新构造用于吸附和射线检测的数学平面
+            Handle(Geom_Plane) plane = new Geom_Plane(m_sketchCS);
+            m_sketchPlane = plane->Pln();
+
+            m_isActive = true;
+            m_undoStack.clear();
+            m_redoStack.clear();
+
+            // 4. 将摄像机切换到正交的草图视角
+            SetupSketchView();
+
+            // 5. 立刻刷新视口，在屏幕上渲染出这个草图本来就有的线条
+            RefreshSketchView();
+
+            if (m_viewer) m_viewer->HighlightSketchFace(m_sketchFace);
+            emit sketchModeEntered();
+            emit statusMessageChanged("Editing Sketch...");
             return true;
         }
         catch (...) { return false; }
@@ -687,6 +737,9 @@ namespace cad_ui {
 
     // 以下三个函数将鼠标事件从 View 委托 (Delegate) 给当前激活的工具
     void SketchMode::HandleMousePress(QMouseEvent* event) {
+        // 如果正在临时 3D 观察中，直接放弃处理，把控制权还给 3D 视图旋转
+        if (m_isTemporary3DView) return;
+
         if (!m_isActive) return;
 
         // 1. 如果当前有被激活的绘图工具
@@ -710,25 +763,44 @@ namespace cad_ui {
         else if (!m_currentTool && event->button() == Qt::LeftButton) {
             auto selected = m_viewer->GetSelectedSketchElements();
             if (!selected.empty()) {
-                m_draggedElements = selected;
 
-                // 按下 Ctrl 键，进入旋转模式 
-                if (event->modifiers() & Qt::ControlModifier) {
-                    m_isRotating = true;
-                    m_isFirstRotation = true; // 标记这是旋转的第一帧
-                    GetPlaneCoordinate(event->pos(), m_rotCenterU, m_rotCenterV);
-                    m_lastAngle = 0.0;
+                // 只保留属于当前活跃草图 (m_currentSketch) 的图元
+                std::vector<cad_sketch::SketchElementPtr> validElements;
+                if (m_currentSketch) {
+                    const auto& currentElements = m_currentSketch->GetElements();
+                    for (const auto& elem : selected) {
+                        // 如果选中的图元在当前草图列表中，才是合法可拖拽的
+                        if (std::find(currentElements.begin(), currentElements.end(), elem) != currentElements.end()) {
+                            validElements.push_back(elem);
+                        }
+                    }
                 }
-                // 否则进入平移模式 
-                else {
-                    m_isDragging = true;
-                    GetPlaneCoordinate(event->pos(), m_lastDragU, m_lastDragV);
+
+                // 如果过滤后还有合法的图元，才允许进入拖拽或旋转模式
+                if (!validElements.empty()) {
+                    m_draggedElements = validElements; // 改为使用过滤后的有效图元
+
+                    // 按下 Ctrl 键，进入旋转模式 
+                    if (event->modifiers() & Qt::ControlModifier) {
+                        m_isRotating = true;
+                        m_isFirstRotation = true; // 标记这是旋转的第一帧
+                        GetPlaneCoordinate(event->pos(), m_rotCenterU, m_rotCenterV);
+                        m_lastAngle = 0.0;
+                    }
+                    // 否则进入平移模式 
+                    else {
+                        m_isDragging = true;
+                        GetPlaneCoordinate(event->pos(), m_lastDragU, m_lastDragV);
+                    }
                 }
             }
         }
     }
 
     void SketchMode::HandleMouseMove(QMouseEvent* event) {
+        // 如果正在临时 3D 观察中，直接放弃处理，把控制权还给 3D 视图旋转
+        if (m_isTemporary3DView) return;
+
         if (!m_isActive) return;
 
         if (m_currentTool) {
@@ -783,6 +855,9 @@ namespace cad_ui {
     }
 
     void SketchMode::HandleMouseRelease(QMouseEvent * event) {
+        // 如果正在临时 3D 观察中，直接放弃处理，把控制权还给 3D 视图旋转
+        if (m_isTemporary3DView) return;
+
         if (!m_isActive) return;
 
         // 如果当前有激活的绘图工具，交由它完成绘制
@@ -942,6 +1017,50 @@ namespace cad_ui {
         view->ZFitAll(); // 调整 Z 深度剪裁平面 (Z Clipping Planes)
     }
 
+	// 进入临时 3D 视角：在草图模式下临时切换回之前的 3D 透视视角，方便用户查看整体模型
+    void SketchMode::StartTemporary3DView() {
+        if (!m_isActive || m_isTemporary3DView || !m_viewer) return;
+        if (m_viewer->GetView().IsNull()) return;
+
+        Handle(Graphic3d_Camera) camera = m_viewer->GetView()->Camera();
+        if (camera.IsNull()) return;
+
+        // 1. 备份当前的“草图正交视角”
+        m_tempSketchEye = camera->Eye();
+        m_tempSketchAt = camera->Center();
+        m_tempSketchUp = camera->Up();
+        m_tempSketchScale = camera->Scale();
+        m_tempSketchProj = camera->ProjectionType();
+
+        // 2. 恢复最初始的“3D 透视视角” (利用你原有的 m_saved 系列变量)
+        camera->SetEye(m_savedEye);
+        camera->SetCenter(m_savedAt);
+        camera->SetUp(m_savedUp);
+        camera->SetScale(m_savedScale);
+        camera->SetProjectionType(m_savedProjectionType);
+
+        // 3. 强制刷新屏幕并更新状态
+        m_viewer->GetView()->Redraw();
+        m_isTemporary3DView = true;
+    }
+
+    void SketchMode::StopTemporary3DView() {
+        if (!m_isActive || !m_isTemporary3DView || !m_viewer) return;
+        if (m_viewer->GetView().IsNull()) return;
+
+        // 不恢复备份参数了，直接重新初始化一次草图正交视角
+        SetupSketchView();
+
+        // 强制立刻重绘底层的 OpenGL 屏幕缓冲区 
+        m_viewer->GetView()->Redraw();
+
+        // 通知 Qt 框架刷新视图控件 
+        m_viewer->update();
+
+        m_isTemporary3DView = false;
+    }
+
+
     void SketchMode::RestoreView() {
         if (!m_viewer || m_viewer->GetView().IsNull()) return;
         Handle(V3d_View) view = m_viewer->GetView();
@@ -1010,25 +1129,37 @@ namespace cad_ui {
         if (!m_viewer) return;
 
         auto selected = m_viewer->GetSelectedSketchElements();
-        if (selected.empty()) return; // 没选中东西直接返回
+        if (selected.empty()) return;
 
-        // 1. 从屏幕上擦除 (Erase from Screen)
-        m_viewer->RemoveSketchElements(selected);
-
-        // 2. 从底层数据中删除 (Remove from Data Model)
+        std::vector<cad_sketch::SketchElementPtr> validElements;
         if (m_currentSketch) {
-            for (auto& elem : selected) {
+            const auto& currentElements = m_currentSketch->GetElements();
+            for (const auto& elem : selected) {
+                if (std::find(currentElements.begin(), currentElements.end(), elem) != currentElements.end()) {
+                    validElements.push_back(elem);
+                }
+            }
+        }
+
+        if (validElements.empty()) return; // 如果没有当前草图的元素，拒绝删除
+
+        // 1. 从屏幕上擦除合法的元素
+        m_viewer->RemoveSketchElements(validElements);
+
+        // 2. 从底层数据中删除
+        if (m_currentSketch) {
+            for (auto& elem : validElements) {
                 m_currentSketch->RemoveElement(elem);
             }
             m_currentSketch->UpdateProfiles(m_sketchCS);
             m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());
         }
 
-        // 3. 记录这是一个“删除 (REMOVE)”操作
-        m_undoStack.push_back({ SketchHistoryStep::REMOVE, selected });
+        // 3. 记录撤销操作 (仅记录合法删除的元素)
+        m_undoStack.push_back({ SketchHistoryStep::REMOVE, validElements });
         m_redoStack.clear();
 
-        emit sketchHistoryChanged(); // 更新撤销/重做按钮状态
+        emit sketchHistoryChanged();
         emit statusMessageChanged(tr("Deleted selected element(s)"));
     }
 

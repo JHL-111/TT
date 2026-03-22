@@ -1,5 +1,8 @@
 ﻿#include "cad_ui/DocumentTree.h"
 #include <QHeaderView>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QAction>
 
 Q_DECLARE_METATYPE(cad_core::ShapePtr)
 Q_DECLARE_METATYPE(cad_feature::FeaturePtr)
@@ -41,25 +44,62 @@ namespace cad_ui {
     void DocumentTree::CreateContextMenu() {
         m_contextMenu = new QMenu(this);
 
+        // 编辑动作
+        m_editSketchAction = new QAction("Edit Sketch", this);
         m_deleteAction = new QAction("Delete", this);
         m_renameAction = new QAction("Rename", this);
         m_toggleVisibilityAction = new QAction("Toggle Visibility", this);
 
+        // 把编辑按钮也加进原有的菜单里
+        m_contextMenu->addAction(m_editSketchAction);
+        m_contextMenu->addSeparator(); // 加条分割线好看点
         m_contextMenu->addAction(m_deleteAction);
         m_contextMenu->addAction(m_renameAction);
         m_contextMenu->addSeparator();
         m_contextMenu->addAction(m_toggleVisibilityAction);
 
+        // 绑定信号
+        connect(m_editSketchAction, &QAction::triggered, this, &DocumentTree::OnEditSketch);
         connect(m_deleteAction, &QAction::triggered, this, &DocumentTree::OnDeleteItem);
         connect(m_renameAction, &QAction::triggered, this, &DocumentTree::OnRenameItem);
         connect(m_toggleVisibilityAction, &QAction::triggered, this, &DocumentTree::OnToggleVisibility);
+    }
+
+    // 整合后的右键弹出事件
+    void DocumentTree::contextMenuEvent(QContextMenuEvent* event) {
+        QTreeWidgetItem* item = itemAt(event->pos());
+
+        // 如果点在了空白处，或者根节点上，不弹菜单
+        if (!item || item == m_shapesRoot || item == m_featuresRoot || item == m_sketchesRoot) {
+            return;
+        }
+
+        // 检查当前点中的是不是草图
+        auto sketch = item->data(0, Qt::UserRole).value<std::shared_ptr<cad_sketch::Sketch>>();
+
+        // 只有点中草图时，“编辑草图”按钮才可见，否则隐藏
+        m_editSketchAction->setVisible(sketch != nullptr);
+
+        // 弹出你原有的、功能完整的菜单
+        m_contextMenu->exec(event->globalPos());
+    }
+
+    // 向外发射编辑信号
+    void DocumentTree::OnEditSketch() {
+        QTreeWidgetItem* item = currentItem();
+        if (!item) return;
+
+        auto sketch = item->data(0, Qt::UserRole).value<std::shared_ptr<cad_sketch::Sketch>>();
+        if (sketch) {
+            emit SketchEditRequested(sketch);
+        }
     }
 
     void DocumentTree::AddShape(const cad_core::ShapePtr& shape) {
         if (!shape) return;
 
         QTreeWidgetItem* item = new QTreeWidgetItem(m_shapesRoot);
-        item->setText(0, QString("Shape %1").arg(m_shapesRoot->childCount()));
+        item->setText(0, QString("Shape %0").arg(m_shapesRoot->childCount()));
         item->setData(0, Qt::UserRole, QVariant::fromValue(shape));
 
         m_shapesRoot->addChild(item);
@@ -83,10 +123,25 @@ namespace cad_ui {
     void DocumentTree::AddSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch) {
         if (!sketch) return;
 
-        QTreeWidgetItem* item = new QTreeWidgetItem(m_sketchesRoot);
-        item->setText(0, QString("Sketch %1").arg(m_sketchesRoot->childCount()));
+        // 查重拦截：如果这棵树上已经存在这个草图了，就直接退出
+        for (int i = 0; i < m_sketchesRoot->childCount(); ++i) {
+            QTreeWidgetItem* existingItem = m_sketchesRoot->child(i);
+            auto existingSketch = existingItem->data(0, Qt::UserRole).value<std::shared_ptr<cad_sketch::Sketch>>();
+            if (existingSketch == sketch) {
+                return; // 发现重复，直接拦截
+            }
+        }
+
+        // 先获取当前的草图数量 (此时还没有添加新节点)
+        int currentCount = m_sketchesRoot->childCount();
+
+        QTreeWidgetItem* item = new QTreeWidgetItem();
+
+        // 设置名字
+        item->setText(0, QString("Sketch %1").arg(currentCount + 1));
         item->setData(0, Qt::UserRole, QVariant::fromValue(sketch));
 
+        // 属性都设置好之后，最后再将它挂载到树上
         m_sketchesRoot->addChild(item);
         m_sketchesRoot->setExpanded(true);
     }
@@ -136,12 +191,6 @@ namespace cad_ui {
         m_featuresRoot->takeChildren();
     }
 
-    void DocumentTree::contextMenuEvent(QContextMenuEvent* event) {
-        QTreeWidgetItem* item = itemAt(event->pos());
-        if (item && item != m_shapesRoot && item != m_featuresRoot) {
-            m_contextMenu->exec(event->globalPos());
-        }
-    }
 
     void DocumentTree::OnItemClicked(QTreeWidgetItem* item, int column) {
         Q_UNUSED(column);

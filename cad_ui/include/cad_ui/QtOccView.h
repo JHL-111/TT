@@ -111,6 +111,7 @@ public:
     bool IsInSketchMode() const;
     void EnterSketchMode(const TopoDS_Face& face);
     void ExitSketchMode();
+    void EditSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch);
     bool HasActiveSketchTool() const;
     void StopSketchTool();
     void UndoSketch();
@@ -187,8 +188,9 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
-    void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    void keyReleaseEvent(QKeyEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
     void focusInEvent(QFocusEvent* event) override;
     void focusOutEvent(QFocusEvent* event) override;
     void enterEvent(QEvent* event) override;

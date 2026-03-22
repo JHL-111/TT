@@ -188,6 +188,13 @@ public:
     void UpdateProfiles(const gp_Ax3& cs);
 
 
+    // --- 基准面与坐标系管理 ---
+    void SetBaseFace(const TopoDS_Face& face) { m_baseFace = face; }
+    TopoDS_Face GetBaseFace() const { return m_baseFace; }
+
+    void SetBaseCS(const gp_Ax3& cs) { m_baseCS = cs; }
+    gp_Ax3 GetBaseCS() const { return m_baseCS; }
+
 private:
     /** 草图名称 */
     std::string m_name;
@@ -203,6 +210,10 @@ private:
 
     /** 闭合轮廓集合 */
     std::vector<SketchProfilePtr> m_profiles;
+
+
+    TopoDS_Face m_baseFace;
+    gp_Ax3 m_baseCS;
 };
 
 /** 草图智能指针类型别名 */
