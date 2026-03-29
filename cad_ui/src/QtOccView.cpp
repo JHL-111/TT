@@ -35,6 +35,7 @@
 #include <Aspect_TypeOfMarker.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include "cad_core/Shape.h"
+#include <BRepPrimAPI_MakeSphere.hxx>
 #include <QMessageBox>
 #include <QApplication>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -859,6 +860,7 @@ void QtOccView::HandleSelection(const QPoint& point) {
         if (m_currentSelectionMode != 2) {
             UnhighlightAllEdges(); // 非边模式下清空边高亮
         }
+        ClearCentroid();
     }
 
     // 5. 刷新屏幕
@@ -972,6 +974,12 @@ void QtOccView::ProcessShapeOrSketchSelection() {
 
             m_currentSelectedAIS = aisShape;
             m_currentSelectedShape = profileShape;
+
+            if (profileShape) {
+                gp_Pnt centroid = profileShape->GetCentroid();
+                DrawCentroid(centroid);
+                qDebug() << "Profile Centroid calculated at: X=" << centroid.X() << " Y=" << centroid.Y() << " Z=" << centroid.Z();
+            }
 
             // 关键：发射信号，这样 MainWindow 的 OnObjectSelected 就能接住它并传给拉伸对话框
             emit ShapeSelected(profileShape);
@@ -2123,6 +2131,31 @@ namespace {
         m_view->Redraw();
     }
 
+
+    void QtOccView::DrawCentroid(const gp_Pnt& pnt) {
+        if (m_context.IsNull()) return;
+
+        ClearCentroid();
+
+        // 视图层只负责“画”，不管数学逻辑
+        TopoDS_Shape sphereShape = BRepPrimAPI_MakeSphere(pnt,0.1).Shape();
+        Handle(AIS_Shape) aisSphere = new AIS_Shape(sphereShape);
+
+        aisSphere->SetColor(Quantity_NOC_RED);
+        aisSphere->SetZLayer(Graphic3d_ZLayerId_Topmost);
+
+        m_CentroidActor = aisSphere;
+        m_context->Display(m_CentroidActor, Standard_False);
+        m_view->Redraw();
+    }
+
+    void QtOccView::ClearCentroid() {
+        if (!m_context.IsNull() && !m_CentroidActor.IsNull()) {
+            m_context->Remove(m_CentroidActor, Standard_False);
+            m_CentroidActor.Nullify();
+            m_view->Redraw();
+        }
+    }
 } // namespace cad_ui
 
 #include "QtOccView.moc"

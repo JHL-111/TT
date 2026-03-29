@@ -144,6 +144,10 @@ public:
     void RenderSketchProfiles(const std::vector<cad_sketch::SketchProfilePtr>& profiles);
     void ClearSketchProfiles();
 
+    // 绘制质心指示器 
+    void DrawCentroid(const gp_Pnt& pnt);
+    void ClearCentroid();
+
 	// 获取选中的草图元素
     std::vector<cad_sketch::SketchElementPtr> GetSelectedSketchElements(); // 获取选中的草图元素
 
@@ -246,6 +250,8 @@ private:
     Handle(AIS_InteractiveObject) m_highlightedFace;
     // 用来保存那个吸附小圆圈对象
     Handle(AIS_InteractiveObject) m_snapIndicator;
+    // 用来保存质心的红色小球对象
+    Handle(AIS_InteractiveObject) m_CentroidActor;
 	// 草图元素与AIS对象的映射表（用于选择同步）
     std::map<Handle(AIS_InteractiveObject), cad_sketch::SketchElementPtr> m_sketchElementMap;
     // 草图轮廓映射表

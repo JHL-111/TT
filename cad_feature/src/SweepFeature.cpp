@@ -1,6 +1,11 @@
 ﻿#include "cad_feature/SweepFeature.h"
 #include "cad_core/CreateBoxCommand.h"
 #include <BRepOffsetAPI_MakePipe.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <TopoDS_Wire.hxx>
+#include <TopoDS_Face.hxx>
+#include <gp_Pnt.hxx>
 #include <cmath>
 
 namespace cad_feature {

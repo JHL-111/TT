@@ -1,15 +1,15 @@
 ﻿/**
  * @file Shape.cpp
- * @brief Shape类的实现 - 把理论变成现实的地方！
+ * @brief Shape类的实现
  * 
  * 这里实现了所有Shape类的功能，主要是调用OpenCASCADE的API
- * 说实话，OpenCASCADE的API设计真的很...古老，但功能是真的强大！
  */
 
 #include "cad_core/Shape.h"
 #include <GProp_GProps.hxx>  // 几何属性计算 - OpenCASCADE的瑞士军刀
 #include <BRepGProp.hxx>     // 边界表示几何属性 - 专门处理实体几何
-
+#include <TopAbs.hxx>
+#include <gp_Pnt.hxx>
 namespace cad_core {
 
 /**
@@ -17,8 +17,7 @@ namespace cad_core {
  * 就像准备一个空盒子，等待装入美妙的几何体
  */
 Shape::Shape() {
-    // 什么都不做，就是这么简单！
-    // OpenCASCADE的TopoDS_Shape默认就是null状态
+
 }
 
 /**
@@ -47,7 +46,7 @@ const TopoDS_Shape& Shape::GetOCCTShape() const {
  */
 void Shape::SetOCCTShape(const TopoDS_Shape& shape) {
     m_shape = shape;
-    // TODO: 考虑添加变更通知机制，让依赖的对象知道形状变了
+
 }
 
 /**
@@ -62,7 +61,6 @@ bool Shape::IsValid() const {
 /**
  * 计算体积
  * 使用OpenCASCADE的几何属性计算功能
- * 注意：这里的"Mass"实际上是体积，OpenCASCADE的命名有时候很迷惑
  * @return 体积值，如果形状无效则返回0
  */
 double Shape::Volume() const {
@@ -80,8 +78,6 @@ double Shape::Volume() const {
     // Mass()实际返回的是体积，别被名字骗了
     return props.Mass();
     
-    // TODO: 添加异常处理，有些奇怪的形状可能会让计算崩溃
-    // TODO: 考虑缓存体积计算结果，避免重复计算
 }
 
 /**
@@ -104,8 +100,37 @@ double Shape::Area() const {
     // 这里的Mass()返回的才是真正的表面积
     return props.Mass();
     
-    // TODO: 对于线框模型，这个函数的行为可能不符合预期
-    // TODO: 考虑添加不同类型形状的特殊处理
+
+}
+
+/**
+ * 计算质心/重心
+ * 自动识别形状的维度（3D体积、2D面、1D线）并采取对应的计算策略
+ */
+gp_Pnt Shape::GetCentroid() const {
+    if (!IsValid()) {
+        return gp_Pnt(0.0, 0.0, 0.0);
+    }
+
+    GProp_GProps props;
+    TopAbs_ShapeEnum type = m_shape.ShapeType();
+
+    // 依据形状的拓扑维度，调用对应的属性计算器
+    if (type == TopAbs_SOLID || type == TopAbs_COMPSOLID) {
+        BRepGProp::VolumeProperties(m_shape, props);
+    }
+    else if (type == TopAbs_SHELL || type == TopAbs_FACE) {
+        BRepGProp::SurfaceProperties(m_shape, props);
+    }
+    else if (type == TopAbs_WIRE || type == TopAbs_EDGE) {
+        BRepGProp::LinearProperties(m_shape, props);
+    }
+    else {
+        // 如果是顶点(Vertex)或不支持的类型，降级返回原点
+        return gp_Pnt(0.0, 0.0, 0.0);
+    }
+
+    return props.CentreOfMass();
 }
 
 } // namespace cad_core
