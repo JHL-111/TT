@@ -2058,7 +2058,7 @@ namespace {
                 normal.Reverse();
             }
 
-            const Standard_Real previewOffset = 0.1;
+            const Standard_Real previewOffset = 0.01;
             gp_Trsf trsf;
             trsf.SetTranslation(gp_Vec(normal) * previewOffset);
 
@@ -2066,7 +2066,8 @@ namespace {
             TopoDS_Face liftedFace = TopoDS::Face(liftedShape);
 
             Handle(AIS_Shape) aisFace = new AIS_Shape(liftedFace);
-
+            Handle(Prs3d_Drawer) drawer = aisFace->Attributes();
+            drawer->SetFaceBoundaryDraw(Standard_False);
             aisFace->SetColor(Quantity_NOC_LIGHTSKYBLUE1);
             aisFace->SetTransparency(0.6);
             aisFace->SetDisplayMode(AIS_Shaded);

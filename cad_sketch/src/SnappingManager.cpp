@@ -240,7 +240,7 @@ SnapResult SnappingManager::SnapToCenters(const cad_core::Point& inputPoint,
     return result;
 }
 
-// 算法 1：找到任意边线上的最近点
+// 找到任意边线上的最近点
 SnapResult SnappingManager::SnapToNearest(const cad_core::Point& inputPoint, const std::vector<SketchElementPtr>& elements) const {
     SnapResult result;
     double minDistance = m_snapTolerance;
@@ -296,7 +296,7 @@ SnapResult SnappingManager::SnapToNearest(const cad_core::Point& inputPoint, con
     return result;
 }
 
-// 算法 2：点到线段的几何距离计算 (矢量投影法)
+// 点到线段的几何距离计算 (矢量投影法)
 double SnappingManager::DistanceToLineSegment(const cad_core::Point& p, const cad_core::Point& a, const cad_core::Point& b, cad_core::Point& closestPoint) const {
     double l2 = a.Distance(b) * a.Distance(b); // 线段长度的平方
     if (l2 == 0.0) {
@@ -311,7 +311,7 @@ double SnappingManager::DistanceToLineSegment(const cad_core::Point& p, const ca
     return p.Distance(closestPoint);
 }
 
-// 算法 3：点到圆的几何距离计算
+// 点到圆的几何距离计算
 double SnappingManager::DistanceToCircle(const cad_core::Point& p, const cad_core::Point& center, double radius, cad_core::Point& closestPoint) const {
     double d = p.Distance(center); // 鼠标到圆心的距离
     if (d == 0.0) {
@@ -328,7 +328,7 @@ double SnappingManager::DistanceToCircle(const cad_core::Point& p, const cad_cor
     return std::abs(d - radius);
 }
 
-// 算法 4：点到圆弧的几何距离计算 (限定在角度范围内)
+// 点到圆弧的几何距离计算 (限定在角度范围内)
 double SnappingManager::DistanceToArc(const cad_core::Point& p, const cad_core::Point& center, double radius, double startAngle, double sweepAngle, cad_core::Point& closestPoint) const {
     // 1. 计算鼠标所在点相对于圆心的角度
     double dx = p.X() - center.X();

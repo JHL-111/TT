@@ -188,6 +188,7 @@ namespace cad_ui {
         if (!m_isDrawing) return;
 
         Standard_Real u1, v1, u2, v2;
+
         // 分别获取起点和终点的“吸附后”坐标
         GetSnappedCoordinate(m_startPoint, u1, v1);
         GetSnappedCoordinate(currentPoint, u2, v2);
@@ -273,9 +274,9 @@ namespace cad_ui {
         emit drawingCancelled();
     }
 
-    // =============================================================================
-    // SketchArcTool Implementation (圆弧工具实现)
-    // =============================================================================
+// =============================================================================
+// SketchArcTool Implementation (圆弧工具实现)
+// =============================================================================
     SketchArcTool::SketchArcTool(QObject* parent) : SketchToolBase(parent), m_state(Init) {}
 
     void SketchArcTool::StartDrawing(const QPoint& startPoint) {
@@ -361,7 +362,7 @@ namespace cad_ui {
             m_isDrawing = false; // 结束拖拽状态，进入悬停检测状态
         }
         else if (m_state == StartSet) {
-            // 如果用户在最后阶段是以拖拽结束的（备用逻辑）
+            // 如果用户在最后阶段是以拖拽结束的
             UpdateDrawing(endPoint);
             emit elementsCreated(m_currentElements);
             m_state = Init;
@@ -387,7 +388,7 @@ namespace cad_ui {
         }
     }
 
-    // =============================================================================
+// =============================================================================
 // SketchCurveTool Implementation (曲线工具实现)
 // =============================================================================
     SketchCurveTool::SketchCurveTool(QObject* parent) : SketchToolBase(parent) {}

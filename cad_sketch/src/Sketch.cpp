@@ -23,6 +23,14 @@
 #include <GeomAPI_Interpolate.hxx>
 #include <TColgp_HArray1OfPnt.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <BOPAlgo_Builder.hxx>
+#include <BOPAlgo_BuilderFace.hxx>
+#include <TopTools_ListOfShape.hxx>
+#include <TopExp_Explorer.hxx>
+#include <BRepTools.hxx>
+#include <Precision.hxx>
+#include <GProp_GProps.hxx>
+#include <BRepGProp.hxx>
 
 
 // 这是一个将局部 2D 点转为世界 3D 坐标并生成 OCC Edge 的内部辅助函数
@@ -187,130 +195,149 @@ int Sketch::GetConstraintCount() const {
     return static_cast<int>(m_constraints.size());
 }
 
-TopoDS_Wire Sketch::GetProfileWire(const gp_Ax3& cs) const {
-    BRepBuilderAPI_MakeWire wireMaker;
-    bool hasEdges = false;
 
-    // 获取草图基准面的原点和 X/Y 轴向量
-    gp_Pnt origin = cs.Location();
-    gp_Dir xDir = cs.XDirection();
-    gp_Dir yDir = cs.YDirection();
-
-    // 辅助 Lambda：将 2D 草图坐标转换为基于基准面的真实 3D 坐标
-    auto LocalToWorld = [&](double x, double y) -> gp_Pnt {
-        return origin.Translated(gp_Vec(xDir) * x + gp_Vec(yDir) * y);
-        };
-
-    for (const auto& element : m_elements) {
-        if (element->GetType() == SketchElementType::Line) {
-            auto line = std::dynamic_pointer_cast<SketchLine>(element);
-            if (line && line->GetStartPoint() && line->GetEndPoint()) {
-                gp_Pnt p1 = LocalToWorld(line->GetStartPoint()->GetX(), line->GetStartPoint()->GetY());
-                gp_Pnt p2 = LocalToWorld(line->GetEndPoint()->GetX(), line->GetEndPoint()->GetY());
-                if (!p1.IsEqual(p2, Precision::Confusion())) {
-                    wireMaker.Add(BRepBuilderAPI_MakeEdge(p1, p2));
-                    hasEdges = true;
-                }
-            }
-        }
-        else if (element->GetType() == SketchElementType::Circle) {
-            auto circle = std::dynamic_pointer_cast<SketchCircle>(element);
-            if (circle && circle->GetCenter()) {
-                gp_Pnt center = LocalToWorld(circle->GetCenter()->GetX(), circle->GetCenter()->GetY());
-                // 在斜面上生成圆：法线为 cs.Direction()
-                gp_Ax2 ax2(center, cs.Direction(), cs.XDirection());
-                wireMaker.Add(BRepBuilderAPI_MakeEdge(gp_Circ(ax2, circle->GetRadius())));
-                hasEdges = true;
-            }
-        }
-        else if (element->GetType() == SketchElementType::Arc) {
-            auto arc = std::dynamic_pointer_cast<SketchArc>(element);
-            if (arc && arc->GetCenter()) {
-                gp_Pnt center = LocalToWorld(arc->GetCenter()->GetX(), arc->GetCenter()->GetY());
-                gp_Ax2 ax2(center, cs.Direction(), cs.XDirection());
-                wireMaker.Add(BRepBuilderAPI_MakeEdge(gp_Circ(ax2, arc->GetRadius()), arc->GetStartAngle(), arc->GetEndAngle()));
-                hasEdges = true;
-            }
-        }
-        else if (element->GetType() == SketchElementType::Curve) {
-            auto curve = std::dynamic_pointer_cast<SketchCurve>(element);
-            if (curve) {
-                const auto& rawPoints = curve->GetControlPoints();
-                std::vector<gp_Pnt> validPoints;
-                for (const auto& pt : rawPoints) {
-                    gp_Pnt worldPt = LocalToWorld(pt->GetX(), pt->GetY());
-                    if (validPoints.empty() || validPoints.back().Distance(worldPt) > 1e-5) {
-                        validPoints.push_back(worldPt);
-                    }
-                }
-
-                if (validPoints.size() >= 2) {
-                    Handle(TColgp_HArray1OfPnt) occPoints = new TColgp_HArray1OfPnt(1, validPoints.size());
-                    for (size_t i = 0; i < validPoints.size(); ++i) occPoints->SetValue(i + 1, validPoints[i]);
-
-                    try {
-                        GeomAPI_Interpolate interpolator(occPoints, Standard_False, Precision::Confusion());
-                        interpolator.Perform();
-                        if (interpolator.IsDone()) {
-                            wireMaker.Add(BRepBuilderAPI_MakeEdge(interpolator.Curve()));
-                            hasEdges = true;
-                        }
-                    }
-                    catch (...) {
-                    }
-                }
-            }
-        }
-    }
-
-    if (!hasEdges || !wireMaker.IsDone()) return TopoDS_Wire();
-    return wireMaker.Wire();
-}
-
-TopoDS_Face Sketch::GetProfileFace(const gp_Ax3& cs) const {
-    TopoDS_Wire wire = GetProfileWire(cs);
-    if (wire.IsNull() || !wire.Closed()) return TopoDS_Face();
-
-    // 强制根据真实 3D 空间内的线框生成面
-    BRepBuilderAPI_MakeFace faceMaker(wire, true);
-    if (faceMaker.IsDone()) return faceMaker.Face();
-    return TopoDS_Face();
-}
 
 void Sketch::UpdateProfiles(const gp_Ax3& cs) {
     m_profiles.clear();
-    if (m_elements.empty()) return;
 
-    // 1. 收集当前草图里所有的边 (Edges)
-    Handle(TopTools_HSequenceOfShape) edges = new TopTools_HSequenceOfShape();
+    TopTools_ListOfShape edgeList;
     for (const auto& elem : m_elements) {
         TopoDS_Shape shape = CreateEdgeFromElement(elem, cs);
         if (!shape.IsNull() && shape.ShapeType() == TopAbs_EDGE) {
-            edges->Append(shape);
+            edgeList.Append(shape);
+        }
+    }
+    if (edgeList.IsEmpty()) return;
+
+    TopTools_MapOfShape usedEdges; // 记录被成功建面的边
+
+    // 广义布尔引擎,处理T型
+    BOPAlgo_Builder builder;
+    for (TopTools_ListIteratorOfListOfShape it(edgeList); it.More(); it.Next()) {
+        builder.AddArgument(it.Value());
+    }
+    builder.SetFuzzyValue(1e-5);
+    builder.Perform();
+
+    if (!builder.HasErrors()) {
+        TopTools_ListOfShape splitEdges;
+        TopoDS_Shape splitShape = builder.Shape();
+        for (TopExp_Explorer exp(splitShape, TopAbs_EDGE); exp.More(); exp.Next()) {
+            splitEdges.Append(exp.Current());
+        }
+
+        if (!splitEdges.IsEmpty()) {
+            // -------------------------------------------------------------
+            // 第一遍 原始法向推导 (捕捉所有逆时针实体面)
+            // -------------------------------------------------------------
+            BOPAlgo_BuilderFace faceBuilder1;
+            faceBuilder1.SetShapes(splitEdges);
+
+            gp_Pln basePln(cs);
+            BRepBuilderAPI_MakeFace baseFaceMaker1(basePln);
+            if (baseFaceMaker1.IsDone()) {
+                faceBuilder1.SetFace(baseFaceMaker1.Face());
+            }
+            faceBuilder1.Perform();
+
+            if (!faceBuilder1.HasErrors()) {
+                const TopTools_ListOfShape& areas1 = faceBuilder1.Areas();
+                for (TopTools_ListIteratorOfListOfShape it(areas1); it.More(); it.Next()) {
+                    TopoDS_Face face = TopoDS::Face(it.Value());
+
+                    Standard_Real uMin, uMax, vMin, vMax;
+                    BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
+                    if (Precision::IsInfinite(uMin) || Precision::IsInfinite(uMax) ||
+                        Precision::IsInfinite(vMin) || Precision::IsInfinite(vMax)) {
+                        continue; // 丢弃宇宙背景面
+                    }
+
+                    m_profiles.push_back(std::make_shared<SketchProfile>(face));
+                    for (TopExp_Explorer exp(face, TopAbs_EDGE); exp.More(); exp.Next()) {
+                        usedEdges.Add(exp.Current());
+                    }
+                }
+            }
+
+            // -------------------------------------------------------------
+            // 第二遍 反转法向推导 (捕捉被遗漏的顺时针实体面，被考虑成孔的那部分）
+            // -------------------------------------------------------------
+            BOPAlgo_BuilderFace faceBuilder2;
+            faceBuilder2.SetShapes(splitEdges);
+
+            // 构建反向坐标系
+            gp_Dir reversedDir = cs.Direction().Reversed();
+            gp_Pln reversedPln(cs.Location(), reversedDir);
+
+            BRepBuilderAPI_MakeFace baseFaceMaker2(reversedPln);
+            if (baseFaceMaker2.IsDone()) {
+                faceBuilder2.SetFace(baseFaceMaker2.Face());
+            }
+            faceBuilder2.Perform();
+
+            if (!faceBuilder2.HasErrors()) {
+                const TopTools_ListOfShape& areas2 = faceBuilder2.Areas();
+                for (TopTools_ListIteratorOfListOfShape it(areas2); it.More(); it.Next()) {
+                    TopoDS_Face face = TopoDS::Face(it.Value());
+
+                    Standard_Real uMin, uMax, vMin, vMax;
+                    BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
+                    if (Precision::IsInfinite(uMin) || Precision::IsInfinite(uMax) ||
+                        Precision::IsInfinite(vMin) || Precision::IsInfinite(vMax)) {
+                        continue;
+                    }
+
+                    // 1. 提取出这个面外围的闭合线框 (Wire)
+                    TopExp_Explorer wireExp(face, TopAbs_WIRE);
+                    if (wireExp.More()) {
+                        TopoDS_Wire wire = TopoDS::Wire(wireExp.Current());
+
+                        // 2. 将线框的环绕方向反转（把里世界的顺时针变成表世界的逆时针）
+                        wire.Reverse();
+
+                        // 3. 使用【原始的正向基准面 basePln】和【反转后的线框】，重新浇筑一个全新的物理面
+                        gp_Pln originalBasePln(cs);
+                        BRepBuilderAPI_MakeFace realFaceMaker(originalBasePln, wire);
+
+                        if (realFaceMaker.IsDone()) {
+                            // 现在这个面，无论是拓扑还是底层几何，都和 PASS 1 一模一样了！
+                            m_profiles.push_back(std::make_shared<SketchProfile>(realFaceMaker.Face()));
+
+                            // 标记使用过的边
+                            for (TopExp_Explorer exp(wire, TopAbs_EDGE); exp.More(); exp.Next()) {
+                                usedEdges.Add(exp.Current());
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
-    if (edges->IsEmpty()) return;
+	// 处理无需要布尔分割的边
+    Handle(TopTools_HSequenceOfShape) remainingEdges = new TopTools_HSequenceOfShape();
+    for (TopTools_ListIteratorOfListOfShape it(edgeList); it.More(); it.Next()) {
+        if (!usedEdges.Contains(it.Value())) {
+            remainingEdges->Append(it.Value());
+        }
+    }
 
-    // 2. 退回：使用稳定可靠的 FreeBounds 算法，要求必须首尾相连才能缝合为 Wire
-    Handle(TopTools_HSequenceOfShape) wires = new TopTools_HSequenceOfShape();
-    double tolerance = 1e-5;
-    ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edges, tolerance, Standard_False, wires);
+    if (remainingEdges->Length() > 0) {
+        Handle(TopTools_HSequenceOfShape) wires = new TopTools_HSequenceOfShape();
+        ShapeAnalysis_FreeBounds::ConnectEdgesToWires(remainingEdges, 1e-5, Standard_False, wires);
 
-    // 3. 构建当前草图的平面基准
-    gp_Pln sketchPlane(cs.Location(), cs.Direction());
-
-    // 4. 检查生成的线框是否闭合，并直接转换为面
-    for (int i = 1; i <= wires->Length(); ++i) {
-        TopoDS_Wire wire = TopoDS::Wire(wires->Value(i));
-
-        if (wire.Closed()) {
-            BRepBuilderAPI_MakeFace faceMaker(sketchPlane, wire);
-            if (faceMaker.IsDone()) {
-                m_profiles.push_back(std::make_shared<SketchProfile>(faceMaker.Face()));
+        gp_Pln sketchPlane(cs);
+        for (Standard_Integer i = 1; i <= wires->Length(); ++i) {
+            TopoDS_Wire wire = TopoDS::Wire(wires->Value(i));
+            if (wire.Closed()) {
+                BRepBuilderAPI_MakeFace makeFace(sketchPlane, wire, Standard_True);
+                if (makeFace.IsDone()) {
+                    m_profiles.push_back(std::make_shared<SketchProfile>(makeFace.Face()));
+                }
             }
         }
     }
 }
+
 
 } // namespace cad_sketch

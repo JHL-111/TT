@@ -168,19 +168,6 @@ public:
 
     // ========== 3D 几何生成  ==========
 
-    /** * 获取草图轮廓线框 (Get Profile Wire)
-     * 遍历草图中的 2D 元素，将它们转换为 3D 空间（默认 XOY 平面）的边，
-     * 并尝试缝合成一个闭合线框，用于后续的拉伸等特征操作。
-     * * @return TopoDS_Wire 拓扑线框。如果草图为空或缝合失败，可能返回一个空的 Wire。
-     */
-    TopoDS_Wire GetProfileWire(const gp_Ax3& cs = gp_Ax3()) const;
-
-    /** * 获取草图生成的闭合面 (Get Profile Face)
-     * 检测线框是否闭合，如果闭合则生成一个平面，用于后续高亮检测或拉伸
-     * @return TopoDS_Face 拓扑面。如果不闭合则返回空的 Face
-     */
-    TopoDS_Face GetProfileFace(const gp_Ax3& cs = gp_Ax3()) const;
-
     // 获取当前计算出的所有闭合轮廓 (Profiles)
     std::vector<SketchProfilePtr> GetProfiles() const { return m_profiles; }
 
