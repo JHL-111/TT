@@ -1,7 +1,7 @@
 ﻿#include "cad_ui/QtOccView.h"
 #include "cad_ui/SketchMode.h"
 #include "cad_core/FilletChamferOperations.h"
-
+#include <BRepBuilderAPI_MakeFace.hxx>
 #include <OpenGl_GraphicDriver.hxx>
 #include <Aspect_Handle.hxx>
 #include <Aspect_DisplayConnection.hxx>
@@ -47,6 +47,7 @@
 #include <TColgp_HArray1OfPnt.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include "cad_sketch/SketchCurve.h"
+#include <Geom_Plane.hxx>
 
 
 #ifdef _WIN32
@@ -572,14 +573,40 @@ void QtOccView::mousePressEvent(QMouseEvent* event) {
     m_lastMousePos = event->pos();
     m_currentMouseButton = event->button();
 
-    // 优先处理草图模式
-    if (IsInSketchMode()) {
+    // 如果正在预览，点击左键就“确认”这个平面
+    if (m_sweepInteractionState == SweepInteractionMode::PreviewingPathPlane && event->button() == Qt::LeftButton) {
+
+        // 1. 退出预览状态
+        m_sweepInteractionState = SweepInteractionMode::None;
+
+        // 2. 销毁那个半透明的海绿色预览面
+        if (!m_sweepPlanePreview.IsNull()) {
+            m_context->Remove(m_sweepPlanePreview, Standard_False);
+            m_sweepPlanePreview.Nullify();
+        }
+
+        // 3. 正式切入草图模式（相机瞬间摆正）
+        EnterSketchMode(m_currentSweepPathCS);
+
+        // 4. 自动拿笔，钉死起点
+        if (m_sketchMode) {
+            m_sketchMode->StartCurveTool();
+            auto curveTool = dynamic_cast<cad_ui::SketchCurveTool*>(m_sketchMode->GetCurrentTool());
+            if (curveTool) {
+                curveTool->InjectStartPoint(0.0, 0.0);
+            }
+        }
+
+        return; // 必须 return，不让后面的选择逻辑继续执行
+    }
+
+    // 优先处理草图模式 
+    if (IsInSketchMode() && !m_sketchMode->IsTemporary3DViewActive()) {
         if (HasActiveSketchTool()) {
             m_sketchMode->HandleMousePress(event);
             return;
         }
 
-        // 草图模式下维持现有逻辑：左键点击可选中元素并交给 SketchMode 处理
         if (event->button() == Qt::LeftButton) {
             HandleSelection(event->pos());
             m_sketchMode->HandleMousePress(event);
@@ -587,7 +614,7 @@ void QtOccView::mousePressEvent(QMouseEvent* event) {
         return;
     }
 
-    // 非草图模式：左键按下时只记录状态，不立刻旋转，也不立刻选择
+    // 非草图模式（或处于临时3D视图中）：左键按下时只记录状态，不立刻旋转
     if (event->button() == Qt::LeftButton) {
         m_leftPressPos = event->pos();
         m_isLeftDragging = false;
@@ -601,17 +628,56 @@ void QtOccView::mouseMoveEvent(QMouseEvent* event) {
     QPoint currentPos = event->pos();
     emit MousePositionChanged(currentPos.x(), currentPos.y());
 
-    try {
-        Standard_Real X, Y, Z;
+    Standard_Real X, Y, Z;
+    try {       
         m_view->Convert(currentPos.x(), currentPos.y(), X, Y, Z);
         emit Mouse3DPositionChanged(X, Y, Z);
     }
     catch (...) {
-        emit Mouse3DPositionChanged(currentPos.x(), currentPos.y(), 0.0);
+        X = 0; Y = 0; Z = 0;
+    }
+
+    // 如果处于预览平面状态，实时计算并旋转平面
+    if (m_sweepInteractionState == SweepInteractionMode::PreviewingPathPlane) {
+
+        // 1. 将 3D 的绝对质心，转换为电脑屏幕上的 2D 像素坐标 (cx, cy)
+        Standard_Integer cx, cy;
+        m_view->Convert(m_sweepCentroid.X(), m_sweepCentroid.Y(), m_sweepCentroid.Z(), cx, cy);
+
+        // 2. 计算鼠标当前位置，相对于质心屏幕坐标的差值
+        double dx = currentPos.x() - cx;
+        double dy = currentPos.y() - cy;
+
+        // 3. 防抖机制：如果鼠标离中心点太近（小于 5 像素），就不转，防止角度疯狂跳动
+        if (std::sqrt(dx * dx + dy * dy) > 5.0) {
+
+            // 4. 计算纯粹的 2D 屏幕旋转夹角 (弧度)
+            // atan2 能够完美覆盖 -180度 到 180度 的死角
+            double angle = std::atan2(dy, dx);
+
+            // 5. 以截面的法线为旋转轴，从“0度基准面”开始叠加这个角度
+            gp_Trsf rot;
+            rot.SetRotation(gp_Ax1(m_sweepCentroid, m_sweepProfileNormal), -angle); // 负号用于匹配鼠标直觉方向
+
+            m_currentSweepPathCS = m_baseSweepPathCS; // 每次都从 0 度重新转
+            m_currentSweepPathCS.Transform(rot);
+
+            // 6. 更新并重绘面片
+            gp_Pln updatedPln(m_currentSweepPathCS);
+            TopoDS_Face updatedFace = BRepBuilderAPI_MakeFace(updatedPln, -10.0, 10.0, -10.0, 10.0).Face();
+
+            Handle(AIS_Shape) aisPlane = Handle(AIS_Shape)::DownCast(m_sweepPlanePreview);
+            if (!aisPlane.IsNull()) {
+                aisPlane->SetShape(updatedFace);
+                m_context->Redisplay(aisPlane, Standard_False);
+            }
+            m_view->Redraw();
+        }
+        return; // 拦截事件，不再往下走
     }
 
     // 优先处理草图模式
-    if (IsInSketchMode()) {
+    if (IsInSketchMode() && !m_sketchMode->IsTemporary3DViewActive()) {
         m_sketchMode->HandleMouseMove(event);
 
         if (!HasActiveSketchTool() && !m_context.IsNull()) {
@@ -712,7 +778,7 @@ void QtOccView::mouseMoveEvent(QMouseEvent* event) {
 
 void QtOccView::mouseReleaseEvent(QMouseEvent* event) {
     // 优先处理草图模式
-    if (IsInSketchMode()) {
+    if (IsInSketchMode() && !m_sketchMode->IsTemporary3DViewActive()) {
         m_sketchMode->HandleMouseRelease(event);
         m_currentMouseButton = Qt::NoButton;
         m_isLeftDragging = false;
@@ -968,25 +1034,61 @@ void QtOccView::ProcessShapeOrSketchSelection() {
     if (!selectedObj.IsNull()) {
         Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(selectedObj);
 
-        // 点中的是草图闭合轮廓 
+        // 1. 点中的是草图闭合轮廓 (Sketch Profile)
         if (m_sketchProfileMap.find(selectedObj) != m_sketchProfileMap.end()) {
             cad_core::ShapePtr profileShape = m_sketchProfileMap[selectedObj];
 
             m_currentSelectedAIS = aisShape;
             m_currentSelectedShape = profileShape;
 
-            if (profileShape) {
-                gp_Pnt centroid = profileShape->GetCentroid();
-                DrawCentroid(centroid);
-                qDebug() << "Profile Centroid calculated at: X=" << centroid.X() << " Y=" << centroid.Y() << " Z=" << centroid.Z();
+            // Sweep 动态平面预览逻辑 
+   
+            if (profileShape && !profileShape->GetOCCTShape().IsNull()) {
+                // 获取截面质心 (Centroid)
+                m_sweepCentroid = profileShape->GetCentroid();
+
+                TopoDS_Face face = TopoDS::Face(profileShape->GetOCCTShape());
+                Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+                Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
+
+                if (!plane.IsNull()) {
+                    gp_Ax3 profileCS = plane->Pln().Position();
+                    m_sweepProfileNormal = profileCS.Direction(); // 记录原截面法线
+                    gp_Dir profileX = profileCS.XDirection();
+
+                    // 切换交互状态为：预览路径平面 (Previewing Path Plane)
+                    m_sweepInteractionState = SweepInteractionMode::PreviewingPathPlane;
+
+                    // 生成初始的路径坐标系 (以质心为原点，原法线为X轴，原X轴为法线)
+                    m_baseSweepPathCS = gp_Ax3(m_sweepCentroid, profileX, m_sweepProfileNormal);
+                    m_currentSweepPathCS = m_baseSweepPathCS;
+
+                    // 生成一个面片用来做视觉预览
+                    gp_Pln previewPln(m_currentSweepPathCS);
+                    // 缩小 UV 边界范围，让面片变小
+                    TopoDS_Face previewFace = BRepBuilderAPI_MakeFace(previewPln, -5.0, 5.0, -5.0, 5.0).Face();
+
+                    // 包装成可显示的 AIS 对象 (AIS_Shape)
+                    Handle(AIS_Shape) aisPlane = new AIS_Shape(previewFace);
+                    aisPlane->SetColor(Quantity_NOC_LIGHTSEAGREEN); // 海绿色，具有科技感
+                    aisPlane->SetTransparency(0.6);                 // 半透明，不遮挡模型
+                    aisPlane->SetDisplayMode(AIS_Shaded);           // 实体着色模式
+                    aisPlane->SetZLayer(Graphic3d_ZLayerId_Topmost);// 确保显示在最顶层，不被截面遮挡
+
+                    m_sweepPlanePreview = aisPlane;
+                    m_context->Display(m_sweepPlanePreview, Standard_False);
+                    m_view->Redraw();
+
+                    qDebug() << "Entered Sweep Plane Preview State.";
+                }
             }
 
-            // 关键：发射信号，这样 MainWindow 的 OnObjectSelected 就能接住它并传给拉伸对话框
+            // 发射信号给 UI 面板
             emit ShapeSelected(profileShape);
             qDebug() << "Sketch Profile selected natively.";
         }
 
-        // 点中的是草图元素
+        // 2. 点中的是草图元素 
         else if (m_sketchElementMap.find(selectedObj) != m_sketchElementMap.end()) {
             // 先清掉旧的草图高亮覆盖层，避免重复叠加
             UnhighlightSketchElement();
@@ -1004,7 +1106,8 @@ void QtOccView::ProcessShapeOrSketchSelection() {
             m_currentSelectedAIS = aisShape;
             qDebug() << "Sketch element selected natively and highlighted with overlay.";
         }
-        // 点中的是普通 3D 实体
+
+        // 3. 点中的是普通 3D 实体 
         else {
             cad_core::ShapePtr foundShape = nullptr;
             for (const auto& pair : m_shapeToAIS) {
@@ -1534,6 +1637,30 @@ namespace {
         }
         catch (const std::exception& e) {
             qDebug() << "Exception in EnterSketchMode:" << e.what();
+        }
+    }
+
+    // 基于数学坐标系进入草图 
+    void QtOccView::EnterSketchMode(const gp_Ax3& customCS) {
+        // 懒加载初始化
+        if (!m_sketchMode) {
+            try {
+                m_sketchMode = std::make_unique<SketchMode>(this, this);
+                connect(m_sketchMode.get(), &SketchMode::sketchModeEntered, this, &QtOccView::SketchModeEntered);
+                connect(m_sketchMode.get(), &SketchMode::sketchModeExited, this, &QtOccView::SketchModeExited);
+                connect(m_sketchMode.get(), &SketchMode::sketchHistoryChanged, this, &QtOccView::SketchHistoryChanged);
+                connect(m_sketchMode.get(), &SketchMode::toolChanged, this, &QtOccView::SketchToolChanged);
+            }
+            catch (...) { return; }
+        }
+
+        if (m_sketchMode->EnterSketchMode(customCS)) {
+            if (!m_context.IsNull()) {
+                m_context->ClearSelected(Standard_False);
+                m_context->Deactivate(); // 禁用普通模型选择
+                m_currentSelectionMode = 0;
+            }
+            emit SketchModeEntered();
         }
     }
 
@@ -2158,4 +2285,3 @@ namespace {
     }
 } // namespace cad_ui
 
-#include "QtOccView.moc"

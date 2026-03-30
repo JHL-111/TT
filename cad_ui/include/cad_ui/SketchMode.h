@@ -220,6 +220,9 @@ namespace cad_ui {
         // 确认并结束绘制 (Confirm and finish drawing)
         void ConfirmDrawing();
 
+        // 强制注入起点 (用于 Sweep 锁定质心)
+        void InjectStartPoint(double u, double v);
+
     private:
         std::vector<cad_sketch::SketchPointPtr> m_points; // 记录已点击的点
         std::vector<cad_sketch::SketchElementPtr> m_currentElements; // 当前预览图元
@@ -238,6 +241,7 @@ namespace cad_ui {
 
         // 草图生命周期管理
         bool EnterSketchMode(const TopoDS_Face& face); // 进入草图模式
+        bool EnterSketchMode(const gp_Ax3& customCS);  // 依赖纯数学坐标系
         void ExitSketchMode();                         // 退出草图模式
         // 编辑旧草图的函数 
         bool EditSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch);
@@ -270,6 +274,7 @@ namespace cad_ui {
 		void StartArcTool();
 		void StartCurveTool();
         void StopCurrentTool();
+        SketchToolBase* GetCurrentTool() const { return m_currentTool.get(); }
 
         // 交互事件处理 (Event Handling)
         void HandleMousePress(QMouseEvent* event);

@@ -28,6 +28,10 @@
 
 namespace cad_ui {
 
+enum class SweepInteractionMode {
+        None,
+        PreviewingPathPlane  // 正在随鼠标旋转预览 Sweep 路径参考面
+};
 
 class QtOccView : public QWidget,protected AIS_ViewController {
     Q_OBJECT
@@ -110,6 +114,7 @@ public:
     // 草图模式支持
     bool IsInSketchMode() const;
     void EnterSketchMode(const TopoDS_Face& face);
+    void EnterSketchMode(const gp_Ax3& customCS); 
     void ExitSketchMode();
     void EditSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch);
     bool HasActiveSketchTool() const;
@@ -279,6 +284,14 @@ private:
     // OCC 选择对象提取工具 
     Handle(AIS_InteractiveObject) GetFirstSelectedObject() const;
     Handle(StdSelect_BRepOwner) GetFirstSelectedOwner() const;
+
+    // Sweep 动态平面的状态变量
+    SweepInteractionMode m_sweepInteractionState = SweepInteractionMode::None;
+    gp_Pnt m_sweepCentroid;              // 锁定的质心
+    gp_Dir m_sweepProfileNormal;         // 截面原始法线
+    gp_Ax3 m_currentSweepPathCS;         // 实时计算出来的候选路径坐标系
+    gp_Ax3 m_baseSweepPathCS;            // 保存旋转的初始 0 度基准 
+    Handle(AIS_InteractiveObject) m_sweepPlanePreview; // 半透明的预览面片
 
  public slots:
      void ShowOpFace(int faceIndex);

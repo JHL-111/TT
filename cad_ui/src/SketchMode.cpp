@@ -474,6 +474,12 @@ namespace cad_ui {
         m_currentElements.clear();
     }
 
+    void SketchCurveTool::InjectStartPoint(double u, double v) {
+        m_isDrawing = true;
+        // 不管鼠标在哪，强行把 (u, v) 作为曲线的第 0 个控制点塞进去
+        m_points.push_back(std::make_shared<cad_sketch::SketchPoint>(u, v));
+    }
+
     // =============================================================================
     // SketchMode Implementation (草图模式主控逻辑)
     // =============================================================================
@@ -524,6 +530,53 @@ namespace cad_ui {
             if (m_viewer) m_viewer->HighlightSketchFace(face);
             emit sketchModeEntered();
             emit statusMessageChanged("Enter Sketch Mode");
+            return true;
+        }
+        catch (...) { return false; }
+    }
+
+    // 基于数学坐标系进入草图模式
+    bool SketchMode::EnterSketchMode(const gp_Ax3& customCS) {
+        if (m_isActive) ExitSketchMode();
+        if (!m_viewer) return false;
+
+        try {
+            // 1. 备份当前 3D 视口状态
+            if (!m_viewer->GetView().IsNull()) {
+                Handle(Graphic3d_Camera) camera = m_viewer->GetView()->Camera();
+                if (!camera.IsNull()) {
+                    m_savedEye = camera->Eye();
+                    m_savedAt = camera->Center();
+                    m_savedUp = camera->Up();
+                    m_savedScale = camera->Scale();
+                    m_savedProjectionType = camera->ProjectionType();
+                }
+            }
+
+            // 2. 初始化纯数学草图平面（不依赖 TopoDS_Face）
+            m_sketchFace.Nullify(); // 置空物理面
+            m_sketchCS = customCS;
+            Handle(Geom_Plane) plane = new Geom_Plane(m_sketchCS);
+            m_sketchPlane = plane->Pln();
+
+            m_isActive = true;
+            m_undoStack.clear();
+            m_redoStack.clear();
+
+            // 3. 实例化并记录基准面
+            if (!m_currentSketch) {
+                // 可以给个特殊的名字标识这是Sweep路径草图
+                m_currentSketch = std::make_shared<cad_sketch::Sketch>("SweepPath_001");
+                m_currentSketch->SetBaseCS(m_sketchCS);
+                // 注意：没有 SetBaseFace，因为它是虚拟平面
+            }
+
+            // 4. 将摄像机切换到正交的草图视角
+            SetupSketchView();
+            RefreshSketchView();
+
+            emit sketchModeEntered();
+            emit statusMessageChanged("Entered Sweep Path Sketch Mode");
             return true;
         }
         catch (...) { return false; }
@@ -1018,30 +1071,11 @@ namespace cad_ui {
         view->ZFitAll(); // 调整 Z 深度剪裁平面 (Z Clipping Planes)
     }
 
-	// 进入临时 3D 视角：在草图模式下临时切换回之前的 3D 透视视角，方便用户查看整体模型
+	// 进入临时 3D 视角
     void SketchMode::StartTemporary3DView() {
         if (!m_isActive || m_isTemporary3DView || !m_viewer) return;
         if (m_viewer->GetView().IsNull()) return;
 
-        Handle(Graphic3d_Camera) camera = m_viewer->GetView()->Camera();
-        if (camera.IsNull()) return;
-
-        // 1. 备份当前的“草图正交视角”
-        m_tempSketchEye = camera->Eye();
-        m_tempSketchAt = camera->Center();
-        m_tempSketchUp = camera->Up();
-        m_tempSketchScale = camera->Scale();
-        m_tempSketchProj = camera->ProjectionType();
-
-        // 2. 恢复最初始的“3D 透视视角” (利用你原有的 m_saved 系列变量)
-        camera->SetEye(m_savedEye);
-        camera->SetCenter(m_savedAt);
-        camera->SetUp(m_savedUp);
-        camera->SetScale(m_savedScale);
-        camera->SetProjectionType(m_savedProjectionType);
-
-        // 3. 强制刷新屏幕并更新状态
-        m_viewer->GetView()->Redraw();
         m_isTemporary3DView = true;
     }
 
