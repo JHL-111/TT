@@ -2,6 +2,7 @@
 
 #include "Feature.h"
 #include "cad_sketch/Sketch.h"
+#include "cad_core/Shape.h"
 #include <vector>
 
 namespace cad_feature {
@@ -13,11 +14,11 @@ public:
     virtual ~SweepFeature() = default;
 
     // Profile and path operations
-    void SetProfile(const cad_sketch::SketchPtr& profile);
-    const cad_sketch::SketchPtr& GetProfile() const;
+    void SetProfileShape(const cad_core::ShapePtr& profile);
+    const cad_core::ShapePtr& GetProfileShape() const;
     
-    void SetPath(const cad_sketch::SketchPtr& path);
-    const cad_sketch::SketchPtr& GetPath() const;
+    void SetPathShape(const cad_core::ShapePtr& path);
+    const cad_core::ShapePtr& GetPathShape() const;
     
     // Sweep parameters
     void SetTwistAngle(double angle);
@@ -35,9 +36,9 @@ public:
     std::shared_ptr<cad_core::ICommand> CreateCommand() const override;
 
 private:
-    cad_sketch::SketchPtr m_profile;
-    cad_sketch::SketchPtr m_path;
-    
+    cad_core::ShapePtr m_profileShape;
+    cad_core::ShapePtr m_pathShape;
+
     bool IsProfileValid() const;
     bool IsPathValid() const;
     cad_core::ShapePtr SweepProfile() const;

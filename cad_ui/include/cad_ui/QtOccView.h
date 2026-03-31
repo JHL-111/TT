@@ -30,6 +30,7 @@ namespace cad_ui {
 
 enum class SweepInteractionMode {
         None,
+        SelectingProfile,
         PreviewingPathPlane  // 正在随鼠标旋转预览 Sweep 路径参考面
 };
 
@@ -152,6 +153,12 @@ public:
     // 绘制质心指示器 
     void DrawCentroid(const gp_Pnt& pnt);
     void ClearCentroid();
+
+    // 供 UI 面板调用的正式 Sweep 执行接口 
+    bool ExecuteSweep(double twistAngle, double scaleFactor, bool keepOrientation);
+    void StartSweepInteraction();
+    void CancelSweepInteraction();
+    void ToggleSweepPathTool(bool enableDrawing);
 
 	// 获取选中的草图元素
     std::vector<cad_sketch::SketchElementPtr> GetSelectedSketchElements(); // 获取选中的草图元素

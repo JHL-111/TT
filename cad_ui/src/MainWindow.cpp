@@ -16,6 +16,7 @@
 #include "cad_feature/BooleanFeature.h"
 #include "cad_feature/FilletChamferFeature.h"
 #include "cad_feature/RectangularFaceFeature.h"
+#include "cad_ui/CreateSweepDialog.h"
 
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -242,6 +243,10 @@ void MainWindow::CreateActions() {
     m_createExtrudeAction->setText("Extrude");
     m_createExtrudeAction->setStatusTip("Create an extrude feature");
     
+    m_createSweepAction = new QAction("", this);
+    m_createSweepAction->setText("Sweep");
+    m_createSweepAction->setStatusTip("Create a sweep feature");
+
     // Boolean operations with 30x30 icons (icon-only display)
     m_booleanUnionAction = new QAction("", this);
     m_booleanUnionAction->setText("Union");
@@ -374,7 +379,8 @@ void MainWindow::CreateMenus() {
     createMenu->addAction(m_createSphereAction);
     createMenu->addSeparator();
     createMenu->addAction(m_createExtrudeAction);
-    
+    createMenu->addAction(m_createSweepAction);
+
     // Boolean menu
     QMenu* booleanMenu = menuBar()->addMenu("&Boolean");
     booleanMenu->addAction(m_booleanUnionAction);
@@ -614,6 +620,21 @@ void MainWindow::CreateToolBars() {
     extrudeLayout->setContentsMargins(0, 0, 0, 0);
     featuresButtonsLayout->addLayout(extrudeLayout);
     
+    QVBoxLayout* sweepLayout = new QVBoxLayout();
+    QToolButton* sweepBtn = new QToolButton();
+    sweepBtn->setDefaultAction(m_createSweepAction);
+    sweepBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    sweepBtn->setIconSize(QSize(30, 30));
+    sweepBtn->setFixedSize(30, 30);
+    QLabel* sweepLabel = new QLabel("Sweep");
+    sweepLabel->setAlignment(Qt::AlignCenter);
+    sweepLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
+    sweepLayout->addWidget(sweepBtn);
+    sweepLayout->addWidget(sweepLabel);
+    sweepLayout->setSpacing(1);
+    sweepLayout->setContentsMargins(0, 0, 0, 0);
+    featuresButtonsLayout->addLayout(sweepLayout);
+
     featuresLayout->addLayout(featuresButtonsLayout);
     designLayout->addWidget(featuresFrame);
     
@@ -978,7 +999,8 @@ void MainWindow::ConnectSignals() {
     connect(m_createCylinderAction, &QAction::triggered, this, &MainWindow::OnCreateCylinder);
     connect(m_createSphereAction, &QAction::triggered, this, &MainWindow::OnCreateSphere);
     connect(m_createExtrudeAction, &QAction::triggered, this, &MainWindow::OnCreateExtrude);
-    
+    connect(m_createSweepAction, &QAction::triggered, this, &MainWindow::OnCreateSweep);
+
     // Boolean actions
     connect(m_booleanUnionAction, &QAction::triggered, this, &MainWindow::OnBooleanUnion);
     connect(m_booleanIntersectionAction, &QAction::triggered, this, &MainWindow::OnBooleanIntersection);
@@ -1753,7 +1775,14 @@ void MainWindow::OnCreateRevolve() {
 }
 
 void MainWindow::OnCreateSweep() {
-    QMessageBox::information(this, "Create Sweep", "Sweep feature creation not implemented yet");
+    auto sweepDialog = new cad_ui::CreateSweepDialog(m_viewer, this);
+    sweepDialog->setAttribute(Qt::WA_DeleteOnClose);
+
+    // 通知底层解锁，准备接收截面点击 
+    m_viewer->StartSweepInteraction();
+
+    sweepDialog->show();
+    statusBar()->showMessage("Sweep feature activated. Follow the instructions on the panel.");
 }
 
 void MainWindow::OnCreateLoft() {

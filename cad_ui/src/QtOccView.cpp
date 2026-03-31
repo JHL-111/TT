@@ -48,7 +48,9 @@
 #include <Geom_BSplineCurve.hxx>
 #include "cad_sketch/SketchCurve.h"
 #include <Geom_Plane.hxx>
-
+#include "cad_feature/SweepFeature.h"
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <TopoDS_Edge.hxx>
 
 #ifdef _WIN32
 #include <WNT_Window.hxx>
@@ -588,16 +590,7 @@ void QtOccView::mousePressEvent(QMouseEvent* event) {
         // 3. 正式切入草图模式（相机瞬间摆正）
         EnterSketchMode(m_currentSweepPathCS);
 
-        // 4. 自动拿笔，钉死起点
-        if (m_sketchMode) {
-            m_sketchMode->StartCurveTool();
-            auto curveTool = dynamic_cast<cad_ui::SketchCurveTool*>(m_sketchMode->GetCurrentTool());
-            if (curveTool) {
-                curveTool->InjectStartPoint(0.0, 0.0);
-            }
-        }
-
-        return; // 必须 return，不让后面的选择逻辑继续执行
+        return; 
     }
 
     // 优先处理草图模式 
@@ -664,7 +657,7 @@ void QtOccView::mouseMoveEvent(QMouseEvent* event) {
 
             // 6. 更新并重绘面片
             gp_Pln updatedPln(m_currentSweepPathCS);
-            TopoDS_Face updatedFace = BRepBuilderAPI_MakeFace(updatedPln, -10.0, 10.0, -10.0, 10.0).Face();
+            TopoDS_Face updatedFace = BRepBuilderAPI_MakeFace(updatedPln, -5.0, 5.0, -5.0, 5.0).Face();
 
             Handle(AIS_Shape) aisPlane = Handle(AIS_Shape)::DownCast(m_sweepPlanePreview);
             if (!aisPlane.IsNull()) {
@@ -797,6 +790,7 @@ void QtOccView::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void QtOccView::keyPressEvent(QKeyEvent* event) {
+    
     // 1. 优先拦截空格键，用于开启临时 3D 视角
     if (event->key() == Qt::Key_Space) {
         if (!event->isAutoRepeat() && m_sketchMode && m_sketchMode->IsInSketchMode()) {
@@ -815,7 +809,9 @@ void QtOccView::keyPressEvent(QKeyEvent* event) {
     QWidget::keyPressEvent(event);
 }
 
+
 void QtOccView::keyReleaseEvent(QKeyEvent* event) {
+ 
     // 如果松开的是空格键
     if (event->key() == Qt::Key_Space) {
         if (!event->isAutoRepeat() && m_sketchMode && m_sketchMode->IsInSketchMode()) {
@@ -1043,43 +1039,45 @@ void QtOccView::ProcessShapeOrSketchSelection() {
 
             // Sweep 动态平面预览逻辑 
    
-            if (profileShape && !profileShape->GetOCCTShape().IsNull()) {
-                // 获取截面质心 (Centroid)
-                m_sweepCentroid = profileShape->GetCentroid();
+            if (m_sweepInteractionState == SweepInteractionMode::SelectingProfile) {
 
-                TopoDS_Face face = TopoDS::Face(profileShape->GetOCCTShape());
-                Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
-                Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
+                if (profileShape && !profileShape->GetOCCTShape().IsNull()) {
+                    m_sweepCentroid = profileShape->GetCentroid();
 
-                if (!plane.IsNull()) {
-                    gp_Ax3 profileCS = plane->Pln().Position();
-                    m_sweepProfileNormal = profileCS.Direction(); // 记录原截面法线
-                    gp_Dir profileX = profileCS.XDirection();
+                    TopoDS_Face face = TopoDS::Face(profileShape->GetOCCTShape());
+                    Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+                    Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
 
-                    // 切换交互状态为：预览路径平面 (Previewing Path Plane)
-                    m_sweepInteractionState = SweepInteractionMode::PreviewingPathPlane;
+                    if (!plane.IsNull()) {
+                        gp_Ax3 profileCS = plane->Pln().Position();
+                        m_sweepProfileNormal = profileCS.Direction(); // 记录原截面法线
+                        gp_Dir profileX = profileCS.XDirection();
 
-                    // 生成初始的路径坐标系 (以质心为原点，原法线为X轴，原X轴为法线)
-                    m_baseSweepPathCS = gp_Ax3(m_sweepCentroid, profileX, m_sweepProfileNormal);
-                    m_currentSweepPathCS = m_baseSweepPathCS;
+                        // 切换交互状态为：预览路径平面 (Previewing Path Plane)
+                        m_sweepInteractionState = SweepInteractionMode::PreviewingPathPlane;
 
-                    // 生成一个面片用来做视觉预览
-                    gp_Pln previewPln(m_currentSweepPathCS);
-                    // 缩小 UV 边界范围，让面片变小
-                    TopoDS_Face previewFace = BRepBuilderAPI_MakeFace(previewPln, -5.0, 5.0, -5.0, 5.0).Face();
+                        // 生成初始的路径坐标系 (以质心为原点，原法线为X轴，原X轴为法线)
+                        m_baseSweepPathCS = gp_Ax3(m_sweepCentroid, profileX, m_sweepProfileNormal);
+                        m_currentSweepPathCS = m_baseSweepPathCS;
 
-                    // 包装成可显示的 AIS 对象 (AIS_Shape)
-                    Handle(AIS_Shape) aisPlane = new AIS_Shape(previewFace);
-                    aisPlane->SetColor(Quantity_NOC_LIGHTSEAGREEN); // 海绿色，具有科技感
-                    aisPlane->SetTransparency(0.6);                 // 半透明，不遮挡模型
-                    aisPlane->SetDisplayMode(AIS_Shaded);           // 实体着色模式
-                    aisPlane->SetZLayer(Graphic3d_ZLayerId_Topmost);// 确保显示在最顶层，不被截面遮挡
+                        // 生成一个面片用来做视觉预览
+                        gp_Pln previewPln(m_currentSweepPathCS);
+                        // 缩小 UV 边界范围，让面片变小
+                        TopoDS_Face previewFace = BRepBuilderAPI_MakeFace(previewPln, -5.0, 5.0, -5.0, 5.0).Face();
 
-                    m_sweepPlanePreview = aisPlane;
-                    m_context->Display(m_sweepPlanePreview, Standard_False);
-                    m_view->Redraw();
+                        // 包装成可显示的 AIS 对象 (AIS_Shape)
+                        Handle(AIS_Shape) aisPlane = new AIS_Shape(previewFace);
+                        aisPlane->SetColor(Quantity_NOC_LIGHTSEAGREEN); // 海绿色，具有科技感
+                        aisPlane->SetTransparency(0.6);                 // 半透明，不遮挡模型
+                        aisPlane->SetDisplayMode(AIS_Shaded);           // 实体着色模式
+                        aisPlane->SetZLayer(Graphic3d_ZLayerId_Topmost);// 确保显示在最顶层，不被截面遮挡
 
-                    qDebug() << "Entered Sweep Plane Preview State.";
+                        m_sweepPlanePreview = aisPlane;
+                        m_context->Display(m_sweepPlanePreview, Standard_False);
+                        m_view->Redraw();
+
+                        qDebug() << "Entered Sweep Plane Preview State.";
+                    }
                 }
             }
 
@@ -2283,5 +2281,143 @@ namespace {
             m_view->Redraw();
         }
     }
+
+    // Sweep 执行逻辑
+    bool QtOccView::ExecuteSweep(double twistAngle, double scaleFactor, bool keepOrientation) {
+        if (!m_sketchMode || !m_currentSelectedShape) {
+            return false;
+        }
+
+        auto pathSketch = m_sketchMode->GetCurrentSketch();
+        if (!pathSketch) return false;
+
+        try {
+            BRepBuilderAPI_MakeWire wireMaker;
+
+            // 遍历并组装线框
+            for (const auto& elem : pathSketch->GetElements()) {
+                if (elem) {
+                    for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ++it) {
+                        if (it->second == elem) {
+                            Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(it->first);
+                            if (!aisShape.IsNull() && aisShape->Shape().ShapeType() == TopAbs_EDGE) {
+                                wireMaker.Add(TopoDS::Edge(aisShape->Shape()));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!wireMaker.IsDone()) return false;
+
+            auto pathShape = std::make_shared<cad_core::Shape>(wireMaker.Wire());
+
+            cad_feature::SweepFeature sweep;
+            sweep.SetProfileShape(m_currentSelectedShape);
+            sweep.SetPathShape(pathShape);
+
+            // 应用从 UI 面板传过来的高级参数 
+            sweep.SetTwistAngle(twistAngle);
+            sweep.SetScaleFactor(scaleFactor);
+            sweep.SetKeepOriginalOrientation(keepOrientation);
+
+            auto resultBody = sweep.CreateShape();
+
+            if (resultBody && resultBody->IsValid()) {
+                // 1. 渲染金色的 3D Sweep 实体
+                Handle(AIS_Shape) aisResult = new AIS_Shape(resultBody->GetOCCTShape());
+                aisResult->SetColor(Quantity_NOC_GOLDENROD);
+                aisResult->SetMaterial(Graphic3d_NOM_PLASTIC);
+                aisResult->SetDisplayMode(AIS_Shaded);
+                m_context->Display(aisResult, Standard_False); // 先不重绘，等清理完一起刷
+
+                // 清理掉被“消耗”的路径草图线 
+                for (const auto& elem : pathSketch->GetElements()) {
+                    if (elem) {
+                        for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ) {
+                            if (it->second == elem) {
+                                // 找到屏幕上对应的渲染线段
+                                Handle(AIS_InteractiveObject) aisObj = Handle(AIS_InteractiveObject)::DownCast(it->first);
+                                if (!aisObj.IsNull()) {
+                                    // 从 OCC 渲染上下文中彻底移除这条线
+                                    m_context->Remove(aisObj, Standard_False);
+                                }
+                                // 从映射表中注销它
+                                it = m_sketchElementMap.erase(it);
+                            }
+                            else {
+                                ++it;
+                            }
+                        }
+                    }
+                }
+
+                // 2. 打扫战场：退出草图模式，清空预览状态
+                m_sketchMode->ExitSketchMode();
+                m_sweepInteractionState = SweepInteractionMode::None;
+                ClearCentroid();
+
+                // 3. 统一刷新屏幕
+                m_view->Redraw();
+                return true;
+            }
+        }
+        catch (...) {
+            return false;
+        }
+        return false;
+    }
+    
+    // Sweep 交互状态控制 
+    void QtOccView::StartSweepInteraction() {
+        // 解锁：进入等待选择截面的状态
+        m_sweepInteractionState = SweepInteractionMode::SelectingProfile;
+        ClearSelection();
+    }
+
+    void QtOccView::CancelSweepInteraction() {
+        // 如果不是 Sweep 状态，什么都不做
+        if (m_sweepInteractionState == SweepInteractionMode::None) return;
+
+        // 重新上锁
+        m_sweepInteractionState = SweepInteractionMode::None;
+
+        // 销毁可能存在的半透明预览面片
+        if (!m_sweepPlanePreview.IsNull()) {
+            m_context->Remove(m_sweepPlanePreview, Standard_False);
+            m_sweepPlanePreview.Nullify();
+        }
+
+        // 如果已经切进了草图，强行退出来
+        if (IsInSketchMode()) {
+            m_sketchMode->ExitSketchMode();
+        }
+
+        m_view->Redraw();
+        qDebug() << "Sweep interaction cancelled and cleaned up.";
+    }
+
+    //开关 Sweep 路径绘制工具
+    void QtOccView::ToggleSweepPathTool(bool enableDrawing) {
+        if (!m_sketchMode || !IsInSketchMode()) {
+            qDebug() << "Cannot toggle tool: Not in sketch mode yet.";
+            return;
+        }
+
+        if (enableDrawing) {
+            // 激活曲线工具，并钉死在质心起点
+            m_sketchMode->StartCurveTool();
+            auto curveTool = dynamic_cast<cad_ui::SketchCurveTool*>(m_sketchMode->GetCurrentTool());
+            if (curveTool) {
+                curveTool->InjectStartPoint(0.0, 0.0);
+            }
+        }
+        else {
+            // 停止当前工具，退回到默认的“选择模式” (此时可以选中线段并删除)
+            m_sketchMode->StopCurrentTool();
+        }
+    }
+
 } // namespace cad_ui
 

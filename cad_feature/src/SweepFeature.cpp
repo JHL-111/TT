@@ -1,123 +1,164 @@
 ﻿#include "cad_feature/SweepFeature.h"
-#include "cad_core/CreateBoxCommand.h"
-#include <BRepOffsetAPI_MakePipe.hxx>
-#include <BRepGProp.hxx>
-#include <GProp_GProps.hxx>
+#include <BRepOffsetAPI_MakePipeShell.hxx>
+#include <Law_Linear.hxx>          
+#include <Law_Constant.hxx>        
+#include <GeomFill_LocationLaw.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <TopoDS.hxx>
 #include <TopoDS_Wire.hxx>
-#include <TopoDS_Face.hxx>
-#include <gp_Pnt.hxx>
+#include <TopoDS_Edge.hxx>
+#include <TopExp_Explorer.hxx>
+#include <BRepAdaptor_CompCurve.hxx>
+#include <QDebug>
 #include <cmath>
 
 namespace cad_feature {
 
-SweepFeature::SweepFeature() : Feature(FeatureType::Sweep, "Sweep") {
-    SetParameter("twist_angle", 0.0);
-    SetParameter("scale_factor", 1.0);
-    SetParameter("keep_orientation", 1.0);
-}
+    SweepFeature::SweepFeature() : Feature(FeatureType::Sweep, "Sweep") {
+        SetParameter("twist_angle", 0.0);
+        SetParameter("scale_factor", 1.0);
+        SetParameter("keep_orientation", 1.0);
+    }
 
-SweepFeature::SweepFeature(const std::string& name) : Feature(FeatureType::Sweep, name) {
-    SetParameter("twist_angle", 0.0);
-    SetParameter("scale_factor", 1.0);
-    SetParameter("keep_orientation", 1.0);
-}
+    SweepFeature::SweepFeature(const std::string& name) : Feature(FeatureType::Sweep, name) {
+        // 同上，保持参数初始化
+        SetParameter("twist_angle", 0.0);
+        SetParameter("scale_factor", 1.0);
+        SetParameter("keep_orientation", 1.0);
+    }
 
-void SweepFeature::SetProfile(const cad_sketch::SketchPtr& profile) {
-    m_profile = profile;
-}
+    void SweepFeature::SetProfileShape(const cad_core::ShapePtr& profile) {
+        m_profileShape = profile;
+    }
 
-const cad_sketch::SketchPtr& SweepFeature::GetProfile() const {
-    return m_profile;
-}
+    const cad_core::ShapePtr& SweepFeature::GetProfileShape() const {
+        return m_profileShape;
+    }
 
-void SweepFeature::SetPath(const cad_sketch::SketchPtr& path) {
-    m_path = path;
-}
+    void SweepFeature::SetPathShape(const cad_core::ShapePtr& path) {
+        m_pathShape = path;
+    }
 
-const cad_sketch::SketchPtr& SweepFeature::GetPath() const {
-    return m_path;
-}
+    const cad_core::ShapePtr& SweepFeature::GetPathShape() const {
+        return m_pathShape;
+    }
 
-void SweepFeature::SetTwistAngle(double angle) {
-    SetParameter("twist_angle", angle);
-}
 
-double SweepFeature::GetTwistAngle() const {
-    return GetParameter("twist_angle");
-}
+    void SweepFeature::SetTwistAngle(double angle) { 
+        SetParameter("twist_angle", angle); 
+    }
 
-void SweepFeature::SetScaleFactor(double factor) {
-    SetParameter("scale_factor", factor);
-}
+    double SweepFeature::GetTwistAngle() const { 
+        return GetParameter("twist_angle"); 
+    }
 
-double SweepFeature::GetScaleFactor() const {
-    return GetParameter("scale_factor");
-}
+    void SweepFeature::SetScaleFactor(double factor) { 
+        SetParameter("scale_factor", factor); 
+    }
 
-void SweepFeature::SetKeepOriginalOrientation(bool keep) {
-    SetParameter("keep_orientation", keep ? 1.0 : 0.0);
-}
+    double SweepFeature::GetScaleFactor() const { 
+        return GetParameter("scale_factor"); 
+    }
 
-bool SweepFeature::GetKeepOriginalOrientation() const {
-    return GetParameter("keep_orientation") != 0.0;
-}
+    void SweepFeature::SetKeepOriginalOrientation(bool keep) { 
+        SetParameter("keep_orientation", keep ? 1.0 : 0.0); 
+    }
 
-cad_core::ShapePtr SweepFeature::CreateShape() const {
-    if (!ValidateParameters()) {
+    bool SweepFeature::GetKeepOriginalOrientation() const { 
+        return GetParameter("keep_orientation") != 0.0; 
+    }
+
+    cad_core::ShapePtr SweepFeature::CreateShape() const {
+        if (!ValidateParameters()) return nullptr;
+        return SweepProfile();
+    }
+
+    bool SweepFeature::ValidateParameters() const {
+        if (!IsProfileValid() || !IsPathValid()) return false;
+        if (GetScaleFactor() <= 0.0) return false;
+        return true;
+    }
+
+    std::shared_ptr<cad_core::ICommand> SweepFeature::CreateCommand() const {
+        // 
         return nullptr;
     }
-    
-    return SweepProfile();
-}
 
-bool SweepFeature::ValidateParameters() const {
-    if (!IsProfileValid() || !IsPathValid()) {
-        return false;
+    bool SweepFeature::IsProfileValid() const {
+        return m_profileShape && m_profileShape->IsValid();
     }
-    
-    double scaleFactor = GetScaleFactor();
-    if (scaleFactor <= 0.0) {
-        return false;
+
+    bool SweepFeature::IsPathValid() const {
+        return m_pathShape && m_pathShape->IsValid();
     }
-    
-    return true;
-}
 
-std::shared_ptr<cad_core::ICommand> SweepFeature::CreateCommand() const {
-    // For now, return a simple box command as placeholder
-    return std::make_shared<cad_core::CreateBoxCommand>(10.0, 10.0, 10.0);
-}
+    // 生成真实的 Sweep 实体 
+    cad_core::ShapePtr SweepFeature::SweepProfile() const {
+        if (!IsProfileValid() || !IsPathValid()) return nullptr;
 
-bool SweepFeature::IsProfileValid() const {
-    return m_profile && !m_profile->IsEmpty();
-}
+        try {
+            TopoDS_Shape profileOCC = m_profileShape->GetOCCTShape();
+            TopoDS_Shape pathOCC = m_pathShape->GetOCCTShape();
 
-bool SweepFeature::IsPathValid() const {
-    return m_path && !m_path->IsEmpty();
-}
+            // 1. 路径处理：必须是 Wire
+            TopoDS_Wire pathWire;
+            if (pathOCC.ShapeType() == TopAbs_WIRE) {
+                pathWire = TopoDS::Wire(pathOCC);
+            }
+            else if (pathOCC.ShapeType() == TopAbs_EDGE) {
+                pathWire = BRepBuilderAPI_MakeWire(TopoDS::Edge(pathOCC)).Wire();
+            }
+            else {
+                return nullptr;
+            }
 
-cad_core::ShapePtr SweepFeature::SweepProfile() const {
-    if (!IsProfileValid() || !IsPathValid()) {
-        return nullptr;
+            // 2. 截面处理：直接使用 Wire，不要转 Face
+            // 如果输入是 Face，提取它的外轮廓 Wire
+            TopoDS_Shape sweepSection = profileOCC;
+            if (profileOCC.ShapeType() == TopAbs_FACE) {
+                TopExp_Explorer exp(profileOCC, TopAbs_WIRE);
+                if (exp.More()) sweepSection = exp.Current();
+            }
+
+            BRepOffsetAPI_MakePipeShell pipeShell(pathWire);
+
+            // 3. 修正模式设置：KeepOrientation 为 True 时，IsFrenet 应为 False
+            // False = CorrectedFrenet (平稳), True = Frenet (随曲率大幅扭转)
+            pipeShell.SetMode(!GetKeepOriginalOrientation());
+
+            // 4. 应用缩放规律 (Scaling Law)
+            double scale = GetScaleFactor();
+            if (std::abs(scale - 1.0) > 1e-6) {
+                BRepAdaptor_CompCurve pathCurve(pathWire, Standard_True);
+                double firstParam = pathCurve.FirstParameter();
+                double lastParam = pathCurve.LastParameter();
+
+                Handle(Law_Linear) scaleLaw = new Law_Linear();
+                scaleLaw->Set(firstParam, 1.0, lastParam, scale);
+
+                // 有缩放规律时，只用 SetLaw，绝对不能调 Add！
+                // 让截面完全受控于动态数学规律。
+                pipeShell.SetLaw(sweepSection, scaleLaw, Standard_False, Standard_True);
+            }
+            else {
+                // 只有在没有任何变形（比例为 1.0）时，才作为刚性约束 Add 进去。
+                pipeShell.Add(sweepSection);
+            }
+
+            pipeShell.Build();
+
+            if (pipeShell.IsDone()) {
+                // 最后一步再转 Solid，这样生成的实体更加鲁棒
+                pipeShell.MakeSolid();
+                return std::make_shared<cad_core::Shape>(pipeShell.Shape());
+            }
+
+            return nullptr;
+        }
+        catch (...) {
+            return nullptr;
+        }
     }
-    
-    try {
-        // In a real implementation, this would:
-        // 1. Convert profile sketch to OCCT wire/face
-        // 2. Convert path sketch to OCCT wire
-        // 3. Use BRepOffsetAPI_MakePipe to create the swept solid
-        // 4. Apply twist and scaling if specified
-        
-        // For now, return a simple shape as placeholder
-        auto shape = std::make_shared<cad_core::Shape>();
-        
-        // Placeholder: create a simple box-like shape
-        // In real implementation, this would properly sweep the profile along the path
-        
-        return shape;
-    } catch (...) {
-        return nullptr;
-    }
-}
 
 } // namespace cad_feature

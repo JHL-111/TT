@@ -18,6 +18,8 @@ set(HEADERS
     include/cad_ui/TransformOperationDialog.h
     include/cad_ui/SketchMode.h
     include/cad_ui/FaceSelectionDialog.h
+    include/cad_ui/CreateSweepDialog.h
+
 )
 
 # 源文件
@@ -38,6 +40,7 @@ set(SOURCES
     src/TransformOperationDialog.cpp
     src/SketchMode.cpp
     src/FaceSelectionDialog.cpp
+    src/CreateSweepDialog.cpp
 )
 
 # 资源文件
