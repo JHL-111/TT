@@ -2170,6 +2170,11 @@ namespace {
             ClearSketchProfiles();
         }
 
+        if (m_isDrawingSweepPath) {
+            m_view->Redraw();
+            return;
+        }
+
         // 3. 生成并显示新的轮廓面
         for (const auto& profile : profiles) {
             TopoDS_Face face = profile->GetFace();
@@ -2283,90 +2288,53 @@ namespace {
     }
 
     // Sweep 执行逻辑
-    bool QtOccView::ExecuteSweep(double twistAngle, double scaleFactor, bool keepOrientation) {
-        if (!m_sketchMode || !m_currentSelectedShape) {
-            return false;
-        }
-
+    cad_core::ShapePtr QtOccView::GetSweepPathShape() {
+        if (!m_sketchMode) return nullptr;
         auto pathSketch = m_sketchMode->GetCurrentSketch();
-        if (!pathSketch) return false;
+        if (!pathSketch) return nullptr;
 
-        try {
-            BRepBuilderAPI_MakeWire wireMaker;
+        BRepBuilderAPI_MakeWire wireMaker;
+        for (const auto& elem : pathSketch->GetElements()) {
+            if (elem) {
+                for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ++it) {
+                    if (it->second == elem) {
+                        Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(it->first);
+                        if (!aisShape.IsNull() && aisShape->Shape().ShapeType() == TopAbs_EDGE) {
+                            wireMaker.Add(TopoDS::Edge(aisShape->Shape()));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        if (!wireMaker.IsDone()) return nullptr;
+        return std::make_shared<cad_core::Shape>(wireMaker.Wire());
+    }
 
-            // 遍历并组装线框
+    // 清理 Sweep 绘制时残留的草图和状态
+    void QtOccView::CleanupSweepUI() {
+        if (!m_sketchMode) return;
+        auto pathSketch = m_sketchMode->GetCurrentSketch();
+        if (pathSketch) {
             for (const auto& elem : pathSketch->GetElements()) {
                 if (elem) {
-                    for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ++it) {
+                    for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ) {
                         if (it->second == elem) {
-                            Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(it->first);
-                            if (!aisShape.IsNull() && aisShape->Shape().ShapeType() == TopAbs_EDGE) {
-                                wireMaker.Add(TopoDS::Edge(aisShape->Shape()));
-                            }
-                            break;
+                            Handle(AIS_InteractiveObject) aisObj = Handle(AIS_InteractiveObject)::DownCast(it->first);
+                            if (!aisObj.IsNull()) m_context->Remove(aisObj, Standard_False);
+                            it = m_sketchElementMap.erase(it);
+                        }
+                        else {
+                            ++it;
                         }
                     }
                 }
             }
-
-            if (!wireMaker.IsDone()) return false;
-
-            auto pathShape = std::make_shared<cad_core::Shape>(wireMaker.Wire());
-
-            cad_feature::SweepFeature sweep;
-            sweep.SetProfileShape(m_currentSelectedShape);
-            sweep.SetPathShape(pathShape);
-
-            // 应用从 UI 面板传过来的高级参数 
-            sweep.SetTwistAngle(twistAngle);
-            sweep.SetScaleFactor(scaleFactor);
-            sweep.SetKeepOriginalOrientation(keepOrientation);
-
-            auto resultBody = sweep.CreateShape();
-
-            if (resultBody && resultBody->IsValid()) {
-                // 1. 渲染金色的 3D Sweep 实体
-                Handle(AIS_Shape) aisResult = new AIS_Shape(resultBody->GetOCCTShape());
-                aisResult->SetColor(Quantity_NOC_GOLDENROD);
-                aisResult->SetMaterial(Graphic3d_NOM_PLASTIC);
-                aisResult->SetDisplayMode(AIS_Shaded);
-                m_context->Display(aisResult, Standard_False); // 先不重绘，等清理完一起刷
-
-                // 清理掉被“消耗”的路径草图线 
-                for (const auto& elem : pathSketch->GetElements()) {
-                    if (elem) {
-                        for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ) {
-                            if (it->second == elem) {
-                                // 找到屏幕上对应的渲染线段
-                                Handle(AIS_InteractiveObject) aisObj = Handle(AIS_InteractiveObject)::DownCast(it->first);
-                                if (!aisObj.IsNull()) {
-                                    // 从 OCC 渲染上下文中彻底移除这条线
-                                    m_context->Remove(aisObj, Standard_False);
-                                }
-                                // 从映射表中注销它
-                                it = m_sketchElementMap.erase(it);
-                            }
-                            else {
-                                ++it;
-                            }
-                        }
-                    }
-                }
-
-                // 2. 打扫战场：退出草图模式，清空预览状态
-                m_sketchMode->ExitSketchMode();
-                m_sweepInteractionState = SweepInteractionMode::None;
-                ClearCentroid();
-
-                // 3. 统一刷新屏幕
-                m_view->Redraw();
-                return true;
-            }
         }
-        catch (...) {
-            return false;
-        }
-        return false;
+        m_sketchMode->ExitSketchMode();
+        m_sweepInteractionState = SweepInteractionMode::None;
+        ClearCentroid();
+        m_view->Redraw();
     }
     
     // Sweep 交互状态控制 
@@ -2404,6 +2372,8 @@ namespace {
             qDebug() << "Cannot toggle tool: Not in sketch mode yet.";
             return;
         }
+
+        m_isDrawingSweepPath = enableDrawing;
 
         if (enableDrawing) {
             // 激活曲线工具，并钉死在质心起点

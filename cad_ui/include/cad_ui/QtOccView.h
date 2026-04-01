@@ -20,6 +20,7 @@
 #include <AIS_InteractiveObject.hxx>
 #include <StdSelect_BRepOwner.hxx>
 
+#include "cad_feature/Feature.h"
 #include "cad_core/Shape.h"
 #include "cad_core/SelectionManager.h"
 #include "cad_sketch/Sketch.h"
@@ -155,7 +156,9 @@ public:
     void ClearCentroid();
 
     // 供 UI 面板调用的正式 Sweep 执行接口 
-    bool ExecuteSweep(double twistAngle, double scaleFactor, bool keepOrientation);
+    cad_core::ShapePtr GetSweepPathShape();
+    cad_core::ShapePtr GetSweepProfileShape() const { return m_currentSelectedShape; }
+    void CleanupSweepUI();
     void StartSweepInteraction();
     void CancelSweepInteraction();
     void ToggleSweepPathTool(bool enableDrawing);
@@ -294,6 +297,7 @@ private:
 
     // Sweep 动态平面的状态变量
     SweepInteractionMode m_sweepInteractionState = SweepInteractionMode::None;
+    bool m_isDrawingSweepPath = false;
     gp_Pnt m_sweepCentroid;              // 锁定的质心
     gp_Dir m_sweepProfileNormal;         // 截面原始法线
     gp_Ax3 m_currentSweepPathCS;         // 实时计算出来的候选路径坐标系

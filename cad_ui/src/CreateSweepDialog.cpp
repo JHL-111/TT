@@ -90,23 +90,22 @@ namespace cad_ui {
     void CreateSweepDialog::OnApplyClicked() {
         if (!m_view) return;
 
+        // 从视图层获取选中的截面和组装好的路径
+        auto profile = m_view->GetSweepProfileShape();
+        auto path = m_view->GetSweepPathShape();
+
+        if (!profile || !path) {
+            QMessageBox::warning(this, tr("Sweep Failed"), tr("Please ensure you have selected a profile and drawn a valid path."));
+            return;
+        }
+
         double twist = m_twistSpinner->value();
         double scale = m_scaleSpinner->value();
         bool keepOri = m_keepOrientationCheck->isChecked();
 
-        bool success = m_view->ExecuteSweep(twist, scale, keepOri);
-
-        if (success) {
-            accept();
-        }
-        else {
-            QMessageBox::warning(this, tr("Sweep Failed"),
-                tr("Please make sure you have selected a profile and drawn a valid path"));
-
-            // 如果失败，彻底清理
-            m_view->CancelSweepInteraction(); 
-            reject();                         
-        }
+        // 向主窗口发送生成请求
+        emit sweepRequested(profile, path, twist, scale, keepOri);
+        accept(); // 关闭面板
     }
 
     void CreateSweepDialog::OnCancelClicked() {

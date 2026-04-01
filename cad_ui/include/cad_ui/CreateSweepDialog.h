@@ -5,6 +5,8 @@
 #include <QCheckBox>
 #include <QPushButton>
 #include <QLabel>
+#include "cad_feature/Feature.h"
+#include "cad_core/Shape.h"
 
 namespace cad_ui {
 
@@ -16,6 +18,10 @@ namespace cad_ui {
     public:
         explicit CreateSweepDialog(QtOccView* view, QWidget* parent = nullptr);
         ~CreateSweepDialog() = default;
+
+    signals:
+        void sweepCreated(std::shared_ptr<cad_feature::Feature> feature);
+        void sweepRequested(cad_core::ShapePtr profile, cad_core::ShapePtr path, double twist, double scale, bool keepOri);
 
     private slots:
         void OnApplyClicked();

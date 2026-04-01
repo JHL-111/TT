@@ -167,6 +167,7 @@ private slots:
     void OnTransformResetRequested();
     void OnExtrudeRequested(cad_core::ShapePtr baseShape, double distance);
     void OnExtrudeDialogClosed();
+    void OnSweepRequested(cad_core::ShapePtr profileShape, cad_core::ShapePtr pathShape, double twistAngle, double scaleFactor, bool keepOrientation);
 
     // 选择模式组合框
     void OnSelectionModeComboChanged(int index);

@@ -17,6 +17,7 @@
 #include "cad_feature/FilletChamferFeature.h"
 #include "cad_feature/RectangularFaceFeature.h"
 #include "cad_ui/CreateSweepDialog.h"
+#include "cad_feature/SweepFeature.h"
 
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -1592,6 +1593,65 @@ void MainWindow::OnExtrudeDialogClosed() {
     statusBar()->showMessage("Extrude dialog closed.");
 }
 
+void MainWindow::OnSweepRequested(cad_core::ShapePtr profileShape, cad_core::ShapePtr pathShape, double twistAngle, double scaleFactor, bool keepOrientation) {
+    if (!profileShape || !pathShape) return;
+
+    // 开启 OCAF 历史记录事务
+    m_ocafManager->StartTransaction("Create Sweep Feature");
+
+    try {
+        // 1. 创建 Sweep 特征
+        std::string featureName = "Sweep_" + std::to_string(m_featureManager->GetFeatureCount() + 1);
+        auto sweepFeature = std::make_shared<cad_feature::SweepFeature>(featureName);
+
+        sweepFeature->SetProfileShape(profileShape);
+        sweepFeature->SetPathShape(pathShape);
+        sweepFeature->SetTwistAngle(twistAngle);
+        sweepFeature->SetScaleFactor(scaleFactor);
+        sweepFeature->SetKeepOriginalOrientation(keepOrientation);
+
+        // 2. 生成 3D 实体
+        auto resultShape = sweepFeature->CreateShape();
+
+        if (resultShape) {
+            sweepFeature->SetResultShape(resultShape);
+
+            // 3. 将结果写入底层 OCAF 数据库
+            if (m_ocafManager->AddShape(resultShape, featureName)) {
+
+                // 4. 将特征上树！
+                m_featureManager->AddFeature(sweepFeature);
+                m_documentTree->AddFeature(sweepFeature);  // 左侧 DocumentTree 出现 Sweep 节点
+
+                // 显示最终的 3D 实体
+                m_documentTree->AddShape(resultShape);
+                m_viewer->DisplayShape(resultShape);
+
+                // 5. 抹除画路径时用的草图线
+                m_viewer->CleanupSweepUI();
+                m_viewer->ClearSelection();
+
+                m_ocafManager->CommitTransaction();
+                SetDocumentModified(true);
+                UpdateActions();
+                statusBar()->showMessage("Sweep completed successfully");
+            }
+            else {
+                throw std::runtime_error("Failed to add shape to document.");
+            }
+        }
+        else {
+            throw std::runtime_error("Sweep feature failed to generate shape.");
+        }
+    }
+    catch (const std::exception& e) {
+        m_ocafManager->AbortTransaction();
+        m_viewer->CancelSweepInteraction(); // 失败回滚
+        QMessageBox::warning(this, "Sweep Error", e.what());
+    }
+}
+
+
 void MainWindow::OnDarkTheme() {
     m_themeManager->SetTheme("dark");
 }
@@ -1778,8 +1838,10 @@ void MainWindow::OnCreateSweep() {
     auto sweepDialog = new cad_ui::CreateSweepDialog(m_viewer, this);
     sweepDialog->setAttribute(Qt::WA_DeleteOnClose);
 
-    // 通知底层解锁，准备接收截面点击 
     m_viewer->StartSweepInteraction();
+
+    connect(sweepDialog, &cad_ui::CreateSweepDialog::sweepRequested,
+        this, &MainWindow::OnSweepRequested);
 
     sweepDialog->show();
     statusBar()->showMessage("Sweep feature activated. Follow the instructions on the panel.");
