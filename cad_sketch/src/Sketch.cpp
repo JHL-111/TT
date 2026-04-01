@@ -35,7 +35,10 @@
 #include <BRepGProp.hxx>
 #include <BRepCheck_Wire.hxx>
 #include <BRepCheck_Status.hxx> 
-
+#include <BRepAdaptor_Surface.hxx>
+#include <BRep_Tool.hxx>
+#include <TopExp.hxx>
+#include <map>
 
 // 这是一个将局部 2D 点转为世界 3D 坐标并生成 OCC Edge 的内部辅助函数
 static TopoDS_Shape CreateEdgeFromElement(const cad_sketch::SketchElementPtr& elem, const gp_Ax3& cs) {
@@ -215,140 +218,133 @@ void Sketch::UpdateProfiles(const gp_Ax3& cs) {
     }
     if (edgeList.IsEmpty()) return;
 
-    // ----------------------------------------------------------------
-    // BOPAlgo_Builder 分割 T 型交叉 (Split T-intersections)
-    // ----------------------------------------------------------------
+    TopTools_MapOfShape usedEdges; // 记录被成功建面的边
+
+    // 广义布尔引擎,处理T型
     BOPAlgo_Builder builder;
-    TopTools_MapOfShape vertexMap; // 用于去重顶点
-
     for (TopTools_ListIteratorOfListOfShape it(edgeList); it.More(); it.Next()) {
-        const TopoDS_Shape& edge = it.Value();
-        builder.AddArgument(edge); // 加入边
-
-        // 提取边的所有拓扑顶点，强制作为参数送入布尔引擎
-        // 这将迫使引擎用 T型交叉的端点去打断被触碰的长边，建立真正的拓扑共享顶点
-        for (TopExp_Explorer vExp(edge, TopAbs_VERTEX); vExp.More(); vExp.Next()) {
-            const TopoDS_Shape& vertex = vExp.Current();
-            if (vertexMap.Add(vertex)) { // 避免重复添加同一个顶点
-                builder.AddArgument(vertex);
-            }
-        }
+        builder.AddArgument(it.Value());
     }
-
+    builder.SetFuzzyValue(1e-5);
     builder.Perform();
 
-    if (builder.HasErrors()) return;
+    if (!builder.HasErrors()) {
+        TopTools_ListOfShape splitEdges;
+        TopoDS_Shape splitShape = builder.Shape();
+        for (TopExp_Explorer exp(splitShape, TopAbs_EDGE); exp.More(); exp.Next()) {
+            splitEdges.Append(exp.Current());
+        }
 
-    // 收集所有分割后的边 (Collect all split edges)
-    TopTools_ListOfShape splitEdges;
-    TopoDS_Shape splitShape = builder.Shape();
-    for (TopExp_Explorer exp(splitShape, TopAbs_EDGE); exp.More(); exp.Next()) {
-        splitEdges.Append(exp.Current());
-    }
-    if (splitEdges.IsEmpty()) return;
+        if (!splitEdges.IsEmpty()) {
+            // -------------------------------------------------------------
+            // 第一遍 原始法向推导 (捕捉所有逆时针实体面)
+            // -------------------------------------------------------------
+            BOPAlgo_BuilderFace faceBuilder1;
+            faceBuilder1.SetShapes(splitEdges);
 
-    TopTools_MapOfShape usedSplitEdges;
+            gp_Pln basePln(cs);
+            BRepBuilderAPI_MakeFace baseFaceMaker1(basePln);
+            if (baseFaceMaker1.IsDone()) {
+                faceBuilder1.SetFace(baseFaceMaker1.Face());
+            }
+            faceBuilder1.Perform();
 
-    // 辅助函数：收集生成的面并精准过滤背景面 (Helper function to collect faces and filter background faces)
-    auto collectFaces = [&](BOPAlgo_BuilderFace& fb) {
-        const TopTools_ListOfShape& areas = fb.Areas();
-        for (TopTools_ListIteratorOfListOfShape it(areas); it.More(); it.Next()) {
-            TopoDS_Face face = TopoDS::Face(it.Value());
+            if (!faceBuilder1.HasErrors()) {
+                const TopTools_ListOfShape& areas1 = faceBuilder1.Areas();
+                for (TopTools_ListIteratorOfListOfShape it(areas1); it.More(); it.Next()) {
+                    TopoDS_Face face = TopoDS::Face(it.Value());
 
-            // 核心修复：使用外环边界的方向 (Orientation) 来精准判断是否为无限大背景面 (Background Face)
-            bool isBackgroundFace = true;
-            for (TopExp_Explorer wireExp(face, TopAbs_WIRE); wireExp.More(); wireExp.Next()) {
-                if (wireExp.Current().Orientation() == TopAbs_FORWARD) {
-                    isBackgroundFace = false;
-                    break;
+                    Standard_Real uMin, uMax, vMin, vMax;
+                    BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
+                    if (Precision::IsInfinite(uMin) || Precision::IsInfinite(uMax) ||
+                        Precision::IsInfinite(vMin) || Precision::IsInfinite(vMax)) {
+                        continue; // 丢弃宇宙背景面
+                    }
+
+                    m_profiles.push_back(std::make_shared<SketchProfile>(face));
+                    for (TopExp_Explorer exp(face, TopAbs_EDGE); exp.More(); exp.Next()) {
+                        usedEdges.Add(exp.Current());
+                    }
                 }
             }
-            if (isBackgroundFace) continue;
 
-            m_profiles.push_back(std::make_shared<SketchProfile>(face));
-            for (TopExp_Explorer exp(face, TopAbs_EDGE); exp.More(); exp.Next()) {
-                usedSplitEdges.Add(exp.Current());
+            // -------------------------------------------------------------
+            // 第二遍 反转法向推导 (捕捉被遗漏的顺时针实体面，被考虑成孔的那部分）
+            // -------------------------------------------------------------
+            BOPAlgo_BuilderFace faceBuilder2;
+            faceBuilder2.SetShapes(splitEdges);
+
+            // 构建反向坐标系
+            gp_Dir reversedDir = cs.Direction().Reversed();
+            gp_Pln reversedPln(cs.Location(), reversedDir);
+
+            BRepBuilderAPI_MakeFace baseFaceMaker2(reversedPln);
+            if (baseFaceMaker2.IsDone()) {
+                faceBuilder2.SetFace(baseFaceMaker2.Face());
             }
-        }
-        };
+            faceBuilder2.Perform();
 
-    // PASS 1 正向建面 
-    BOPAlgo_BuilderFace fb1;
-    fb1.SetShapes(splitEdges);
-    gp_Pln pln1(cs); // 明确实例化基准面 
-    BRepBuilderAPI_MakeFace mf1(pln1);
-    if (mf1.IsDone()) fb1.SetFace(mf1.Face());
+            if (!faceBuilder2.HasErrors()) {
+                const TopTools_ListOfShape& areas2 = faceBuilder2.Areas();
+                for (TopTools_ListIteratorOfListOfShape it(areas2); it.More(); it.Next()) {
+                    TopoDS_Face face = TopoDS::Face(it.Value());
 
-    // PASS 2 反向建面：捕捉被当作孔的顺时针面 
-    BOPAlgo_BuilderFace fb2;
-    fb2.SetShapes(splitEdges);
-    gp_Pln pln2(cs.Location(), cs.Direction().Reversed()); // 明确实例化反向面 
-    BRepBuilderAPI_MakeFace mf2(pln2);
-    if (mf2.IsDone()) fb2.SetFace(mf2.Face());
-    fb2.Perform();
-    if (!fb2.HasErrors()) {
-        const TopTools_ListOfShape& areas2 = fb2.Areas();
-        for (TopTools_ListIteratorOfListOfShape it(areas2); it.More(); it.Next()) {
-            TopoDS_Face face = TopoDS::Face(it.Value());
+                    Standard_Real uMin, uMax, vMin, vMax;
+                    BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
+                    if (Precision::IsInfinite(uMin) || Precision::IsInfinite(uMax) ||
+                        Precision::IsInfinite(vMin) || Precision::IsInfinite(vMax)) {
+                        continue;
+                    }
 
-            bool isBackgroundFace = true;
-            for (TopExp_Explorer wireExp(face, TopAbs_WIRE); wireExp.More(); wireExp.Next()) {
-                if (wireExp.Current().Orientation() == TopAbs_FORWARD) {
-                    isBackgroundFace = false;
-                    break;
+                    // 1. 提取出这个面外围的闭合线框 (Wire)
+                    TopExp_Explorer wireExp(face, TopAbs_WIRE);
+                    if (wireExp.More()) {
+                        TopoDS_Wire wire = TopoDS::Wire(wireExp.Current());
+
+                        // 2. 将线框的环绕方向反转（把里世界的顺时针变成表世界的逆时针）
+                        wire.Reverse();
+
+                        // 3. 使用【原始的正向基准面 basePln】和【反转后的线框】，重新浇筑一个全新的物理面
+                        gp_Pln originalBasePln(cs);
+                        BRepBuilderAPI_MakeFace realFaceMaker(originalBasePln, wire);
+
+                        if (realFaceMaker.IsDone()) {
+                            // 现在这个面，无论是拓扑还是底层几何，都和 PASS 1 一模一样了！
+                            m_profiles.push_back(std::make_shared<SketchProfile>(realFaceMaker.Face()));
+
+                            // 标记使用过的边
+                            for (TopExp_Explorer exp(wire, TopAbs_EDGE); exp.More(); exp.Next()) {
+                                usedEdges.Add(exp.Current());
+                            }
+                        }
+                    }
                 }
-            }
-            if (isBackgroundFace) continue;
-
-            TopExp_Explorer wireExp(face, TopAbs_WIRE);
-            if (!wireExp.More()) continue;
-            TopoDS_Wire wire = TopoDS::Wire(wireExp.Current());
-            wire.Reverse();
-
-            BRepBuilderAPI_MakeFace realFace(gp_Pln(cs), wire);
-            if (!realFace.IsDone()) continue;
-
-            m_profiles.push_back(std::make_shared<SketchProfile>(realFace.Face()));
-            for (TopExp_Explorer exp(wire, TopAbs_EDGE); exp.More(); exp.Next()) {
-                usedSplitEdges.Add(exp.Current());
             }
         }
     }
 
-    // 处理真正未被 BuilderFace 覆盖的 splitEdges
+    // 处理无需要布尔分割的边
     Handle(TopTools_HSequenceOfShape) remainingEdges = new TopTools_HSequenceOfShape();
-    for (TopTools_ListIteratorOfListOfShape it(splitEdges); it.More(); it.Next()) {
-        if (!usedSplitEdges.Contains(it.Value())) {
+    for (TopTools_ListIteratorOfListOfShape it(edgeList); it.More(); it.Next()) {
+        if (!usedEdges.Contains(it.Value())) {
             remainingEdges->Append(it.Value());
         }
     }
 
     if (remainingEdges->Length() > 0) {
         Handle(TopTools_HSequenceOfShape) wires = new TopTools_HSequenceOfShape();
-        ShapeAnalysis_FreeBounds::ConnectEdgesToWires(
-            remainingEdges, 1e-5, Standard_False, wires);
+        ShapeAnalysis_FreeBounds::ConnectEdgesToWires(remainingEdges, 1e-5, Standard_False, wires);
 
         gp_Pln sketchPlane(cs);
         for (Standard_Integer i = 1; i <= wires->Length(); ++i) {
             TopoDS_Wire wire = TopoDS::Wire(wires->Value(i));
-            if (!wire.Closed()) continue;
-
-            // 严格验证端点真正首尾相接，拒绝容差粘合
-            BRepCheck_Wire checker(wire);
-            if (checker.Closed() != BRepCheck_NoError) continue; 
-
-            BRepBuilderAPI_MakeFace makeFace(sketchPlane, wire, Standard_True);
-            if (makeFace.IsDone()) {
-                m_profiles.push_back(std::make_shared<SketchProfile>(makeFace.Face()));
+            if (wire.Closed()) {
+                BRepBuilderAPI_MakeFace makeFace(sketchPlane, wire, Standard_True);
+                if (makeFace.IsDone()) {
+                    m_profiles.push_back(std::make_shared<SketchProfile>(makeFace.Face()));
+                }
             }
         }
-    }
-    std::ofstream logFile("E:\\sketch_log.txt", std::ios::app);
-    if (logFile.is_open()) {
-        logFile << "=======================================" << std::endl;
-        logFile << "Total Profiles generated: " << m_profiles.size() << std::endl;
-        logFile << "=======================================" << std::endl;
-        logFile.close();
     }
 }
 
