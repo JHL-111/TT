@@ -76,7 +76,9 @@ public:
     void SetSelectionMode(cad_core::SelectionMode mode);
     void ClearSelection();
     void SelectShape(const cad_core::ShapePtr& shape);
-    
+    // 开启或关闭免 Shift 的自动多选模式
+    void SetMultiSelectionMode(bool multi);
+
     // 用于操作的边选择
     void ClearEdgeSelection();
     std::vector<TopoDS_Edge> GetSelectedTopoEdges() const { return m_selectedEdges; }
@@ -242,6 +244,8 @@ private:
     cad_core::ShapePtr m_currentSelectedShape;
     Handle(AIS_Shape) m_currentSelectedAIS;
     
+    bool m_multiSelectionMode = false;
+
     // 用于倒角/倒圆等操作的边选择状态
     std::vector<TopoDS_Edge> m_selectedEdges;
     std::vector<Handle(AIS_InteractiveObject)> m_highlightedEdges;

@@ -571,6 +571,10 @@ void QtOccView::resizeEvent(QResizeEvent* event) {
     }
 }
 
+void QtOccView::SetMultiSelectionMode(bool multi) {
+    m_multiSelectionMode = multi;
+}
+
 void QtOccView::mousePressEvent(QMouseEvent* event) {
     m_lastMousePos = event->pos();
     m_currentMouseButton = event->button();
@@ -865,6 +869,10 @@ Handle(StdSelect_BRepOwner) QtOccView::GetFirstSelectedOwner() const {
 
 // 专门清理旧状态
 void QtOccView::ClearPreviousSelectionState() {
+    if (m_multiSelectionMode) {
+        return;
+    }
+    
     if (m_currentSelectionMode != 2) { // 边模式支持多选，不在这里清边
         UnhighlightAllVertices();
         UnhighlightAllFaces();
@@ -898,7 +906,12 @@ void QtOccView::HandleSelection(const QPoint& point) {
 
     if (m_context->HasDetected()) {
         // 让 OCC 底层真实选中（触发内部选取逻辑，无论是哪种模式都需要）
-        m_context->Select(Standard_True);
+        if (m_multiSelectionMode) {
+            m_context->ShiftSelect(Standard_True);
+        }
+        else {
+            m_context->Select(Standard_True);
+        }
 
         // 3. 按模式分发处理
         switch (m_currentSelectionMode) {
@@ -1010,9 +1023,9 @@ void QtOccView::ProcessFaceSelection() {
     qDebug() << "Face selection mode detected, attempting to select face...";
 
     // 面一般单选，直接利用工具函数获取第一个对象
-    Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(GetFirstSelectedObject());
+    Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(m_context->DetectedInteractive());
     if (!aisShape.IsNull()) {
-        Handle(StdSelect_BRepOwner) anOwner = GetFirstSelectedOwner();
+        Handle(StdSelect_BRepOwner) anOwner = Handle(StdSelect_BRepOwner)::DownCast(m_context->DetectedOwner());
         if (!anOwner.IsNull()) {
             TopoDS_Shape selectedShape = anOwner->Shape();
             if (selectedShape.ShapeType() == TopAbs_FACE) {
@@ -1025,7 +1038,7 @@ void QtOccView::ProcessFaceSelection() {
 }
 
 void QtOccView::ProcessShapeOrSketchSelection() {
-    Handle(AIS_InteractiveObject) selectedObj = GetFirstSelectedObject();
+    Handle(AIS_InteractiveObject) selectedObj = m_context->DetectedInteractive();
 
     if (!selectedObj.IsNull()) {
         Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(selectedObj);

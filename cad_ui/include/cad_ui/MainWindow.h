@@ -33,6 +33,7 @@
 #include "cad_core/OCAFManager.h"
 #include "cad_core/TransformCommand.h"
 #include "cad_feature/FeatureManager.h"
+#include "cad_ui/CreateLoftDialog.h"
 
 namespace cad_ui {
 
@@ -115,11 +116,6 @@ private slots:
     void OnCreateSweep();
     void OnCreateLoft();
     
-    void OnImportSTEP();
-    void OnImportIGES();
-    void OnExportSTEP();
-    void OnExportIGES();
-    void OnExportSTL();
     
     void OnShowGrid();
     void OnShowAxes();
@@ -168,6 +164,7 @@ private slots:
     void OnExtrudeRequested(cad_core::ShapePtr baseShape, double distance);
     void OnExtrudeDialogClosed();
     void OnSweepRequested(cad_core::ShapePtr profileShape, cad_core::ShapePtr pathShape, double twistAngle, double scaleFactor, bool keepOrientation);
+    void OnLoftRequested(const std::vector<cad_core::ShapePtr>& sections, bool isSolid);
 
     // 选择模式组合框
     void OnSelectionModeComboChanged(int index);
@@ -250,7 +247,8 @@ private:
     void SetDocumentModified(bool modified);
     
     CreateExtrudeDialog* m_currentExtrudeDialog = nullptr;
- 
+    CreateLoftDialog* m_currentLoftDialog = nullptr;
+
     // Actions
     QAction* m_newAction;
     QAction* m_openAction;
@@ -307,12 +305,6 @@ private:
 
     // Selection mode combo box
     QComboBox* m_selectionModeCombo;
-    
-    QAction* m_importSTEPAction;
-    QAction* m_importIGESAction;
-    QAction* m_exportSTEPAction;
-    QAction* m_exportIGESAction;
-    QAction* m_exportSTLAction;
     
     QAction* m_showGridAction;
     QAction* m_showAxesAction;

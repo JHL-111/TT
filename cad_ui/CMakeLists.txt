@@ -19,6 +19,7 @@ set(HEADERS
     include/cad_ui/SketchMode.h
     include/cad_ui/FaceSelectionDialog.h
     include/cad_ui/CreateSweepDialog.h
+    include/cad_ui/CreateLoftDialog.h
 
 )
 
@@ -41,6 +42,7 @@ set(SOURCES
     src/SketchMode.cpp
     src/FaceSelectionDialog.cpp
     src/CreateSweepDialog.cpp
+    src/CreateLoftDialog.cpp
 )
 
 # 资源文件

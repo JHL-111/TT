@@ -18,6 +18,7 @@
 #include "cad_feature/RectangularFaceFeature.h"
 #include "cad_ui/CreateSweepDialog.h"
 #include "cad_feature/SweepFeature.h"
+#include "cad_feature/LoftFeature.h"
 
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -248,6 +249,10 @@ void MainWindow::CreateActions() {
     m_createSweepAction->setText("Sweep");
     m_createSweepAction->setStatusTip("Create a sweep feature");
 
+    m_createLoftAction = new QAction("", this);
+    m_createLoftAction->setText("Loft");
+    m_createLoftAction->setStatusTip("Create a loft feature");
+
     // Boolean operations with 30x30 icons (icon-only display)
     m_booleanUnionAction = new QAction("", this);
     m_booleanUnionAction->setText("Union");
@@ -381,6 +386,7 @@ void MainWindow::CreateMenus() {
     createMenu->addSeparator();
     createMenu->addAction(m_createExtrudeAction);
     createMenu->addAction(m_createSweepAction);
+    createMenu->addAction(m_createLoftAction);
 
     // Boolean menu
     QMenu* booleanMenu = menuBar()->addMenu("&Boolean");
@@ -636,9 +642,23 @@ void MainWindow::CreateToolBars() {
     sweepLayout->setContentsMargins(0, 0, 0, 0);
     featuresButtonsLayout->addLayout(sweepLayout);
 
+    QVBoxLayout* loftLayout = new QVBoxLayout();
+    QToolButton* loftBtn = new QToolButton();
+    loftBtn->setDefaultAction(m_createLoftAction);
+    loftBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    loftBtn->setIconSize(QSize(30, 30));
+    loftBtn->setFixedSize(30, 30);
+    QLabel* loftLabel = new QLabel("Loft");
+    loftLabel->setAlignment(Qt::AlignCenter);
+    loftLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
+    loftLayout->addWidget(loftBtn);
+    loftLayout->addWidget(loftLabel);
+    loftLayout->setSpacing(1);
+    loftLayout->setContentsMargins(0, 0, 0, 0);
+
+    featuresButtonsLayout->addLayout(loftLayout);
     featuresLayout->addLayout(featuresButtonsLayout);
-    designLayout->addWidget(featuresFrame);
-    
+    designLayout->addWidget(featuresFrame);  
     designLayout->addStretch();
     toolTabWidget->addTab(designTab, "Design");
     
@@ -1001,6 +1021,7 @@ void MainWindow::ConnectSignals() {
     connect(m_createSphereAction, &QAction::triggered, this, &MainWindow::OnCreateSphere);
     connect(m_createExtrudeAction, &QAction::triggered, this, &MainWindow::OnCreateExtrude);
     connect(m_createSweepAction, &QAction::triggered, this, &MainWindow::OnCreateSweep);
+    connect(m_createLoftAction, &QAction::triggered, this, &MainWindow::OnCreateLoft);
 
     // Boolean actions
     connect(m_booleanUnionAction, &QAction::triggered, this, &MainWindow::OnBooleanUnion);
@@ -1848,27 +1869,108 @@ void MainWindow::OnCreateSweep() {
 }
 
 void MainWindow::OnCreateLoft() {
-    QMessageBox::information(this, "Create Loft", "Loft feature creation not implemented yet");
+    // 避免重复打开
+    if (m_currentLoftDialog) {
+        m_currentLoftDialog->show();
+        m_currentLoftDialog->raise();
+        m_currentLoftDialog->activateWindow();
+        return;
+    }
+
+    m_currentLoftDialog = new CreateLoftDialog(m_viewer, this);
+
+    connect(m_currentLoftDialog, &CreateLoftDialog::loftRequested,
+        this, &MainWindow::OnLoftRequested);
+
+    // 对话框关闭后，记得恢复默认的鼠标选择模式并置空指针
+    connect(m_currentLoftDialog, &QDialog::finished, this, [this]() {
+        m_currentLoftDialog = nullptr;
+        m_viewer->SetSelectionMode(0); // 恢复为 Shape 模式
+        statusBar()->showMessage("Loft dialog closed.");
+        });
+
+    m_currentLoftDialog->show();
+    statusBar()->showMessage("Loft feature activated. Please select profiles sequentially in the 3D view.");
 }
 
-void MainWindow::OnImportSTEP() {
-    QMessageBox::information(this, "Import STEP", "STEP import not implemented yet");
-}
+void MainWindow::OnLoftRequested(const std::vector<cad_core::ShapePtr>& sections, bool isSolid) {
+    if (sections.size() < 2) return;
 
-void MainWindow::OnImportIGES() {
-    QMessageBox::information(this, "Import IGES", "IGES import not implemented yet");
-}
+    // 开启历史记录，支持撤销 (Undo)
+    m_ocafManager->StartTransaction("Create Loft Feature");
 
-void MainWindow::OnExportSTEP() {
-    QMessageBox::information(this, "Export STEP", "STEP export not implemented yet");
-}
+    try {
+        // 1. 初始化特征
+        std::string featureName = "Loft_" + std::to_string(m_featureManager->GetFeatureCount() + 1);
+        auto loftFeature = std::make_shared<cad_feature::LoftFeature>(featureName);
 
-void MainWindow::OnExportIGES() {
-    QMessageBox::information(this, "Export IGES", "IGES export not implemented yet");
-}
+        loftFeature->SetSolid(isSolid);
+        for (const auto& sec : sections) {
+            loftFeature->AddSection(sec);
+        }
 
-void MainWindow::OnExportSTL() {
-    QMessageBox::information(this, "Export STL", "STL export not implemented yet");
+        // 2. 运算生成 3D 实体
+        auto resultShape = loftFeature->CreateShape();
+
+        if (resultShape) {
+            loftFeature->SetResultShape(resultShape);
+
+            // 3. 将新实体添加到 OCAF 数据核心
+            if (m_ocafManager->AddShape(resultShape, featureName)) {
+
+                // 4. 更新结构树和 3D 视图
+                m_featureManager->AddFeature(loftFeature);
+                m_documentTree->AddFeature(loftFeature);
+
+                m_documentTree->AddShape(resultShape);
+                m_viewer->DisplayShape(resultShape);
+
+                // 5. 隐藏或移除原始截面面片
+                for (const auto& sec : sections) {
+                    // 隐藏普通的 3D 面或实体
+                    m_viewer->SetShapeVisibility(sec, false);
+                    m_documentTree->RemoveShape(sec);
+
+                    // 根据被消耗的面，寻找它归属的草图，并在树和视图中彻底隐藏
+                    std::shared_ptr<cad_sketch::Sketch> targetSketch = nullptr;
+                    for (const auto& sketch : m_documentTree->GetAllSketches()) {
+                        for (const auto& profile : sketch->GetProfiles()) {
+                            // 利用 OCC 的 IsSame 精准比对拓扑面
+                            if (profile->GetFace().IsSame(sec->GetOCCTShape())) {
+                                targetSketch = sketch;
+                                break;
+                            }
+                        }
+                        if (targetSketch) break;
+                    }
+
+                    // 视图里隐藏草图图形，并且左侧树打上灰色隐藏标记
+                    if (targetSketch) {
+                        m_viewer->SetSketchVisibility(targetSketch, false);
+                        m_documentTree->SetSketchUIHidden(targetSketch, true);
+                    }
+                }
+
+                m_viewer->ClearSelection();
+
+                m_ocafManager->CommitTransaction();
+                SetDocumentModified(true);
+                UpdateActions();
+
+                statusBar()->showMessage("Loft feature generated successfully.");
+            }
+            else {
+                throw std::runtime_error("Failed to add Loft shape to document.");
+            }
+        }
+        else {
+            throw std::runtime_error("Loft algorithm failed to generate shape. Please check if the selected profiles are valid and correctly oriented.");
+        }
+    }
+    catch (const std::exception& e) {
+        m_ocafManager->AbortTransaction();
+        QMessageBox::warning(this, "Loft Error", e.what());
+    }
 }
 
 void MainWindow::OnShowGrid() {
@@ -2205,7 +2307,9 @@ void MainWindow::OnObjectSelected(const cad_core::ShapePtr& shape) {
     if (m_currentExtrudeDialog) {
         m_currentExtrudeDialog->SetSelectedShape(shape);
     }
-
+    if (m_currentLoftDialog) {
+        m_currentLoftDialog->SetSelectedShape(shape);
+    }
     if (m_currentBooleanDialog) {
         m_currentBooleanDialog->onObjectSelected(shape);
     }
@@ -2780,7 +2884,11 @@ void MainWindow::OnFaceSelected(const TopoDS_Face& face) {
         return;
     }
 
-    Q_UNUSED(face);
+    if (m_currentLoftDialog) {
+        auto faceShape = std::make_shared<cad_core::Shape>(face);
+        m_currentLoftDialog->SetSelectedShape(faceShape);
+    }
+
 }
 
 void MainWindow::OnFaceSelectedForSketch(const TopoDS_Face& face) {
