@@ -2358,11 +2358,9 @@ namespace {
     }
 
     void QtOccView::CancelSweepInteraction() {
-        // 如果不是 Sweep 状态，什么都不做
-        if (m_sweepInteractionState == SweepInteractionMode::None) return;
-
-        // 重新上锁
+        // 重新上锁与状态复位
         m_sweepInteractionState = SweepInteractionMode::None;
+        m_isDrawingSweepPath = false;
 
         // 销毁可能存在的半透明预览面片
         if (!m_sweepPlanePreview.IsNull()) {
@@ -2370,11 +2368,13 @@ namespace {
             m_sweepPlanePreview.Nullify();
         }
 
-        // 如果已经切进了草图，强行退出来
+        // 如果已经切进了草图，强行退出来，并清理残留的路径
         if (IsInSketchMode()) {
-            m_sketchMode->ExitSketchMode();
+            // 调用清理函数
+            CleanupSweepUI();
         }
 
+        ClearSelection(); // 清除可能残留的选中高亮
         m_view->Redraw();
         qDebug() << "Sweep interaction cancelled and cleaned up.";
     }

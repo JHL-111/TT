@@ -28,6 +28,10 @@ namespace cad_ui {
         void OnCancelClicked();
         void OnCreatePathToggled(bool checked);
 
+    protected:
+        // 重写 reject 方法以捕获对话框关闭事件 
+        void reject() override;
+
     private:
         QtOccView* m_view;
 

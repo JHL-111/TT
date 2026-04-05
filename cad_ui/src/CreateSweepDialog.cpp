@@ -108,10 +108,24 @@ namespace cad_ui {
         accept(); // 关闭面板
     }
 
-    void CreateSweepDialog::OnCancelClicked() {
+    void CreateSweepDialog::reject() {
+        // 1. 如果路径绘制按钮仍处于被按下状态，将其恢复
+        // setChecked(false) 会自动触发 toggled 信号，从而安全地调用 
+        if (m_btnCreatePath->isChecked()) {
+            m_btnCreatePath->setChecked(false);
+        }
+
+        // 2. 取消底层视图层的扫掠交互
         if (m_view) {
             m_view->CancelSweepInteraction();
         }
+
+        // 3. 调用父类的 reject 方法真正关闭对话框 
+        QDialog::reject();
+    }
+
+    // 让取消按钮直接复用 reject 的统一清理逻辑
+    void CreateSweepDialog::OnCancelClicked() {
         reject();
     }
 
