@@ -24,6 +24,8 @@
 
 #include "cad_ui/MainWindow.h"   // 我们的主窗口 - 用户界面的"指挥中心"
 
+#include "cad_sketch/ConstraintSolverTest.h"
+
 // QRC资源初始化函数声明 - 手动初始化静态库中的资源
 extern int qInitResources_resources();
 
@@ -92,6 +94,8 @@ int main(int argc, char *argv[])
     QString theme = settings.value("theme", "light").toString();  // 默认浅色主题，护眼第一
     mainWindow.SetTheme(theme);
     
+    //RunConstraintTests();
+
     // 显示主窗口 - 隆重登场！
     mainWindow.show();
     
@@ -112,6 +116,9 @@ int main(int argc, char *argv[])
     saveSettings.setValue("geometry", mainWindow.saveGeometry());      // 保存窗口大小位置
     saveSettings.setValue("windowState", mainWindow.saveState());      // 保存窗口状态
     
+
+
+
     // 返回程序退出码 - 告诉操作系统我们是正常退出还是出了什么问题
     return result;
 }

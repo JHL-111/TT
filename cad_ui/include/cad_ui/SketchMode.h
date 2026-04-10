@@ -309,7 +309,10 @@ namespace cad_ui {
         TopoDS_Face m_sketchFace;              // 依附的三维拓扑面 (Topological Face)
         gp_Pln m_sketchPlane;                  // 提取出的数学平面 (Mathematical Plane)
         gp_Ax3 m_sketchCS;                     // 局部坐标系 (Local Coordinate System, LCS)
-        
+
+		// 自动约束矩形辅助函数
+        void AutoConstrainRectangle(const std::vector<cad_sketch::SketchElementPtr>& elements);
+
         // 拖拽状态变量 
         bool m_isDragging = false;          // 是否正在拖拽
         double m_lastDragU = 0.0;           // 上一帧的 U (X) 坐标

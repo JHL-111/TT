@@ -34,6 +34,7 @@
 #include "cad_core/TransformCommand.h"
 #include "cad_feature/FeatureManager.h"
 #include "cad_ui/CreateLoftDialog.h"
+#include "cad_sketch/ConcreteConstraints.h"
 
 namespace cad_ui {
 
@@ -149,6 +150,18 @@ private slots:
     void OnSketchCurveTool(); 
     void OnSketchToolChanged(const QString& toolName);
 
+    // Constraint actions
+    void OnConstraintHorizontal();
+    void OnConstraintVertical();
+    void OnConstraintCoincident();
+    void OnConstraintDistance();
+    void OnConstraintParallel();
+    void OnConstraintPerpendicular();
+    void OnConstraintAngle();
+    void OnConstraintEqualLength();
+    void OnConstraintFixed();
+    void OnConstraintRadius();
+
     // 对话框交互槽
     void OnSelectionModeChanged(bool enabled, const QString& prompt);
     void OnObjectSelected(const cad_core::ShapePtr& shape);
@@ -178,6 +191,8 @@ private slots:
     void OnShapeSelected(const cad_core::ShapePtr& shape);
     void OnViewChanged();
     
+
+
     // 文档树选择处理器
     void OnDocumentTreeShapeSelected(const cad_core::ShapePtr& shape);
     void OnDocumentTreeFeatureSelected(const cad_feature::FeaturePtr& feature);
@@ -246,6 +261,8 @@ private:
     bool SaveChanges();
     void SetDocumentModified(bool modified);
     
+    void ApplyConstraintAndRefresh(const cad_sketch::ConstraintPtr& constraint);
+
     CreateExtrudeDialog* m_currentExtrudeDialog = nullptr;
     CreateLoftDialog* m_currentLoftDialog = nullptr;
 
@@ -325,7 +342,17 @@ private:
     QtOccView* GetCurrentViewer() const;
     void UpdateCurrentDocument();
 
-
+    // Constraint actions
+    QAction* m_constraintHorizontalAction;
+    QAction* m_constraintVerticalAction;
+    QAction* m_constraintCoincidentAction;
+    QAction* m_constraintDistanceAction;
+    QAction* m_constraintParallelAction;
+    QAction* m_constraintPerpendicularAction;
+    QAction* m_constraintAngleAction;
+    QAction* m_constraintEqualLengthAction;
+    QAction* m_constraintFixedAction;
+    QAction* m_constraintRadiusAction;
 };
 
 } // namespace cad_ui

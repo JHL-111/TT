@@ -10,9 +10,11 @@ set(HEADERS
     include/cad_sketch/SketchElement.h
     include/cad_sketch/Constraint.h
     include/cad_sketch/ConstraintSolver.h
+    include/cad_sketch/Concreteconstraints.h
     include/cad_sketch/Sketch.h
     include/cad_sketch/SketchProfile.h
     include/cad_sketch/SnappingManager.h
+    include/cad_sketch/Constraintsolvertest.h
 )
 
 # 源文件
@@ -25,6 +27,7 @@ set(SOURCES
     src/SketchElement.cpp
     src/Constraint.cpp
     src/ConstraintSolver.cpp
+    src/Concreteconstraints.cpp
     src/Sketch.cpp
     src/SketchProfile.cpp
     src/SnappingManager.cpp
@@ -37,6 +40,15 @@ add_library(${TARGET_NAME} STATIC ${HEADERS} ${SOURCES})
 target_include_directories(${TARGET_NAME} PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${OpenCASCADE_INCLUDE_DIR}
+)
+
+# 添加 Eigen 依赖 
+find_package(Eigen3 REQUIRED)
+
+target_link_libraries(${TARGET_NAME} 
+    cad_core
+    ${OpenCASCADE_LIBRARIES}
+    Eigen3::Eigen                               # 新增
 )
 
 # 链接库

@@ -448,7 +448,8 @@ void QtOccView::ClearSelection() {
     UnhighlightAllEdges();
     UnhighlightAllVertices();
     UnhighlightAllFaces();
-    
+    UnhighlightSketchElement();
+
     m_context->ClearSelected(Standard_True);
     m_view->Redraw();
 }
@@ -896,16 +897,20 @@ void QtOccView::ClearPreviousSelectionState() {
 void QtOccView::HandleSelection(const QPoint& point) {
     if (m_context.IsNull()) return;
 
-    qDebug() << "HandleSelection called, current selection mode:" << m_currentSelectionMode;
+    // 检测 Ctrl 键：按住 Ctrl 时自动进入多选模式
+    bool ctrlHeld = QApplication::keyboardModifiers() & Qt::ControlModifier;
+    bool wasMultiMode = m_multiSelectionMode;
+    if (ctrlHeld) {
+        m_multiSelectionMode = true;
+    }
 
-    // 1. 清理阶段：统一清除之前的高亮和选中状态
+    // 1. 清除之前的选择状态（多选模式下会跳过）
     ClearPreviousSelectionState();
 
-    // 2. 鼠标位置检测
+    // 2. 检测鼠标位置下的对象
     m_context->MoveTo(point.x(), point.y(), m_view, Standard_True);
 
     if (m_context->HasDetected()) {
-        // 让 OCC 底层真实选中（触发内部选取逻辑，无论是哪种模式都需要）
         if (m_multiSelectionMode) {
             m_context->ShiftSelect(Standard_True);
         }
@@ -913,32 +918,32 @@ void QtOccView::HandleSelection(const QPoint& point) {
             m_context->Select(Standard_True);
         }
 
-        // 3. 按模式分发处理
+        // 3. 根据当前选择模式处理
         switch (m_currentSelectionMode) {
-        case 2: // Edge
-            ProcessEdgeSelection();
-            break;
-        case 1: // Vertex
-            ProcessVertexSelection();
-            break;
-        case 4: // Face
-            ProcessFaceSelection();
-            break;
-        default: // 0: Shape 或草图模式
-            ProcessShapeOrSketchSelection();
-            break;
+        case 2: ProcessEdgeSelection(); break;
+        case 1: ProcessVertexSelection(); break;
+        case 4: ProcessFaceSelection(); break;
+        default: ProcessShapeOrSketchSelection(); break;
         }
     }
     else {
-        // 4. 点击了空白区域
         qDebug() << "No object detected, clearing all selections";
         if (m_currentSelectionMode != 2) {
-            UnhighlightAllEdges(); // 非边模式下清空边高亮
+            UnhighlightAllEdges();
+        }
+        // 点击空白处时，如果不是多选模式，清除所有草图高亮
+        if (!m_multiSelectionMode) {
+            UnhighlightSketchElement();
         }
         ClearCentroid();
     }
 
-    // 5. 刷新屏幕
+    // 恢复多选模式状态（如果是 Ctrl 临时开启的）
+    if (ctrlHeld && !wasMultiMode) {
+        // 不恢复，保持多选状态直到用户点击空白处
+        // m_multiSelectionMode = wasMultiMode;
+    }
+
     m_view->Redraw();
     emit ViewChanged();
 }
@@ -1101,21 +1106,27 @@ void QtOccView::ProcessShapeOrSketchSelection() {
 
         // 2. 点中的是草图元素 
         else if (m_sketchElementMap.find(selectedObj) != m_sketchElementMap.end()) {
-            // 先清掉旧的草图高亮覆盖层，避免重复叠加
-            UnhighlightSketchElement();
+            if (m_multiSelectionMode) {
+                // 多选模式：不清除旧高亮，追加新高亮到列表
+                Handle(AIS_Shape) highlight = new AIS_Shape(aisShape->Shape());
+                highlight->SetColor(Quantity_NOC_BLUE1);
+                highlight->SetWidth(4.0);
+                highlight->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
+                m_context->Display(highlight, Standard_False);
+                m_sketchHighlightList.push_back(highlight);
+            }
+            else {
+                // 单选模式：清除旧高亮，只保留一个
+                UnhighlightSketchElement();
+                m_sketchHighlightAIS = new AIS_Shape(aisShape->Shape());
+                m_sketchHighlightAIS->SetColor(Quantity_NOC_BLUE1);
+                m_sketchHighlightAIS->SetWidth(4.0);
+                m_sketchHighlightAIS->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
+                m_context->Display(m_sketchHighlightAIS, Standard_False);
+            }
 
-            // 克隆一个临时形状盖在草图元素上方
-            m_sketchHighlightAIS = new AIS_Shape(aisShape->Shape());
-            m_sketchHighlightAIS->SetColor(Quantity_NOC_BLUE1);
-            m_sketchHighlightAIS->SetWidth(4.0);
-            m_sketchHighlightAIS->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
-
-            // 仅显示覆盖层，不加入选中池
-            m_context->Display(m_sketchHighlightAIS, Standard_False);
-
-            // 记录真实本体
             m_currentSelectedAIS = aisShape;
-            qDebug() << "Sketch element selected natively and highlighted with overlay.";
+            qDebug() << "Sketch element selected" << (m_multiSelectionMode ? "(multi)" : "(single)");
         }
 
         // 3. 点中的是普通 3D 实体 
@@ -1796,6 +1807,24 @@ namespace {
     void QtOccView::AddSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements, const gp_Ax3& sketchCS) {
         if (m_context.IsNull()) return;
 
+        // 辅助lambda：添加一个端点的可视化小圆点
+        auto addEndpointMarker = [&](const cad_sketch::SketchPointPtr& point) {
+            if (!point) return;
+            // 检查这个点是否已经注册过（避免重复，同一个点可能被两条线共享）
+            for (const auto& pair : m_sketchElementMap) {
+                if (pair.second == point) return; // 已经注册过了
+            }
+            gp_Pnt worldPt = Sketch2DToWorld(point, sketchCS);
+            TopoDS_Shape vtx = BRepBuilderAPI_MakeVertex(worldPt);
+            Handle(AIS_Shape) aisPoint = new AIS_Shape(vtx);
+            aisPoint->SetColor(Quantity_NOC_RED);
+            aisPoint->SetWidth(6.0);  // 比线段粗，容易点到
+            aisPoint->SetPolygonOffsets(Aspect_POM_Point, 1.0f, -3.0f);
+            m_context->Display(aisPoint, Standard_False);
+            m_sketchElementMap[aisPoint] = point;  // 映射到 SketchPoint
+            m_sketchObjects.push_back(aisPoint);
+            };
+
         for (const auto& elem : elements) {
             TopoDS_Shape shape = MakeShapeFromSketchElement(elem, sketchCS);
             if (shape.IsNull()) continue;
@@ -1804,9 +1833,24 @@ namespace {
             aisLine->SetColor(Quantity_NOC_RED);
             aisLine->SetWidth(2.0);
             aisLine->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
-            m_context->Display(aisLine, Standard_False); 
+            m_context->Display(aisLine, Standard_False);
             m_sketchElementMap[aisLine] = elem;
             m_sketchObjects.push_back(aisLine);
+
+            // 为线段的端点添加可点击的标记
+            if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
+                addEndpointMarker(line->GetStartPoint());
+                addEndpointMarker(line->GetEndPoint());
+            }
+            // 为圆弧的端点添加标记
+            else if (auto arc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
+                addEndpointMarker(arc->GetStartPoint());
+                addEndpointMarker(arc->GetEndPoint());
+            }
+            // 圆的圆心也加标记（便于选中做约束）
+            else if (auto circle = std::dynamic_pointer_cast<cad_sketch::SketchCircle>(elem)) {
+                addEndpointMarker(circle->GetCenter());
+            }
         }
         m_view->Redraw();
     }
@@ -1822,16 +1866,27 @@ namespace {
     }
     // 移除高亮的草图元素（通常在取消选择或切换工具时调用）
     void QtOccView::UnhighlightSketchElement() {
-        // 如果高亮存在，就把它从屏幕上彻底移除并销毁
+        // 清除单选高亮
         if (!m_sketchHighlightAIS.IsNull() && !m_context.IsNull()) {
             m_context->Remove(m_sketchHighlightAIS, Standard_False);
             m_sketchHighlightAIS.Nullify();
         }
+        // 清除多选高亮列表
+        for (auto& obj : m_sketchHighlightList) {
+            if (!obj.IsNull() && !m_context.IsNull()) {
+                m_context->Remove(obj, Standard_False);
+            }
+        }
+        m_sketchHighlightList.clear();
     }
 
     // 清理所有正式草图几何体
     void QtOccView::ClearSketchObjects() {
         if (m_context.IsNull()) return;
+
+        UnhighlightSketchElement();           
+        m_currentSelectedAIS.Nullify();       
+        m_currentSelectedShape.reset();      
 
         for (auto& obj : m_sketchObjects) {
             m_context->Remove(obj, Standard_False);
@@ -1955,6 +2010,23 @@ namespace {
     void QtOccView::RemoveSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch) {
         if (!sketch || m_context.IsNull()) return;
 
+        // 收集所有要删的元素（包括端点）
+        std::vector<cad_sketch::SketchElementPtr> allElems;
+        for (const auto& elem : sketch->GetElements()) {
+            allElems.push_back(elem);
+            if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
+                allElems.push_back(line->GetStartPoint());
+                allElems.push_back(line->GetEndPoint());
+            }
+            else if (auto arc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
+                allElems.push_back(arc->GetStartPoint());
+                allElems.push_back(arc->GetEndPoint());
+            }
+            else if (auto circle = std::dynamic_pointer_cast<cad_sketch::SketchCircle>(elem)) {
+                allElems.push_back(circle->GetCenter());
+            }
+        }
+
         // 1. 删除该草图对应的所有元素 AIS
         for (const auto& elem : sketch->GetElements()) {
             for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ) {
@@ -2019,26 +2091,43 @@ namespace {
     void QtOccView::RemoveSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements) {
         if (m_context.IsNull()) return;
 
-        // 反向查找：通过元素指针找到对应的 AIS 对象并移除
+        // 扩展待删列表：把线段/弧的端点也加进来
+        std::vector<cad_sketch::SketchElementPtr> allToRemove;
         for (const auto& elem : elements) {
+            allToRemove.push_back(elem);
+            if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
+                allToRemove.push_back(line->GetStartPoint());
+                allToRemove.push_back(line->GetEndPoint());
+            }
+            else if (auto arc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
+                allToRemove.push_back(arc->GetStartPoint());
+                allToRemove.push_back(arc->GetEndPoint());
+            }
+            else if (auto circle = std::dynamic_pointer_cast<cad_sketch::SketchCircle>(elem)) {
+                allToRemove.push_back(circle->GetCenter());
+            }
+        }
+
+        for (const auto& elem : allToRemove) {
             for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ++it) {
                 if (it->second == elem) {
                     if (m_currentSelectedAIS == it->first) {
-                        UnhighlightSketchElement();       // 移除蓝色的高亮克隆体
-                        m_currentSelectedAIS.Nullify();   // 清空选中记录
+                        UnhighlightSketchElement();
+                        m_currentSelectedAIS.Nullify();
                         m_currentSelectedShape.reset();
-                        m_context->ClearSelected(Standard_False); // 顺便清空 OCC 底层选中池
+                        m_context->ClearSelected(Standard_False);
                     }
                     m_context->Remove(it->first, Standard_False);
-                    m_sketchElementMap.erase(it); // 从映射表中注销
-                    break; // 找到了就跳出内层循环
+                    auto vecIt = std::find(m_sketchObjects.begin(), m_sketchObjects.end(), it->first);
+                    if (vecIt != m_sketchObjects.end()) m_sketchObjects.erase(vecIt);
+                    m_sketchElementMap.erase(it);
+                    break;
                 }
             }
         }
-        m_context->UpdateCurrentViewer(); // 刷新屏幕
+        m_context->UpdateCurrentViewer();
     }
 
-    // 移动元素后的刷新
     // 移动元素后的刷新 (Update visuals after dragging)
     void QtOccView::UpdateSketchElementVisuals(const cad_sketch::SketchElementPtr& elem) {
         if (m_context.IsNull() || !m_sketchMode) return;
@@ -2077,6 +2166,19 @@ namespace {
                         shouldUpdate = true;
                         break;
                     }
+                }
+            }
+
+            // 4. 如果拖拽的是一条线，底下的端点视觉也要跟着更新
+            else if (auto dragLine = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
+                if (pair.second == dragLine->GetStartPoint() || pair.second == dragLine->GetEndPoint()) {
+                    shouldUpdate = true;
+                }
+            }
+            // 5. 如果拖拽的是一个弧，端点也要更新
+            else if (auto dragArc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
+                if (pair.second == dragArc->GetStartPoint() || pair.second == dragArc->GetEndPoint()) {
+                    shouldUpdate = true;
                 }
             }
 

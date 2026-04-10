@@ -123,6 +123,9 @@ public:
      */
     bool ValidateConstraints() const;
     
+	/** 获取约束求解器的详细结果 */
+    ConstraintSolver* GetConstraintSolver() { return &m_solver; }
+
     // ========== 选择管理 ==========
     
     /** 

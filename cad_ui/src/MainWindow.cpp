@@ -325,6 +325,47 @@ void MainWindow::CreateActions() {
     m_sketchCurveAction->setStatusTip("Draw spline curve in sketch mode");
     m_sketchCurveAction->setEnabled(false);
 
+    // ---- Constraint Actions ----
+    m_constraintHorizontalAction = new QAction("Horizontal", this);
+    m_constraintHorizontalAction->setStatusTip("Make line horizontal");
+    m_constraintHorizontalAction->setEnabled(false);
+
+    m_constraintVerticalAction = new QAction("Vertical", this);
+    m_constraintVerticalAction->setStatusTip("Make line vertical");
+    m_constraintVerticalAction->setEnabled(false);
+
+    m_constraintCoincidentAction = new QAction("Coincident", this);
+    m_constraintCoincidentAction->setStatusTip("Make two points coincident");
+    m_constraintCoincidentAction->setEnabled(false);
+
+    m_constraintDistanceAction = new QAction("Distance", this);
+    m_constraintDistanceAction->setStatusTip("Set distance between two points");
+    m_constraintDistanceAction->setEnabled(false);
+
+    m_constraintParallelAction = new QAction("Parallel", this);
+    m_constraintParallelAction->setStatusTip("Make two lines parallel");
+    m_constraintParallelAction->setEnabled(false);
+
+    m_constraintPerpendicularAction = new QAction("Perpendicular", this);
+    m_constraintPerpendicularAction->setStatusTip("Make two lines perpendicular");
+    m_constraintPerpendicularAction->setEnabled(false);
+
+    m_constraintAngleAction = new QAction("Angle", this);
+    m_constraintAngleAction->setStatusTip("Set angle between two lines");
+    m_constraintAngleAction->setEnabled(false);
+
+    m_constraintEqualLengthAction = new QAction("Equal", this);
+    m_constraintEqualLengthAction->setStatusTip("Make two lines equal length");
+    m_constraintEqualLengthAction->setEnabled(false);
+
+    m_constraintFixedAction = new QAction("Fixed", this);
+    m_constraintFixedAction->setStatusTip("Fix point at current position");
+    m_constraintFixedAction->setEnabled(false);
+
+    m_constraintRadiusAction = new QAction("Radius", this);
+    m_constraintRadiusAction->setStatusTip("Set circle/arc radius");
+    m_constraintRadiusAction->setEnabled(false);
+
     // Theme actions
     m_darkThemeAction = new QAction("&Dark Theme", this);
     m_darkThemeAction->setCheckable(true);
@@ -413,6 +454,19 @@ void MainWindow::CreateMenus() {
     sketchMenu->addAction(m_sketchArcAction);
     sketchMenu->addAction(m_sketchCurveAction);
     
+    sketchMenu->addSeparator();
+    QMenu* constraintMenu = sketchMenu->addMenu("Constraints");
+    constraintMenu->addAction(m_constraintHorizontalAction);
+    constraintMenu->addAction(m_constraintVerticalAction);
+    constraintMenu->addAction(m_constraintCoincidentAction);
+    constraintMenu->addAction(m_constraintDistanceAction);
+    constraintMenu->addAction(m_constraintParallelAction);
+    constraintMenu->addAction(m_constraintPerpendicularAction);
+    constraintMenu->addAction(m_constraintAngleAction);
+    constraintMenu->addAction(m_constraintEqualLengthAction);
+    constraintMenu->addAction(m_constraintFixedAction);
+    constraintMenu->addAction(m_constraintRadiusAction);
+
     // Tools menu
     QMenu* toolsMenu = menuBar()->addMenu("&Tools");
     toolsMenu->addAction(m_darkThemeAction);
@@ -946,6 +1000,49 @@ void MainWindow::CreateToolBars() {
     sketchToolsLayout->addLayout(sketchToolsButtonsLayout);
     sketchLayout->addWidget(sketchToolsFrame);
     
+    // Constraint tools group
+    QFrame* constraintFrame = new QFrame();
+    constraintFrame->setFrameStyle(QFrame::StyledPanel);
+    QVBoxLayout* constraintMainLayout = new QVBoxLayout(constraintFrame);
+    constraintMainLayout->setContentsMargins(2, 1, 2, 2);
+    constraintMainLayout->setSpacing(1);
+
+    QLabel* constraintLabel = new QLabel("Constraints");
+    constraintLabel->setAlignment(Qt::AlignCenter);
+    constraintMainLayout->addWidget(constraintLabel);
+
+    // 两行按钮布局
+    QHBoxLayout* constraintRow1 = new QHBoxLayout();
+    constraintRow1->setSpacing(2);
+    QHBoxLayout* constraintRow2 = new QHBoxLayout();
+    constraintRow2->setSpacing(2);
+
+    auto makeConstraintBtn = [](QAction* action) {
+        QToolButton* btn = new QToolButton();
+        btn->setDefaultAction(action);
+        btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        btn->setFixedHeight(25);
+        return btn;
+        };
+
+    // 第一行: Horizontal, Vertical, Coincident, Distance, Fixed
+    constraintRow1->addWidget(makeConstraintBtn(m_constraintHorizontalAction));
+    constraintRow1->addWidget(makeConstraintBtn(m_constraintVerticalAction));
+    constraintRow1->addWidget(makeConstraintBtn(m_constraintCoincidentAction));
+    constraintRow1->addWidget(makeConstraintBtn(m_constraintDistanceAction));
+    constraintRow1->addWidget(makeConstraintBtn(m_constraintFixedAction));
+
+    // 第二行: Parallel, Perpendicular, Angle, Equal, Radius
+    constraintRow2->addWidget(makeConstraintBtn(m_constraintParallelAction));
+    constraintRow2->addWidget(makeConstraintBtn(m_constraintPerpendicularAction));
+    constraintRow2->addWidget(makeConstraintBtn(m_constraintAngleAction));
+    constraintRow2->addWidget(makeConstraintBtn(m_constraintEqualLengthAction));
+    constraintRow2->addWidget(makeConstraintBtn(m_constraintRadiusAction));
+
+    constraintMainLayout->addLayout(constraintRow1);
+    constraintMainLayout->addLayout(constraintRow2);
+    sketchLayout->addWidget(constraintFrame);
+
     sketchLayout->addStretch();
     toolTabWidget->addTab(sketchTab, "Sketch");
     
@@ -1044,6 +1141,18 @@ void MainWindow::ConnectSignals() {
     connect(m_sketchCircleAction, &QAction::triggered, this, &MainWindow::OnSketchCircleTool);
     connect(m_sketchArcAction, &QAction::triggered, this, &MainWindow::OnSketchArcTool); 
     connect(m_sketchCurveAction, &QAction::triggered, this, &MainWindow::OnSketchCurveTool);
+
+    // Constraint actions
+    connect(m_constraintHorizontalAction, &QAction::triggered, this, &MainWindow::OnConstraintHorizontal);
+    connect(m_constraintVerticalAction, &QAction::triggered, this, &MainWindow::OnConstraintVertical);
+    connect(m_constraintCoincidentAction, &QAction::triggered, this, &MainWindow::OnConstraintCoincident);
+    connect(m_constraintDistanceAction, &QAction::triggered, this, &MainWindow::OnConstraintDistance);
+    connect(m_constraintParallelAction, &QAction::triggered, this, &MainWindow::OnConstraintParallel);
+    connect(m_constraintPerpendicularAction, &QAction::triggered, this, &MainWindow::OnConstraintPerpendicular);
+    connect(m_constraintAngleAction, &QAction::triggered, this, &MainWindow::OnConstraintAngle);
+    connect(m_constraintEqualLengthAction, &QAction::triggered, this, &MainWindow::OnConstraintEqualLength);
+    connect(m_constraintFixedAction, &QAction::triggered, this, &MainWindow::OnConstraintFixed);
+    connect(m_constraintRadiusAction, &QAction::triggered, this, &MainWindow::OnConstraintRadius);
 
     // Selection mode combo box connected in CreateSelectionModeCombo()
     
@@ -2936,6 +3045,17 @@ void MainWindow::OnSketchModeEntered() {
     m_sketchArcAction->setEnabled(true);
     m_sketchCurveAction->setEnabled(true);
 
+    m_constraintHorizontalAction->setEnabled(true);
+    m_constraintVerticalAction->setEnabled(true);
+    m_constraintCoincidentAction->setEnabled(true);
+    m_constraintDistanceAction->setEnabled(true);
+    m_constraintParallelAction->setEnabled(true);
+    m_constraintPerpendicularAction->setEnabled(true);
+    m_constraintAngleAction->setEnabled(true);
+    m_constraintEqualLengthAction->setEnabled(true);
+    m_constraintFixedAction->setEnabled(true);
+    m_constraintRadiusAction->setEnabled(true);
+
     // Reset selection mode
     //m_viewer->SetSelectionMode(0);  // Shape selection mode
     
@@ -2968,6 +3088,17 @@ void MainWindow::OnSketchModeExited() {
     m_sketchCircleAction->setEnabled(false); 
     m_sketchArcAction->setEnabled(false);
     m_sketchCurveAction->setEnabled(false);
+
+    m_constraintHorizontalAction->setEnabled(false);
+    m_constraintVerticalAction->setEnabled(false);
+    m_constraintCoincidentAction->setEnabled(false);
+    m_constraintDistanceAction->setEnabled(false);
+    m_constraintParallelAction->setEnabled(false);
+    m_constraintPerpendicularAction->setEnabled(false);
+    m_constraintAngleAction->setEnabled(false);
+    m_constraintEqualLengthAction->setEnabled(false);
+    m_constraintFixedAction->setEnabled(false);
+    m_constraintRadiusAction->setEnabled(false);
 
     m_viewer->SetSelectionMode(0);
 
@@ -3037,6 +3168,295 @@ void MainWindow::OnSketchToolChanged(const QString& toolName) {
     m_sketchArcAction->blockSignals(false);
     m_sketchPointAction->blockSignals(false);
     m_sketchCurveAction->blockSignals(false);
+}
+
+// =========================================================================
+// 约束操作 Slot 实现
+// =========================================================================
+
+// 获取选中的草图元素并按类型分类
+
+struct SketchSelection {
+    std::vector<cad_sketch::SketchPointPtr> points;
+    std::vector<cad_sketch::SketchLinePtr> lines;
+    std::vector<cad_sketch::SketchCirclePtr> circles;
+    std::vector<cad_sketch::SketchArcPtr> arcs;
+};
+
+static SketchSelection ClassifySelectedElements(cad_ui::QtOccView* viewer) {
+    SketchSelection sel;
+    auto elements = viewer->GetSelectedSketchElements();
+    for (const auto& elem : elements) {
+        if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
+            sel.lines.push_back(line);
+        }
+        else if (auto circle = std::dynamic_pointer_cast<cad_sketch::SketchCircle>(elem)) {
+            sel.circles.push_back(circle);
+        }
+        else if (auto arc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
+            sel.arcs.push_back(arc);
+        }
+        else if (auto point = std::dynamic_pointer_cast<cad_sketch::SketchPoint>(elem)) {
+            sel.points.push_back(point);
+        }
+    }
+    // 把线段的端点也收集起来（如果用户选的是线段但需要点）
+    return sel;
+}
+
+// 约束应用后的通用处理：求解 + 刷新视图 + 清除选择状态
+void MainWindow::ApplyConstraintAndRefresh(const cad_sketch::ConstraintPtr& constraint) {
+    auto sketch = m_viewer->GetActiveSketch();
+    if (!sketch || !constraint) return;
+
+    // 先停掉当前的绘图工具（避免冲突）
+    if (m_viewer->HasActiveSketchTool()) {
+        m_viewer->StopSketchTool();
+    }
+
+    sketch->AddConstraint(constraint);
+    bool ok = sketch->SolveConstraints();
+
+    auto result = sketch->GetConstraintSolver()->GetLastResult();
+
+    // 无论成功失败，都清除多选状态和高亮
+    m_viewer->SetMultiSelectionMode(false);
+    m_viewer->ClearSelection();
+
+    if (ok) {
+        // 刷新视图：清除旧的草图显示，重新渲染
+        gp_Ax3 cs = m_viewer->GetSketchCS();
+        m_viewer->ClearSketchObjects();
+        m_viewer->AddSketchElements(sketch->GetElements(), cs);
+        sketch->UpdateProfiles(cs);
+        m_viewer->ClearSketchProfiles();
+        m_viewer->RenderSketchProfiles(sketch->GetProfiles());
+
+        statusBar()->showMessage(QString("Constraint applied (converged in %1 iterations)")
+            .arg(result.iterations));
+    }
+    else {
+        // 求解失败，移除刚加的约束
+        sketch->RemoveConstraint(constraint);
+        statusBar()->showMessage(QString("Constraint failed to solve (error=%1)")
+            .arg(result.finalError));
+        QMessageBox::warning(this, "Constraint Error",
+            "The constraint could not be satisfied.\n"
+            "It may conflict with existing constraints.");
+    }
+}
+
+// ---------- 1. Horizontal ----------
+void MainWindow::OnConstraintHorizontal() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    auto sel = ClassifySelectedElements(m_viewer);
+
+    if (sel.lines.empty()) {
+        statusBar()->showMessage("Please select a line first, then click Horizontal");
+        return;
+    }
+    for (auto& line : sel.lines) {
+        auto c = std::make_shared<cad_sketch::HorizontalConstraint>(line);
+        ApplyConstraintAndRefresh(c);
+    }
+}
+
+// ---------- 2. Vertical ----------
+void MainWindow::OnConstraintVertical() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    auto sel = ClassifySelectedElements(m_viewer);
+
+    if (sel.lines.empty()) {
+        statusBar()->showMessage("Please select a line first, then click Vertical");
+        return;
+    }
+    for (auto& line : sel.lines) {
+        auto c = std::make_shared<cad_sketch::VerticalConstraint>(line);
+        ApplyConstraintAndRefresh(c);
+    }
+}
+
+// ---------- 3. Coincident ----------
+void MainWindow::OnConstraintCoincident() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    auto sel = ClassifySelectedElements(m_viewer);
+
+    // 收集所有可用的点：独立的点 + 线段端点
+    std::vector<cad_sketch::SketchPointPtr> allPoints = sel.points;
+    for (auto& line : sel.lines) {
+        allPoints.push_back(line->GetStartPoint());
+        allPoints.push_back(line->GetEndPoint());
+    }
+
+    if (allPoints.size() < 2) {
+        statusBar()->showMessage("Please select 2 points (or 2 line endpoints) for Coincident");
+        return;
+    }
+
+    // 把第一个点和第二个点重合
+    auto c = std::make_shared<cad_sketch::CoincidentConstraint>(allPoints[0], allPoints[1]);
+    ApplyConstraintAndRefresh(c);
+}
+
+// ---------- 4. Distance ----------
+void MainWindow::OnConstraintDistance() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    auto sel = ClassifySelectedElements(m_viewer);
+
+    // 如果选了一条线：约束这条线的长度
+    // 如果选了两个点：约束两点距离
+    cad_sketch::SketchPointPtr p1, p2;
+    double currentDist = 0.0;
+
+    if (!sel.lines.empty()) {
+        p1 = sel.lines[0]->GetStartPoint();
+        p2 = sel.lines[0]->GetEndPoint();
+        currentDist = sel.lines[0]->GetLength();
+    }
+    else {
+        std::vector<cad_sketch::SketchPointPtr> allPoints = sel.points;
+        for (auto& line : sel.lines) {
+            allPoints.push_back(line->GetStartPoint());
+            allPoints.push_back(line->GetEndPoint());
+        }
+        if (allPoints.size() < 2) {
+            statusBar()->showMessage("Please select a line or 2 points for Distance constraint");
+            return;
+        }
+        p1 = allPoints[0];
+        p2 = allPoints[1];
+        currentDist = p1->GetPoint().Distance(p2->GetPoint());
+    }
+
+    // 弹出对话框让用户输入目标距离
+    bool ok;
+    double targetDist = QInputDialog::getDouble(this, "Distance Constraint",
+        "Enter target distance:", currentDist, 0.001, 99999.0, 3, &ok);
+    if (!ok) return;
+
+    auto c = std::make_shared<cad_sketch::DistanceConstraint>(p1, p2, targetDist);
+    ApplyConstraintAndRefresh(c);
+}
+
+// ---------- 5. Parallel ----------
+void MainWindow::OnConstraintParallel() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    auto sel = ClassifySelectedElements(m_viewer);
+
+    if (sel.lines.size() < 2) {
+        statusBar()->showMessage("Please select 2 lines for Parallel constraint");
+        return;
+    }
+    auto c = std::make_shared<cad_sketch::ParallelConstraint>(sel.lines[0], sel.lines[1]);
+    ApplyConstraintAndRefresh(c);
+}
+
+// ---------- 6. Perpendicular ----------
+void MainWindow::OnConstraintPerpendicular() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    auto sel = ClassifySelectedElements(m_viewer);
+
+    if (sel.lines.size() < 2) {
+        statusBar()->showMessage("Please select 2 lines for Perpendicular constraint");
+        return;
+    }
+    auto c = std::make_shared<cad_sketch::PerpendicularConstraint>(sel.lines[0], sel.lines[1]);
+    ApplyConstraintAndRefresh(c);
+}
+
+// ---------- 7. Angle ----------
+void MainWindow::OnConstraintAngle() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    auto sel = ClassifySelectedElements(m_viewer);
+
+    if (sel.lines.size() < 2) {
+        statusBar()->showMessage("Please select 2 lines for Angle constraint");
+        return;
+    }
+
+    // 计算当前夹角
+    double dx1 = sel.lines[0]->GetEndPoint()->GetX() - sel.lines[0]->GetStartPoint()->GetX();
+    double dy1 = sel.lines[0]->GetEndPoint()->GetY() - sel.lines[0]->GetStartPoint()->GetY();
+    double dx2 = sel.lines[1]->GetEndPoint()->GetX() - sel.lines[1]->GetStartPoint()->GetX();
+    double dy2 = sel.lines[1]->GetEndPoint()->GetY() - sel.lines[1]->GetStartPoint()->GetY();
+    double currentAngleDeg = std::atan2(dx1 * dy2 - dy1 * dx2, dx1 * dx2 + dy1 * dy2) * 180.0 / M_PI;
+
+    bool ok;
+    double targetDeg = QInputDialog::getDouble(this, "Angle Constraint",
+        "Enter target angle (degrees):", std::abs(currentAngleDeg), 0.0, 360.0, 2, &ok);
+    if (!ok) return;
+
+    double targetRad = targetDeg * M_PI / 180.0;
+    auto c = std::make_shared<cad_sketch::AngleConstraint>(sel.lines[0], sel.lines[1], targetRad);
+    ApplyConstraintAndRefresh(c);
+}
+
+// ---------- 8. Equal Length ----------
+void MainWindow::OnConstraintEqualLength() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    auto sel = ClassifySelectedElements(m_viewer);
+
+    if (sel.lines.size() < 2) {
+        statusBar()->showMessage("Please select 2 lines for Equal Length constraint");
+        return;
+    }
+    auto c = std::make_shared<cad_sketch::EqualLengthConstraint>(sel.lines[0], sel.lines[1]);
+    ApplyConstraintAndRefresh(c);
+}
+
+// ---------- 9. Fixed ----------
+void MainWindow::OnConstraintFixed() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    auto sel = ClassifySelectedElements(m_viewer);
+
+    // 收集所有点
+    std::vector<cad_sketch::SketchPointPtr> allPoints = sel.points;
+    for (auto& line : sel.lines) {
+        allPoints.push_back(line->GetStartPoint());
+        allPoints.push_back(line->GetEndPoint());
+    }
+
+    if (allPoints.empty()) {
+        statusBar()->showMessage("Please select a point (or line endpoint) to fix");
+        return;
+    }
+
+    // 固定第一个点在当前位置
+    auto c = std::make_shared<cad_sketch::FixedConstraint>(allPoints[0]);
+    ApplyConstraintAndRefresh(c);
+}
+
+// ---------- 10. Radius ----------
+void MainWindow::OnConstraintRadius() {
+    if (!m_viewer || !m_viewer->IsInSketchMode()) return;
+    auto sel = ClassifySelectedElements(m_viewer);
+
+    if (sel.circles.empty() && sel.arcs.empty()) {
+        statusBar()->showMessage("Please select a circle or arc for Radius constraint");
+        return;
+    }
+
+    double currentRadius = 0.0;
+    if (!sel.circles.empty()) {
+        currentRadius = sel.circles[0]->GetRadius();
+    }
+    else {
+        currentRadius = sel.arcs[0]->GetRadius();
+    }
+
+    bool ok;
+    double targetRadius = QInputDialog::getDouble(this, "Radius Constraint",
+        "Enter target radius:", currentRadius, 0.001, 99999.0, 3, &ok);
+    if (!ok) return;
+
+    cad_sketch::ConstraintPtr c;
+    if (!sel.circles.empty()) {
+        c = std::make_shared<cad_sketch::RadiusConstraint>(sel.circles[0], targetRadius);
+    }
+    else {
+        c = std::make_shared<cad_sketch::RadiusConstraint>(sel.arcs[0], targetRadius);
+    }
+    ApplyConstraintAndRefresh(c);
 }
 
 } // namespace cad_ui

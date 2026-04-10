@@ -4,7 +4,7 @@
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QDebug>
-
+#include <cad_sketch/Concreteconstraints.h>
 #include <BRep_Tool.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <Geom_Plane.hxx>
@@ -926,13 +926,20 @@ namespace cad_ui {
                 m_isRotating = false;
                 m_draggedElements.clear();
 
-                // 拖拽松开后，线条位置发生变化，重新计算并渲染轮廓
                 if (m_currentSketch) {
+                    // 如果有约束，松手后重新求解
+                    if (!m_currentSketch->GetConstraints().empty()) {
+                        m_currentSketch->SolveConstraints();
+                        // 求解改变了几何位置，需要清除旧 AIS 重新生成
+                        m_viewer->ClearSketchObjects();
+                        m_viewer->AddSketchElements(m_currentSketch->GetElements(), m_sketchCS);
+                    }
+
                     m_currentSketch->UpdateProfiles(m_sketchCS);
+                    m_viewer->ClearSketchProfiles();
                     m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());
                 }
 
-                // 触发历史记录更新，点亮撤销按钮（可将此次平移计入 Undo）
                 emit sketchHistoryChanged();
             }
         }
@@ -977,21 +984,25 @@ namespace cad_ui {
         if (m_viewer && m_isActive) {
             m_viewer->HideSnapIndicator();
             m_viewer->ClearSketchPreview();
-            // 直接把泛型元素传给 Viewer
             m_viewer->AddSketchElements(elements, m_sketchCS);
 
             if (m_currentSketch) {
                 for (const auto& elem : elements) {
                     m_currentSketch->AddElement(elem);
-
-                    m_undoStack.push_back({ SketchHistoryStep::ADD, elements });
-                    m_redoStack.clear();
-                    emit sketchHistoryChanged();
                 }
+
+                m_undoStack.push_back({ SketchHistoryStep::ADD, elements });
+                m_redoStack.clear();
+                emit sketchHistoryChanged();
+
+                // ---- 新增：矩形自动约束 ----
+                if (auto* rectTool = dynamic_cast<SketchRectangleTool*>(m_currentTool.get())) {
+                    AutoConstrainRectangle(elements);
+                }
+                // ---- 新增结束 ----
 
                 m_currentSketch->UpdateProfiles(m_sketchCS);
                 m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());
-
             }
         }
         emit statusMessageChanged(tr("Shape created."));
@@ -1208,6 +1219,36 @@ namespace cad_ui {
             m_currentSketch->UpdateProfiles(m_sketchCS);
             m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());
         }
+    }
+
+    void SketchMode::AutoConstrainRectangle(const std::vector<cad_sketch::SketchElementPtr>& elements) {
+        // 矩形必须恰好 4 条线
+        if (elements.size() != 4) return;
+
+        std::vector<cad_sketch::SketchLinePtr> lines;
+        for (const auto& elem : elements) {
+            auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem);
+            if (!line) return;  // 不全是线段，不是矩形
+            lines.push_back(line);
+        }
+
+        // lines[0]=底, lines[1]=右, lines[2]=顶, lines[3]=左
+        // 水平约束：底和顶
+        m_currentSketch->AddConstraint(std::make_shared<cad_sketch::HorizontalConstraint>(lines[0]));
+        m_currentSketch->AddConstraint(std::make_shared<cad_sketch::HorizontalConstraint>(lines[2]));
+        // 竖直约束：右和左
+        m_currentSketch->AddConstraint(std::make_shared<cad_sketch::VerticalConstraint>(lines[1]));
+        m_currentSketch->AddConstraint(std::make_shared<cad_sketch::VerticalConstraint>(lines[3]));
+
+        // 四角重合约束（确保求解器知道角点相连）
+        m_currentSketch->AddConstraint(std::make_shared<cad_sketch::CoincidentConstraint>(
+            lines[0]->GetEndPoint(), lines[1]->GetStartPoint()));
+        m_currentSketch->AddConstraint(std::make_shared<cad_sketch::CoincidentConstraint>(
+            lines[1]->GetEndPoint(), lines[2]->GetStartPoint()));
+        m_currentSketch->AddConstraint(std::make_shared<cad_sketch::CoincidentConstraint>(
+            lines[2]->GetEndPoint(), lines[3]->GetStartPoint()));
+        m_currentSketch->AddConstraint(std::make_shared<cad_sketch::CoincidentConstraint>(
+            lines[3]->GetEndPoint(), lines[0]->GetStartPoint()));
     }
 
     void SketchMode::Undo() {

@@ -281,6 +281,7 @@ private:
     std::vector<Handle(AIS_InteractiveObject)> m_sketchProfileObjects;
     // 草图的临时选中高亮层机制 
     Handle(AIS_Shape) m_sketchHighlightAIS;
+    std::vector<Handle(AIS_InteractiveObject)> m_sketchHighlightList;
     void UnhighlightSketchElement();
 
     void InitializeOCC();
