@@ -2028,7 +2028,7 @@ namespace {
         }
 
         // 1. 删除该草图对应的所有元素 AIS
-        for (const auto& elem : sketch->GetElements()) {
+        for (const auto& elem : allElems){
             for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ) {
                 if (it->second == elem) {
                     if (m_currentSelectedAIS == it->first) {
