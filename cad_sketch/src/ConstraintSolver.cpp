@@ -103,9 +103,19 @@ namespace cad_sketch {
         // 3. 同步变量映射到约束
         SyncVariableMapToConstraints();
 
+        // ★ 关键修复：求解前保存所有点的坐标快照
+        std::vector<double> savedCoords;
+        ReadVariables(savedCoords);
+
         // 4. 迭代求解
         bool result = IterativeSolve();
         m_lastResult.converged = result;
+
+        // ★ 关键修复：求解失败时回滚到原始坐标，防止线条消失
+        if (!result) {
+            WriteVariables(savedCoords);
+        }
+
         return result;
     }
 
@@ -181,6 +191,9 @@ namespace cad_sketch {
 
         if (N == 0 || M == 0) return true;
 
+        double prevError = std::numeric_limits<double>::max();
+        int divergeCount = 0;  // ★ 新增：连续发散计数
+
         for (int iteration = 0; iteration < m_maxIterations; ++iteration) {
             m_lastResult.iterations = iteration + 1;
 
@@ -221,6 +234,19 @@ namespace cad_sketch {
                 return true; // 收敛！
             }
 
+            // ★ 新增：检测误差是否在持续增大（发散）
+            if (error > prevError * 1.1) {
+                divergeCount++;
+                if (divergeCount >= 5) {
+                    // 连续 5 次误差增大，判定为约束冲突/发散
+                    return false;
+                }
+            }
+            else {
+                divergeCount = 0;
+            }
+            prevError = error;
+
             // ----- Step 3: 解法方程 (J^T·J)·Δx = -J^T·F -----
             // 法方程形式适用于超定/欠定系统
             Eigen::MatrixXd JtJ = J.transpose() * J;
@@ -237,6 +263,13 @@ namespace cad_sketch {
             // 检查求解是否有效
             if (dx.hasNaN()) {
                 return false; // 数值问题，求解失败
+            }
+
+            // ★ 新增：限制单步最大位移，防止坐标飞掉
+            double maxStep = dx.lpNorm<Eigen::Infinity>();
+            if (maxStep > 1e6) {
+                // 步长过大说明系统可能发散或约束冲突，提前终止
+                return false;
             }
 
             // ----- Step 4: 阻尼更新变量 -----

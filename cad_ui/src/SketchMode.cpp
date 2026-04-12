@@ -837,6 +837,7 @@ namespace cad_ui {
                     // 按下 Ctrl 键，进入旋转模式 
                     if (event->modifiers() & Qt::ControlModifier) {
                         m_isRotating = true;
+                        m_didActuallyMove = false;
                         m_isFirstRotation = true; // 标记这是旋转的第一帧
                         GetPlaneCoordinate(event->pos(), m_rotCenterU, m_rotCenterV);
                         m_lastAngle = 0.0;
@@ -844,6 +845,7 @@ namespace cad_ui {
                     // 否则进入平移模式 
                     else {
                         m_isDragging = true;
+                        m_didActuallyMove = false;
                         GetPlaneCoordinate(event->pos(), m_lastDragU, m_lastDragV);
                     }
                 }
@@ -864,7 +866,7 @@ namespace cad_ui {
             }
         }
         else {
-            // --- 旋转逻辑 ---
+            // 旋转逻辑 
             if (m_isRotating && !m_draggedElements.empty()) {
                 double currentU = 0.0, currentV = 0.0;
                 GetPlaneCoordinate(event->pos(), currentU, currentV);
@@ -889,7 +891,7 @@ namespace cad_ui {
 
                 m_lastAngle = currentAngle;
             }
-            // --- 平移逻辑 ---
+            // 平移逻辑
             else if (m_isDragging && !m_draggedElements.empty()) {
                 double currentU = 0.0, currentV = 0.0;
                 GetPlaneCoordinate(event->pos(), currentU, currentV);
@@ -897,16 +899,19 @@ namespace cad_ui {
                 double dx = currentU - m_lastDragU;
                 double dy = currentV - m_lastDragV;
 
-                for (auto& elem : m_draggedElements) {
-                    elem->Translate(dx, dy);
-                    m_viewer->UpdateSketchElementVisuals(elem);
+                if (std::abs(dx) > 1e-6 || std::abs(dy) > 1e-6) {   // 死区判断
+                    m_didActuallyMove = true;   //确认发生了真实移动
+                    for (auto& elem : m_draggedElements) {
+                        elem->Translate(dx, dy);
+                        m_viewer->UpdateSketchElementVisuals(elem);
+                    }
+                    m_lastDragU = currentU;
+                    m_lastDragV = currentV;
                 }
-
-                m_lastDragU = currentU;
-                m_lastDragV = currentV;
             }
         }
     }
+
 
     void SketchMode::HandleMouseRelease(QMouseEvent * event) {
         // 如果正在临时 3D 观察中，直接放弃处理，把控制权还给 3D 视图旋转
@@ -922,19 +927,18 @@ namespace cad_ui {
         // 结束平移拖拽
         else if (!m_currentTool && event->button() == Qt::LeftButton) {
             if (m_isDragging || m_isRotating) {
+                bool needRebuild = m_didActuallyMove;
                 m_isDragging = false;
                 m_isRotating = false;
+                m_didActuallyMove = false;
                 m_draggedElements.clear();
 
-                if (m_currentSketch) {
-                    // 如果有约束，松手后重新求解
+                if (m_currentSketch && needRebuild) {   //只有真正移动了才重建
                     if (!m_currentSketch->GetConstraints().empty()) {
                         m_currentSketch->SolveConstraints();
-                        // 求解改变了几何位置，需要清除旧 AIS 重新生成
                         m_viewer->ClearSketchObjects();
                         m_viewer->AddSketchElements(m_currentSketch->GetElements(), m_sketchCS);
                     }
-
                     m_currentSketch->UpdateProfiles(m_sketchCS);
                     m_viewer->ClearSketchProfiles();
                     m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());

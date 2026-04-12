@@ -70,344 +70,347 @@ namespace cad_ui {
         m_currentMouseButton(Qt::NoButton),
         m_currentSelectedShape(nullptr),
         m_currentSelectionMode(0) {
-    
-    // Set widget attributes to reduce flicker
-    setAttribute(Qt::WA_PaintOnScreen);
-    setAttribute(Qt::WA_NoSystemBackground);
-    setAttribute(Qt::WA_NativeWindow);
-    setAttribute(Qt::WA_OpaquePaintEvent);  // Prevent Qt from erasing background
-    setAttribute(Qt::WA_StaticContents);    // Widget contents don't scroll
-    setMouseTracking(true);
-    setFocusPolicy(Qt::StrongFocus);
-    setAutoFillBackground(false);  // Don't fill background to reduce flicker
-    setFocusPolicy(Qt::StrongFocus);
 
-    // Initialize timer for redraw
-    m_redrawTimer = new QTimer(this);
-    m_redrawTimer->setSingleShot(true);
-    connect(m_redrawTimer, &QTimer::timeout, this, &QtOccView::OnRedrawTimer);
-    
-    // Initialize selection manager
-    m_selectionManager = std::make_unique<cad_core::SelectionManager>();
-    
-    // Initialize sketch mode (delayed initialization to avoid crash)
-    m_sketchMode = nullptr; // Will be initialized on first use
-    
-    // Initialize OpenCASCADE
-    InitializeOCC();
-}
+        // Set widget attributes to reduce flicker
+        setAttribute(Qt::WA_PaintOnScreen);
+        setAttribute(Qt::WA_NoSystemBackground);
+        setAttribute(Qt::WA_NativeWindow);
+        setAttribute(Qt::WA_OpaquePaintEvent);  // Prevent Qt from erasing background
+        setAttribute(Qt::WA_StaticContents);    // Widget contents don't scroll
+        setMouseTracking(true);
+        setFocusPolicy(Qt::StrongFocus);
+        setAutoFillBackground(false);  // Don't fill background to reduce flicker
+        setFocusPolicy(Qt::StrongFocus);
 
-bool QtOccView::InitViewer() {
-    if (m_isInitialized) {
-        return true;
+        // Initialize timer for redraw
+        m_redrawTimer = new QTimer(this);
+        m_redrawTimer->setSingleShot(true);
+        connect(m_redrawTimer, &QTimer::timeout, this, &QtOccView::OnRedrawTimer);
+
+        // Initialize selection manager
+        m_selectionManager = std::make_unique<cad_core::SelectionManager>();
+
+        // Initialize sketch mode (delayed initialization to avoid crash)
+        m_sketchMode = nullptr; // Will be initialized on first use
+
+        // Initialize OpenCASCADE
+        InitializeOCC();
     }
-    
-    // Ensure widget has a valid window ID
-    if (winId() == 0) {
-        // Widget not ready yet, defer initialization
-        return false;
-    }
-    
-    try {
-        // Create graphics driver
-        Handle(Aspect_DisplayConnection) displayConnection = new Aspect_DisplayConnection();
-        m_driver = new OpenGl_GraphicDriver(displayConnection);
-        
-        // Create viewer
-        m_viewer = new V3d_Viewer(m_driver);
-        m_viewer->SetDefaultLights();
-        m_viewer->SetLightOn();
-        
-        // Create interactive context
-        m_context = new AIS_InteractiveContext(m_viewer);
-        
-        // Create view
-        m_view = m_viewer->CreateView();
-        
-        // Create window
+
+    bool QtOccView::InitViewer() {
+        if (m_isInitialized) {
+            return true;
+        }
+
+        // Ensure widget has a valid window ID
+        if (winId() == 0) {
+            // Widget not ready yet, defer initialization
+            return false;
+        }
+
+        try {
+            // Create graphics driver
+            Handle(Aspect_DisplayConnection) displayConnection = new Aspect_DisplayConnection();
+            m_driver = new OpenGl_GraphicDriver(displayConnection);
+
+            // Create viewer
+            m_viewer = new V3d_Viewer(m_driver);
+            m_viewer->SetDefaultLights();
+            m_viewer->SetLightOn();
+
+            // Create interactive context
+            m_context = new AIS_InteractiveContext(m_viewer);
+
+            // Create view
+            m_view = m_viewer->CreateView();
+
+            // Create window
 #ifdef _WIN32
-        Handle(WNT_Window) window = new WNT_Window(reinterpret_cast<Aspect_Handle>(winId()));
+            Handle(WNT_Window) window = new WNT_Window(reinterpret_cast<Aspect_Handle>(winId()));
 #elif defined(__APPLE__)
-        Handle(Cocoa_Window) window = new Cocoa_Window(reinterpret_cast<NSView*>(winId()));
+            Handle(Cocoa_Window) window = new Cocoa_Window(reinterpret_cast<NSView*>(winId()));
 #else
-        Handle(Xw_Window) window = new Xw_Window(displayConnection, winId());
+            Handle(Xw_Window) window = new Xw_Window(displayConnection, winId());
 #endif
-        
-        m_view->SetWindow(window);
-        
-        // Ensure window is mapped properly
-        if (!window->IsMapped()) {
-            window->Map();
-        }
-        
-        // Set up view
-        m_view->SetBackgroundColor(Quantity_NOC_GRAY30);
-        
-        // Ensure proper sizing
-        window->DoResize();
-        m_view->MustBeResized();
-        // Note: Trihedron (coordinate axes) will be controlled by ShowAxes() function
-        
-        // Add ViewCube for navigation (without axis labels to avoid duplication)
-        Handle(AIS_ViewCube) viewCube = new AIS_ViewCube();
-        viewCube->SetSize(50, Standard_False);
-        viewCube->SetBoxColor(Quantity_NOC_GRAY75);
-        viewCube->SetInnerColor(Quantity_NOC_GRAY90);
-        viewCube->SetTextColor(Quantity_NOC_BLACK);
-        // Remove axis labels to avoid duplication with Trihedron
-        viewCube->SetTransparency(0.1);
-        viewCube->SetMaterial(Graphic3d_NOM_PLASTIC);
-        m_context->Display(viewCube, Standard_False);
-        
-        // Set up context
-        m_context->SetDisplayMode(AIS_Shaded, Standard_False);
-        
-        // 设置统一的高亮样式
-        // 1. 全局选中样式（普通实体点击后的状态）
-        Handle(Prs3d_Drawer) selectedDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_Selected);
-        if (!selectedDrawer.IsNull()) {
-            selectedDrawer->SetColor(Quantity_NOC_RED);
-            selectedDrawer->SetDisplayMode(1);     // Shaded
-            selectedDrawer->SetTransparency(0.0f); // 不透明，作为最终选中状态
-        }
 
-        // 2. 全局悬停样式（普通实体 hover 预览）
-        Handle(Prs3d_Drawer) dynamicDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_Dynamic);
-        if (!dynamicDrawer.IsNull()) {
-            dynamicDrawer->SetColor(Quantity_NOC_LIGHTSKYBLUE1);
-            dynamicDrawer->SetDisplayMode(1);      // Shaded
-            dynamicDrawer->SetTransparency(0.15f); // 比选中更轻，作为预览状态
-        }
+            m_view->SetWindow(window);
 
-        // 3. 局部选中样式（Face / Edge / Vertex 点击后的状态）
-        Handle(Prs3d_Drawer) localSelectedDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalSelected);
-        if (!localSelectedDrawer.IsNull()) {
-            localSelectedDrawer->SetColor(Quantity_NOC_RED);
-            localSelectedDrawer->SetDisplayMode(1);      // 强制填充显示
-            localSelectedDrawer->SetTransparency(0.25f); // 轻微透明，便于看清模型
-        }
-
-        // 4. 局部悬停样式（Face / Edge / Vertex hover 预览）
-        Handle(Prs3d_Drawer) localDynamicDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalDynamic);
-        if (!localDynamicDrawer.IsNull()) {
-            localDynamicDrawer->SetColor(Quantity_NOC_LIGHTBLUE);
-            localDynamicDrawer->SetDisplayMode(1);      // 强制填充显示
-            localDynamicDrawer->SetTransparency(0.25f); // 作为预览，不要过重
-        }
-
-        // Set up selection manager
-        m_selectionManager->SetContext(m_context);
-        m_selectionManager->SetView(m_view);
-        
-        m_isInitialized = true;
-        
-        // Initial view setup and render
-        FitAll();
-        ShowAxes(false);  // 默认显示坐标轴
-        m_view->Redraw();  // 确保初始渲染
-        
-        return true;
-    } catch (const Standard_Failure& e) {
-        m_isInitialized = false;
-        return false;
-    }
-}
-
-void QtOccView::FitAll() {
-    if (m_view.IsNull()) return;
-    
-    m_view->FitAll();
-    m_view->ZFitAll();
-    m_view->Redraw();
-}
-
-void QtOccView::ZoomIn() {
-    if (m_view.IsNull()) return;
-    
-    m_view->SetZoom(1.5);
-    m_view->Redraw();
-}
-
-void QtOccView::ZoomOut() {
-    if (m_view.IsNull()) return;
-    
-    m_view->SetZoom(0.75);
-    m_view->Redraw();
-}
-
-void QtOccView::Pan(int dx, int dy) {
-    if (m_view.IsNull()) return;
-    
-    m_view->Pan(dx, dy);
-    // Remove update() call to reduce flickering
-}
-
-void QtOccView::Rotate(int dx, int dy) {
-    if (m_view.IsNull()) return;
-    
-    m_view->Rotation(dx, dy);
-    // Remove update() call to reduce flickering
-}
-
-void QtOccView::SetViewMode(const QString& mode) {
-    if (m_view.IsNull()) return;
-    
-    if (mode == "wireframe") {
-        m_context->SetDisplayMode(AIS_WireFrame, Standard_True);
-    } else if (mode == "shaded") {
-        m_context->SetDisplayMode(AIS_Shaded, Standard_True);
-    }
-    m_view->Redraw();
-}
-
-void QtOccView::SetProjectionMode(bool orthographic) {
-    if (m_view.IsNull()) return;
-    
-    if (orthographic) {
-        m_view->Camera()->SetProjectionType(Graphic3d_Camera::Projection_Orthographic);
-    } else {
-        m_view->Camera()->SetProjectionType(Graphic3d_Camera::Projection_Perspective);
-    }
-    m_view->Redraw();
-}
-
-void QtOccView::DisplayShape(const cad_core::ShapePtr& shape) {
-    if (!shape || shape->GetOCCTShape().IsNull() || m_context.IsNull()) {
-        return;
-    }
-    
-    Handle(AIS_Shape) aisShape = new AIS_Shape(shape->GetOCCTShape());
-    
-    // Set shape properties for better visibility
-    aisShape->SetColor(Quantity_NOC_GRAY);
-    aisShape->SetTransparency(0.0);
-    
-    m_context->Display(aisShape, Standard_False);
-    
-
-    // Store mapping for selection synchronization
-    m_shapeToAIS[shape] = aisShape;
-    
-    // Fit all objects in view to ensure visibility and render
-    m_view->FitAll();
-    m_view->Redraw();
-    
-    // Force immediate rendering
-    update();
-}
-
-void QtOccView::SetShapeVisibility(const cad_core::ShapePtr& shape, bool visible) {
-    if (!shape || m_context.IsNull()) return;
-
-    // 在映射表中找到这个 shape 对应的 AIS 显示对象
-    auto it = m_shapeToAIS.find(shape);
-    if (it != m_shapeToAIS.end()) {
-        Handle(AIS_Shape) aisShape = it->second;
-        if (!aisShape.IsNull()) {
-            if (visible) {
-                m_context->Display(aisShape, Standard_False); // 显示
+            // Ensure window is mapped properly
+            if (!window->IsMapped()) {
+                window->Map();
             }
-            else {
-                // 如果刚好是被选中的状态，先取消选中
-                if (m_currentSelectedAIS == aisShape) {
-                    m_context->SetSelected(aisShape, Standard_False);
-                    m_currentSelectedAIS.Nullify();
-                    m_currentSelectedShape.reset();
+
+            // Set up view
+            m_view->SetBackgroundColor(Quantity_NOC_GRAY30);
+
+            // Ensure proper sizing
+            window->DoResize();
+            m_view->MustBeResized();
+            // Note: Trihedron (coordinate axes) will be controlled by ShowAxes() function
+
+            // Add ViewCube for navigation (without axis labels to avoid duplication)
+            Handle(AIS_ViewCube) viewCube = new AIS_ViewCube();
+            viewCube->SetSize(50, Standard_False);
+            viewCube->SetBoxColor(Quantity_NOC_GRAY75);
+            viewCube->SetInnerColor(Quantity_NOC_GRAY90);
+            viewCube->SetTextColor(Quantity_NOC_BLACK);
+            // Remove axis labels to avoid duplication with Trihedron
+            viewCube->SetTransparency(0.1);
+            viewCube->SetMaterial(Graphic3d_NOM_PLASTIC);
+            m_context->Display(viewCube, Standard_False);
+
+            // Set up context
+            m_context->SetDisplayMode(AIS_Shaded, Standard_False);
+
+            // 设置统一的高亮样式
+            // 1. 全局选中样式（普通实体点击后的状态）
+            Handle(Prs3d_Drawer) selectedDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_Selected);
+            if (!selectedDrawer.IsNull()) {
+                selectedDrawer->SetColor(Quantity_NOC_RED);
+                selectedDrawer->SetDisplayMode(1);     // Shaded
+                selectedDrawer->SetTransparency(0.0f); // 不透明，作为最终选中状态
+            }
+
+            // 2. 全局悬停样式（普通实体 hover 预览）
+            Handle(Prs3d_Drawer) dynamicDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_Dynamic);
+            if (!dynamicDrawer.IsNull()) {
+                dynamicDrawer->SetColor(Quantity_NOC_LIGHTSKYBLUE1);
+                dynamicDrawer->SetDisplayMode(1);      // Shaded
+                dynamicDrawer->SetTransparency(0.15f); // 比选中更轻，作为预览状态
+            }
+
+            // 3. 局部选中样式（Face / Edge / Vertex 点击后的状态）
+            Handle(Prs3d_Drawer) localSelectedDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalSelected);
+            if (!localSelectedDrawer.IsNull()) {
+                localSelectedDrawer->SetColor(Quantity_NOC_RED);
+                localSelectedDrawer->SetDisplayMode(1);      // 强制填充显示
+                localSelectedDrawer->SetTransparency(0.25f); // 轻微透明，便于看清模型
+            }
+
+            // 4. 局部悬停样式（Face / Edge / Vertex hover 预览）
+            Handle(Prs3d_Drawer) localDynamicDrawer = m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalDynamic);
+            if (!localDynamicDrawer.IsNull()) {
+                localDynamicDrawer->SetColor(Quantity_NOC_LIGHTBLUE);
+                localDynamicDrawer->SetDisplayMode(1);      // 强制填充显示
+                localDynamicDrawer->SetTransparency(0.25f); // 作为预览，不要过重
+            }
+
+            // Set up selection manager
+            m_selectionManager->SetContext(m_context);
+            m_selectionManager->SetView(m_view);
+
+            m_isInitialized = true;
+
+            // Initial view setup and render
+            FitAll();
+            ShowAxes(false);  // 默认显示坐标轴
+            m_view->Redraw();  // 确保初始渲染
+
+            return true;
+        }
+        catch (const Standard_Failure& e) {
+            m_isInitialized = false;
+            return false;
+        }
+    }
+
+    void QtOccView::FitAll() {
+        if (m_view.IsNull()) return;
+
+        m_view->FitAll();
+        m_view->ZFitAll();
+        m_view->Redraw();
+    }
+
+    void QtOccView::ZoomIn() {
+        if (m_view.IsNull()) return;
+
+        m_view->SetZoom(1.5);
+        m_view->Redraw();
+    }
+
+    void QtOccView::ZoomOut() {
+        if (m_view.IsNull()) return;
+
+        m_view->SetZoom(0.75);
+        m_view->Redraw();
+    }
+
+    void QtOccView::Pan(int dx, int dy) {
+        if (m_view.IsNull()) return;
+
+        m_view->Pan(dx, dy);
+        // Remove update() call to reduce flickering
+    }
+
+    void QtOccView::Rotate(int dx, int dy) {
+        if (m_view.IsNull()) return;
+
+        m_view->Rotation(dx, dy);
+        // Remove update() call to reduce flickering
+    }
+
+    void QtOccView::SetViewMode(const QString& mode) {
+        if (m_view.IsNull()) return;
+
+        if (mode == "wireframe") {
+            m_context->SetDisplayMode(AIS_WireFrame, Standard_True);
+        }
+        else if (mode == "shaded") {
+            m_context->SetDisplayMode(AIS_Shaded, Standard_True);
+        }
+        m_view->Redraw();
+    }
+
+    void QtOccView::SetProjectionMode(bool orthographic) {
+        if (m_view.IsNull()) return;
+
+        if (orthographic) {
+            m_view->Camera()->SetProjectionType(Graphic3d_Camera::Projection_Orthographic);
+        }
+        else {
+            m_view->Camera()->SetProjectionType(Graphic3d_Camera::Projection_Perspective);
+        }
+        m_view->Redraw();
+    }
+
+    void QtOccView::DisplayShape(const cad_core::ShapePtr& shape) {
+        if (!shape || shape->GetOCCTShape().IsNull() || m_context.IsNull()) {
+            return;
+        }
+
+        Handle(AIS_Shape) aisShape = new AIS_Shape(shape->GetOCCTShape());
+
+        // Set shape properties for better visibility
+        aisShape->SetColor(Quantity_NOC_GRAY);
+        aisShape->SetTransparency(0.0);
+
+        m_context->Display(aisShape, Standard_False);
+
+
+        // Store mapping for selection synchronization
+        m_shapeToAIS[shape] = aisShape;
+
+        // Fit all objects in view to ensure visibility and render
+        m_view->FitAll();
+        m_view->Redraw();
+
+        // Force immediate rendering
+        update();
+    }
+
+    void QtOccView::SetShapeVisibility(const cad_core::ShapePtr& shape, bool visible) {
+        if (!shape || m_context.IsNull()) return;
+
+        // 在映射表中找到这个 shape 对应的 AIS 显示对象
+        auto it = m_shapeToAIS.find(shape);
+        if (it != m_shapeToAIS.end()) {
+            Handle(AIS_Shape) aisShape = it->second;
+            if (!aisShape.IsNull()) {
+                if (visible) {
+                    m_context->Display(aisShape, Standard_False); // 显示
                 }
-                m_context->Erase(aisShape, Standard_False); // 隐藏 (Erase)
+                else {
+                    // 如果刚好是被选中的状态，先取消选中
+                    if (m_currentSelectedAIS == aisShape) {
+                        m_context->SetSelected(aisShape, Standard_False);
+                        m_currentSelectedAIS.Nullify();
+                        m_currentSelectedShape.reset();
+                    }
+                    m_context->Erase(aisShape, Standard_False); // 隐藏 (Erase)
+                }
+                m_view->Redraw();
             }
-            m_view->Redraw();
-        }
-    }
-}
-
-QPaintEngine* QtOccView::paintEngine() const
-{
-    return nullptr;
-}
-
-void QtOccView::RemoveShape(const cad_core::ShapePtr& shape) {
-    if (!shape || m_context.IsNull()) {
-        return;
-    }
-    
-    // Find and remove the AIS_Shape
-    auto it = m_shapeToAIS.find(shape);
-    if (it != m_shapeToAIS.end()) {
-        Handle(AIS_Shape) aisShape = it->second;
-        if (!aisShape.IsNull()) {
-            m_context->Remove(aisShape, Standard_False);
-        }
-        m_shapeToAIS.erase(it);
-    }
-    
-    m_view->Redraw();
-    update();
-}
-
-void QtOccView::ClearShapes() {
-    if (m_context.IsNull()) return;
-
-    for (auto& pair : m_shapeToAIS) {
-        if (!pair.second.IsNull()) {
-            m_context->Remove(pair.second, Standard_False);
         }
     }
 
-    m_shapeToAIS.clear();
-    m_view->Redraw();
-}
-
-void QtOccView::RedrawAll() {
-    if (m_view.IsNull()) return;
-    
-    m_view->Redraw();
-}
-
-void QtOccView::SetBackgroundColor(const QColor& color) {
-    if (m_view.IsNull()) return;
-    
-    Quantity_Color occColor(color.redF(), color.greenF(), color.blueF(), Quantity_TOC_RGB);
-    m_view->SetBackgroundColor(occColor);
-    m_view->Redraw();
-}
-
-void QtOccView::SetBackgroundGradient(const QColor& color1, const QColor& color2) {
-    if (m_view.IsNull()) return;
-    
-    Quantity_Color occColor1(color1.redF(), color1.greenF(), color1.blueF(), Quantity_TOC_RGB);
-    Quantity_Color occColor2(color2.redF(), color2.greenF(), color2.blueF(), Quantity_TOC_RGB);
-    
-    m_view->SetBgGradientColors(occColor1, occColor2, Aspect_GFM_VER, Standard_True);
-    m_view->Redraw();
-}
-
-void QtOccView::SetSelectionMode(int mode) {
-    if (m_context.IsNull()) return;
-    
-    // 切换选择模式时清除所有高亮
-    UnhighlightAllVertices();
-    UnhighlightAllEdges();
-    UnhighlightAllFaces();
-    
-    // 清除当前选择
-    if (!m_currentSelectedAIS.IsNull()) {
-        m_context->SetSelected(m_currentSelectedAIS, Standard_False);
-        m_currentSelectedAIS.Nullify();
-        m_currentSelectedShape.reset();
+    QPaintEngine* QtOccView::paintEngine() const
+    {
+        return nullptr;
     }
-    m_context->ClearSelected(Standard_False);
-    
-    // Store current selection mode
-    m_currentSelectionMode = mode;
-    
-    qDebug() << "SetSelectionMode called with mode:" << mode;
-    
-    // Clear all existing selection modes
-    m_context->Deactivate();
-    
-    // Activate the specific selection mode
-    switch (mode) {
+
+    void QtOccView::RemoveShape(const cad_core::ShapePtr& shape) {
+        if (!shape || m_context.IsNull()) {
+            return;
+        }
+
+        // Find and remove the AIS_Shape
+        auto it = m_shapeToAIS.find(shape);
+        if (it != m_shapeToAIS.end()) {
+            Handle(AIS_Shape) aisShape = it->second;
+            if (!aisShape.IsNull()) {
+                m_context->Remove(aisShape, Standard_False);
+            }
+            m_shapeToAIS.erase(it);
+        }
+
+        m_view->Redraw();
+        update();
+    }
+
+    void QtOccView::ClearShapes() {
+        if (m_context.IsNull()) return;
+
+        for (auto& pair : m_shapeToAIS) {
+            if (!pair.second.IsNull()) {
+                m_context->Remove(pair.second, Standard_False);
+            }
+        }
+
+        m_shapeToAIS.clear();
+        m_view->Redraw();
+    }
+
+    void QtOccView::RedrawAll() {
+        if (m_view.IsNull()) return;
+
+        m_view->Redraw();
+    }
+
+    void QtOccView::SetBackgroundColor(const QColor& color) {
+        if (m_view.IsNull()) return;
+
+        Quantity_Color occColor(color.redF(), color.greenF(), color.blueF(), Quantity_TOC_RGB);
+        m_view->SetBackgroundColor(occColor);
+        m_view->Redraw();
+    }
+
+    void QtOccView::SetBackgroundGradient(const QColor& color1, const QColor& color2) {
+        if (m_view.IsNull()) return;
+
+        Quantity_Color occColor1(color1.redF(), color1.greenF(), color1.blueF(), Quantity_TOC_RGB);
+        Quantity_Color occColor2(color2.redF(), color2.greenF(), color2.blueF(), Quantity_TOC_RGB);
+
+        m_view->SetBgGradientColors(occColor1, occColor2, Aspect_GFM_VER, Standard_True);
+        m_view->Redraw();
+    }
+
+    void QtOccView::SetSelectionMode(int mode) {
+        if (m_context.IsNull()) return;
+
+        // 切换选择模式时清除所有高亮
+        UnhighlightAllVertices();
+        UnhighlightAllEdges();
+        UnhighlightAllFaces();
+
+        // 清除当前选择
+        if (!m_currentSelectedAIS.IsNull()) {
+            m_context->SetSelected(m_currentSelectedAIS, Standard_False);
+            m_currentSelectedAIS.Nullify();
+            m_currentSelectedShape.reset();
+        }
+        m_context->ClearSelected(Standard_False);
+
+        // Store current selection mode
+        m_currentSelectionMode = mode;
+
+        qDebug() << "SetSelectionMode called with mode:" << mode;
+
+        // Clear all existing selection modes
+        m_context->Deactivate();
+
+        // Activate the specific selection mode
+        switch (mode) {
         case 0: // Shape
             m_context->Activate(0, Standard_True);
             qDebug() << "Activated shape selection mode";
@@ -429,259 +432,303 @@ void QtOccView::SetSelectionMode(int mode) {
             m_currentSelectionMode = 0;
             qDebug() << "Activated default shape selection mode";
             break;
-    }
-    
-    m_view->Redraw();
-}
-
-void QtOccView::ClearSelection() {
-    if (m_context.IsNull()) return;
-    
-    // Clear current selection state
-    if (!m_currentSelectedAIS.IsNull()) {
-        m_context->SetSelected(m_currentSelectedAIS, Standard_False);
-        m_currentSelectedAIS.Nullify();
-        m_currentSelectedShape.reset();
-    }
-    
-    // Clear all highlights
-    UnhighlightAllEdges();
-    UnhighlightAllVertices();
-    UnhighlightAllFaces();
-    UnhighlightSketchElement();
-
-    m_context->ClearSelected(Standard_True);
-    m_view->Redraw();
-}
-
-void QtOccView::ShowGrid(bool show) {
-    if (m_viewer.IsNull()) return;
-    
-    if (show) {
-        m_viewer->ActivateGrid(Aspect_GT_Rectangular, Aspect_GDM_Lines);
-    } else {
-        m_viewer->DeactivateGrid();
-    }
-    m_view->Redraw();
-}
-
-void QtOccView::SetGridSpacing(double spacing) {
-    if (m_viewer.IsNull()) return;
-    
-    // Simplified grid spacing implementation
-    // In a real implementation, you'd set the grid spacing properly
-    Q_UNUSED(spacing);
-    
-    m_view->Redraw();
-}
-
-void QtOccView::ShowAxes(bool show) {
-    if (m_view.IsNull()) return;
-    
-    if (show) {
-        m_view->TriedronDisplay(Aspect_TOTP_LEFT_LOWER, Quantity_NOC_GOLD, 0.08, V3d_ZBUFFER);
-    } else {
-        m_view->TriedronErase();
-    }
-    m_view->Redraw();
-}
-
-void QtOccView::SetAllTransparency(double transparency) {
-    if (m_context.IsNull()) return;
-    
-    // Clamp transparency value between 0.0 and 1.0
-    transparency = std::max(0.0, std::min(1.0, transparency));
-    
-    // Iterate through all displayed AIS_Shape objects
-    AIS_ListOfInteractive aList;
-    m_context->DisplayedObjects(aList);
-    
-    for (AIS_ListOfInteractive::Iterator anIter(aList); anIter.More(); anIter.Next()) {
-        Handle(AIS_Shape) aShape = Handle(AIS_Shape)::DownCast(anIter.Value());
-        if (!aShape.IsNull()) {
-            // Set transparency for the shape
-            if (transparency > 0.0) {
-                m_context->SetTransparency(aShape, transparency, Standard_False);
-            } else {
-                m_context->UnsetTransparency(aShape, Standard_False);
-            }
         }
-    }
-    
-    // Update the view
-    m_context->UpdateCurrentViewer();
-    m_view->Redraw();
-}
 
-// 获取当前选中的形状
-cad_core::ShapePtr QtOccView::GetCurrentSelectedShape() const {
-    return m_currentSelectedShape;
-}
-
-// 设置特定形状的透明度
-void QtOccView::SetShapeTransparency(const cad_core::ShapePtr& shape, double transparency) {
-    if (!shape || m_context.IsNull()) return;
-
-    // 限制透明度在 0.0 到 1.0 之间 (Clamp transparency value)
-    transparency = std::max(0.0, std::min(1.0, transparency));
-
-    // 在映射表中查找对应的 AIS_Shape
-    auto it = m_shapeToAIS.find(shape);
-    if (it != m_shapeToAIS.end()) {
-        Handle(AIS_Shape) aisShape = it->second;
-        if (!aisShape.IsNull()) {
-            // 应用透明度
-            if (transparency > 0.0) {
-                m_context->SetTransparency(aisShape, transparency, Standard_False);
-            }
-            else {
-                m_context->UnsetTransparency(aisShape, Standard_False);
-            }
-            // 更新视图
-            m_context->UpdateCurrentViewer();
-            m_view->Redraw();
-        }
-    }
-}
-
-void QtOccView::paintEvent(QPaintEvent* event) {
-    Q_UNUSED(event);
-    
-    if (!m_isInitialized) {
-        if (!InitViewer()) {
-            // If initialization fails, paint a gray background
-            QPainter painter(this);
-            painter.fillRect(rect(), QColor(128, 128, 128));
-            painter.setPen(Qt::white);
-            painter.drawText(rect(), Qt::AlignCenter, "Initializing 3D View...");
-            return;
-        }
-    }
-    
-    if (!m_view.IsNull()) {
-        // Only redraw, avoid window remapping which can cause flicker
         m_view->Redraw();
     }
-}
 
-void QtOccView::resizeEvent(QResizeEvent* event) {
-    Q_UNUSED(event);
-    
-    if (!m_view.IsNull()) {
-        m_view->MustBeResized();
-    }
-}
+    void QtOccView::ClearSelection() {
+        if (m_context.IsNull()) return;
 
-void QtOccView::SetMultiSelectionMode(bool multi) {
-    m_multiSelectionMode = multi;
-}
-
-void QtOccView::mousePressEvent(QMouseEvent* event) {
-    m_lastMousePos = event->pos();
-    m_currentMouseButton = event->button();
-
-    // 如果正在预览，点击左键就“确认”这个平面
-    if (m_sweepInteractionState == SweepInteractionMode::PreviewingPathPlane && event->button() == Qt::LeftButton) {
-
-        // 1. 退出预览状态
-        m_sweepInteractionState = SweepInteractionMode::None;
-
-        // 2. 销毁那个半透明的海绿色预览面
-        if (!m_sweepPlanePreview.IsNull()) {
-            m_context->Remove(m_sweepPlanePreview, Standard_False);
-            m_sweepPlanePreview.Nullify();
+        // Clear current selection state
+        if (!m_currentSelectedAIS.IsNull()) {
+            m_context->SetSelected(m_currentSelectedAIS, Standard_False);
+            m_currentSelectedAIS.Nullify();
+            m_currentSelectedShape.reset();
         }
 
-        // 3. 正式切入草图模式（相机瞬间摆正）
-        EnterSketchMode(m_currentSweepPathCS);
+        // Clear all highlights
+        UnhighlightAllEdges();
+        UnhighlightAllVertices();
+        UnhighlightAllFaces();
+        UnhighlightSketchElement();
 
-        return; 
+        m_context->ClearSelected(Standard_True);
+        m_view->Redraw();
     }
 
-    // 优先处理草图模式 
-    if (IsInSketchMode() && !m_sketchMode->IsTemporary3DViewActive()) {
-        if (HasActiveSketchTool()) {
-            m_sketchMode->HandleMousePress(event);
+    void QtOccView::ShowGrid(bool show) {
+        if (m_viewer.IsNull()) return;
+
+        if (show) {
+            m_viewer->ActivateGrid(Aspect_GT_Rectangular, Aspect_GDM_Lines);
+        }
+        else {
+            m_viewer->DeactivateGrid();
+        }
+        m_view->Redraw();
+    }
+
+    void QtOccView::SetGridSpacing(double spacing) {
+        if (m_viewer.IsNull()) return;
+
+        // Simplified grid spacing implementation
+        // In a real implementation, you'd set the grid spacing properly
+        Q_UNUSED(spacing);
+
+        m_view->Redraw();
+    }
+
+    void QtOccView::ShowAxes(bool show) {
+        if (m_view.IsNull()) return;
+
+        if (show) {
+            m_view->TriedronDisplay(Aspect_TOTP_LEFT_LOWER, Quantity_NOC_GOLD, 0.08, V3d_ZBUFFER);
+        }
+        else {
+            m_view->TriedronErase();
+        }
+        m_view->Redraw();
+    }
+
+    void QtOccView::SetAllTransparency(double transparency) {
+        if (m_context.IsNull()) return;
+
+        // Clamp transparency value between 0.0 and 1.0
+        transparency = std::max(0.0, std::min(1.0, transparency));
+
+        // Iterate through all displayed AIS_Shape objects
+        AIS_ListOfInteractive aList;
+        m_context->DisplayedObjects(aList);
+
+        for (AIS_ListOfInteractive::Iterator anIter(aList); anIter.More(); anIter.Next()) {
+            Handle(AIS_Shape) aShape = Handle(AIS_Shape)::DownCast(anIter.Value());
+            if (!aShape.IsNull()) {
+                // Set transparency for the shape
+                if (transparency > 0.0) {
+                    m_context->SetTransparency(aShape, transparency, Standard_False);
+                }
+                else {
+                    m_context->UnsetTransparency(aShape, Standard_False);
+                }
+            }
+        }
+
+        // Update the view
+        m_context->UpdateCurrentViewer();
+        m_view->Redraw();
+    }
+
+    // 获取当前选中的形状
+    cad_core::ShapePtr QtOccView::GetCurrentSelectedShape() const {
+        return m_currentSelectedShape;
+    }
+
+    // 设置特定形状的透明度
+    void QtOccView::SetShapeTransparency(const cad_core::ShapePtr& shape, double transparency) {
+        if (!shape || m_context.IsNull()) return;
+
+        // 限制透明度在 0.0 到 1.0 之间 (Clamp transparency value)
+        transparency = std::max(0.0, std::min(1.0, transparency));
+
+        // 在映射表中查找对应的 AIS_Shape
+        auto it = m_shapeToAIS.find(shape);
+        if (it != m_shapeToAIS.end()) {
+            Handle(AIS_Shape) aisShape = it->second;
+            if (!aisShape.IsNull()) {
+                // 应用透明度
+                if (transparency > 0.0) {
+                    m_context->SetTransparency(aisShape, transparency, Standard_False);
+                }
+                else {
+                    m_context->UnsetTransparency(aisShape, Standard_False);
+                }
+                // 更新视图
+                m_context->UpdateCurrentViewer();
+                m_view->Redraw();
+            }
+        }
+    }
+
+    void QtOccView::paintEvent(QPaintEvent* event) {
+        Q_UNUSED(event);
+
+        if (!m_isInitialized) {
+            if (!InitViewer()) {
+                // If initialization fails, paint a gray background
+                QPainter painter(this);
+                painter.fillRect(rect(), QColor(128, 128, 128));
+                painter.setPen(Qt::white);
+                painter.drawText(rect(), Qt::AlignCenter, "Initializing 3D View...");
+                return;
+            }
+        }
+
+        if (!m_view.IsNull()) {
+            // Only redraw, avoid window remapping which can cause flicker
+            m_view->Redraw();
+        }
+    }
+
+    void QtOccView::resizeEvent(QResizeEvent* event) {
+        Q_UNUSED(event);
+
+        if (!m_view.IsNull()) {
+            m_view->MustBeResized();
+        }
+    }
+
+    void QtOccView::SetMultiSelectionMode(bool multi) {
+        m_multiSelectionMode = multi;
+    }
+
+    void QtOccView::mousePressEvent(QMouseEvent* event) {
+        m_lastMousePos = event->pos();
+        m_currentMouseButton = event->button();
+
+        // 如果正在预览，点击左键就“确认”这个平面
+        if (m_sweepInteractionState == SweepInteractionMode::PreviewingPathPlane && event->button() == Qt::LeftButton) {
+
+            // 1. 退出预览状态
+            m_sweepInteractionState = SweepInteractionMode::None;
+
+            // 2. 销毁那个半透明的海绿色预览面
+            if (!m_sweepPlanePreview.IsNull()) {
+                m_context->Remove(m_sweepPlanePreview, Standard_False);
+                m_sweepPlanePreview.Nullify();
+            }
+
+            // 3. 正式切入草图模式（相机瞬间摆正）
+            EnterSketchMode(m_currentSweepPathCS);
+
             return;
         }
 
-        if (event->button() == Qt::LeftButton) {
-            HandleSelection(event->pos());
-            m_sketchMode->HandleMousePress(event);
-        }
-        return;
-    }
-
-    // 非草图模式（或处于临时3D视图中）：左键按下时只记录状态，不立刻旋转
-    if (event->button() == Qt::LeftButton) {
-        m_leftPressPos = event->pos();
-        m_isLeftDragging = false;
-        return;
-    }
-}
-
-void QtOccView::mouseMoveEvent(QMouseEvent* event) {
-    if (m_view.IsNull()) return;
-
-    QPoint currentPos = event->pos();
-    emit MousePositionChanged(currentPos.x(), currentPos.y());
-
-    Standard_Real X, Y, Z;
-    try {       
-        m_view->Convert(currentPos.x(), currentPos.y(), X, Y, Z);
-        emit Mouse3DPositionChanged(X, Y, Z);
-    }
-    catch (...) {
-        X = 0; Y = 0; Z = 0;
-    }
-
-    // 如果处于预览平面状态，实时计算并旋转平面
-    if (m_sweepInteractionState == SweepInteractionMode::PreviewingPathPlane) {
-
-        // 1. 将 3D 的绝对质心，转换为电脑屏幕上的 2D 像素坐标 (cx, cy)
-        Standard_Integer cx, cy;
-        m_view->Convert(m_sweepCentroid.X(), m_sweepCentroid.Y(), m_sweepCentroid.Z(), cx, cy);
-
-        // 2. 计算鼠标当前位置，相对于质心屏幕坐标的差值
-        double dx = currentPos.x() - cx;
-        double dy = currentPos.y() - cy;
-
-        // 3. 防抖机制：如果鼠标离中心点太近（小于 5 像素），就不转，防止角度疯狂跳动
-        if (std::sqrt(dx * dx + dy * dy) > 5.0) {
-
-            // 4. 计算纯粹的 2D 屏幕旋转夹角 (弧度)
-            // atan2 能够完美覆盖 -180度 到 180度 的死角
-            double angle = std::atan2(dy, dx);
-
-            // 5. 以截面的法线为旋转轴，从“0度基准面”开始叠加这个角度
-            gp_Trsf rot;
-            rot.SetRotation(gp_Ax1(m_sweepCentroid, m_sweepProfileNormal), -angle); // 负号用于匹配鼠标直觉方向
-
-            m_currentSweepPathCS = m_baseSweepPathCS; // 每次都从 0 度重新转
-            m_currentSweepPathCS.Transform(rot);
-
-            // 6. 更新并重绘面片
-            gp_Pln updatedPln(m_currentSweepPathCS);
-            TopoDS_Face updatedFace = BRepBuilderAPI_MakeFace(updatedPln, -5.0, 5.0, -5.0, 5.0).Face();
-
-            Handle(AIS_Shape) aisPlane = Handle(AIS_Shape)::DownCast(m_sweepPlanePreview);
-            if (!aisPlane.IsNull()) {
-                aisPlane->SetShape(updatedFace);
-                m_context->Redisplay(aisPlane, Standard_False);
+        // 优先处理草图模式 
+        if (IsInSketchMode() && !m_sketchMode->IsTemporary3DViewActive()) {
+            if (HasActiveSketchTool()) {
+                m_sketchMode->HandleMousePress(event);
+                return;
             }
-            m_view->Redraw();
+
+            if (event->button() == Qt::LeftButton) {
+                HandleSelection(event->pos());
+                m_sketchMode->HandleMousePress(event);
+            }
+            return;
         }
-        return; // 拦截事件，不再往下走
+
+        // 非草图模式（或处于临时3D视图中）：左键按下时只记录状态，不立刻旋转
+        if (event->button() == Qt::LeftButton) {
+            m_leftPressPos = event->pos();
+            m_isLeftDragging = false;
+            return;
+        }
     }
 
-    // 优先处理草图模式
-    if (IsInSketchMode() && !m_sketchMode->IsTemporary3DViewActive()) {
-        m_sketchMode->HandleMouseMove(event);
+    void QtOccView::mouseMoveEvent(QMouseEvent* event) {
+        if (m_view.IsNull()) return;
 
-        if (!HasActiveSketchTool() && !m_context.IsNull()) {
-            m_context->MoveTo(currentPos.x(), currentPos.y(), m_view, Standard_True);
+        QPoint currentPos = event->pos();
+        emit MousePositionChanged(currentPos.x(), currentPos.y());
 
-            // 已选中的对象不再显示 hover 预览颜色
+        Standard_Real X, Y, Z;
+        try {
+            m_view->Convert(currentPos.x(), currentPos.y(), X, Y, Z);
+            emit Mouse3DPositionChanged(X, Y, Z);
+        }
+        catch (...) {
+            X = 0; Y = 0; Z = 0;
+        }
+
+        // 如果处于预览平面状态，实时计算并旋转平面
+        if (m_sweepInteractionState == SweepInteractionMode::PreviewingPathPlane) {
+
+            // 1. 将 3D 的绝对质心，转换为电脑屏幕上的 2D 像素坐标 (cx, cy)
+            Standard_Integer cx, cy;
+            m_view->Convert(m_sweepCentroid.X(), m_sweepCentroid.Y(), m_sweepCentroid.Z(), cx, cy);
+
+            // 2. 计算鼠标当前位置，相对于质心屏幕坐标的差值
+            double dx = currentPos.x() - cx;
+            double dy = currentPos.y() - cy;
+
+            // 3. 防抖机制：如果鼠标离中心点太近（小于 5 像素），就不转，防止角度疯狂跳动
+            if (std::sqrt(dx * dx + dy * dy) > 5.0) {
+
+                // 4. 计算纯粹的 2D 屏幕旋转夹角 (弧度)
+                // atan2 能够完美覆盖 -180度 到 180度 的死角
+                double angle = std::atan2(dy, dx);
+
+                // 5. 以截面的法线为旋转轴，从“0度基准面”开始叠加这个角度
+                gp_Trsf rot;
+                rot.SetRotation(gp_Ax1(m_sweepCentroid, m_sweepProfileNormal), -angle); // 负号用于匹配鼠标直觉方向
+
+                m_currentSweepPathCS = m_baseSweepPathCS; // 每次都从 0 度重新转
+                m_currentSweepPathCS.Transform(rot);
+
+                // 6. 更新并重绘面片
+                gp_Pln updatedPln(m_currentSweepPathCS);
+                TopoDS_Face updatedFace = BRepBuilderAPI_MakeFace(updatedPln, -5.0, 5.0, -5.0, 5.0).Face();
+
+                Handle(AIS_Shape) aisPlane = Handle(AIS_Shape)::DownCast(m_sweepPlanePreview);
+                if (!aisPlane.IsNull()) {
+                    aisPlane->SetShape(updatedFace);
+                    m_context->Redisplay(aisPlane, Standard_False);
+                }
+                m_view->Redraw();
+            }
+            return; // 拦截事件，不再往下走
+        }
+
+        // 优先处理草图模式
+        if (IsInSketchMode() && !m_sketchMode->IsTemporary3DViewActive()) {
+            m_sketchMode->HandleMouseMove(event);
+
+            if (!HasActiveSketchTool() && !m_context.IsNull()) {
+                m_context->MoveTo(currentPos.x(), currentPos.y(), m_view, Standard_True);
+
+                // 已选中的对象不再显示 hover 预览颜色
+                if (m_context->HasDetected()) {
+                    Handle(AIS_InteractiveObject) detectedObj = m_context->DetectedInteractive();
+                    if (!detectedObj.IsNull()) {
+                        bool isAlreadySelected = false;
+
+                        for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
+                            if (m_context->SelectedInteractive() == detectedObj) {
+                                isAlreadySelected = true;
+                                break;
+                            }
+                        }
+
+                        if (isAlreadySelected) {
+                            m_context->ClearDetected(Standard_True);
+                        }
+                    }
+                }
+            }
+
+            if (m_currentMouseButton == Qt::MiddleButton) {
+                QPoint delta = currentPos - m_lastMousePos;
+                m_view->Pan(delta.x(), -delta.y());
+                m_view->Redraw();
+            }
+            else if (m_currentMouseButton == Qt::RightButton) {
+                QPoint delta = currentPos - m_lastMousePos;
+                if (delta.y() != 0) {
+                    m_view->SetZoom((delta.y() > 0) ? 0.9 : 1.1);
+                    m_view->Redraw();
+                }
+            }
+
+            m_lastMousePos = currentPos;
+            return;
+        }
+
+        // 非草图模式：鼠标悬停检测
+        if (m_currentMouseButton == Qt::NoButton && !m_context.IsNull()) {
+            m_context->MoveTo(currentPos.x(), currentPos.y(), m_view, Standard_False);
+
+            // 已经选中的对象，不再显示 hover 预览颜色
             if (m_context->HasDetected()) {
                 Handle(AIS_InteractiveObject) detectedObj = m_context->DetectedInteractive();
                 if (!detectedObj.IsNull()) {
@@ -695,13 +742,28 @@ void QtOccView::mouseMoveEvent(QMouseEvent* event) {
                     }
 
                     if (isAlreadySelected) {
-                        m_context->ClearDetected(Standard_True);
+                        m_context->ClearDetected(Standard_False);
                     }
                 }
             }
         }
 
-        if (m_currentMouseButton == Qt::MiddleButton) {
+        // 左键按住拖动才旋转
+        if (m_currentMouseButton == Qt::LeftButton) {
+            const int dragThreshold = QApplication::startDragDistance();
+            const int moveDistance = (currentPos - m_leftPressPos).manhattanLength();
+
+            if (!m_isLeftDragging && moveDistance >= dragThreshold) {
+                m_isLeftDragging = true;
+                m_view->StartRotation(m_leftPressPos.x(), m_leftPressPos.y());
+            }
+
+            if (m_isLeftDragging) {
+                m_view->Rotation(currentPos.x(), currentPos.y());
+                m_view->Redraw();
+            }
+        }
+        else if (m_currentMouseButton == Qt::MiddleButton) {
             QPoint delta = currentPos - m_lastMousePos;
             m_view->Pan(delta.x(), -delta.y());
             m_view->Redraw();
@@ -709,902 +771,846 @@ void QtOccView::mouseMoveEvent(QMouseEvent* event) {
         else if (m_currentMouseButton == Qt::RightButton) {
             QPoint delta = currentPos - m_lastMousePos;
             if (delta.y() != 0) {
-                m_view->SetZoom((delta.y() > 0) ? 0.9 : 1.1);
+                double factor = (delta.y() > 0) ? 0.9 : 1.1;
+                m_view->SetZoom(factor);
                 m_view->Redraw();
             }
         }
 
         m_lastMousePos = currentPos;
-        return;
     }
 
-    // 非草图模式：鼠标悬停检测
-    if (m_currentMouseButton == Qt::NoButton && !m_context.IsNull()) {
-        m_context->MoveTo(currentPos.x(), currentPos.y(), m_view, Standard_False);
+    void QtOccView::mouseReleaseEvent(QMouseEvent* event) {
+        // 优先处理草图模式
+        if (IsInSketchMode() && !m_sketchMode->IsTemporary3DViewActive()) {
+            m_sketchMode->HandleMouseRelease(event);
+            m_currentMouseButton = Qt::NoButton;
+            m_isLeftDragging = false;
+            return;
+        }
 
-        // 已经选中的对象，不再显示 hover 预览颜色
+        // 非草图模式：左键释放时，如果没有拖动，则作为一次点击选择
+        if (event->button() == Qt::LeftButton) {
+            if (!m_isLeftDragging) {
+                HandleSelection(event->pos());
+            }
+            m_isLeftDragging = false;
+        }
+
+        m_currentMouseButton = Qt::NoButton;
+    }
+
+    void QtOccView::keyPressEvent(QKeyEvent* event) {
+
+        // 1. 优先拦截空格键，用于开启临时 3D 视角
+        if (event->key() == Qt::Key_Space) {
+            if (!event->isAutoRepeat() && m_sketchMode && m_sketchMode->IsInSketchMode()) {
+                m_sketchMode->StartTemporary3DView();
+            }
+            event->accept();
+            return; // 拦截完毕直接返回，不要往下传了
+        }
+
+        // 转发事件给草图模式
+        if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
+            m_sketchMode->HandleKeyPress(event);
+        }
+
+        // 3. 原有的父类调用
+        QWidget::keyPressEvent(event);
+    }
+
+
+    void QtOccView::keyReleaseEvent(QKeyEvent* event) {
+
+        // 如果松开的是空格键
+        if (event->key() == Qt::Key_Space) {
+            if (!event->isAutoRepeat() && m_sketchMode && m_sketchMode->IsInSketchMode()) {
+                m_sketchMode->StopTemporary3DView();
+            }
+            event->accept();
+            return;
+        }
+
+        QWidget::keyReleaseEvent(event);
+    }
+
+    void QtOccView::wheelEvent(QWheelEvent* event) {
+        if (m_view.IsNull()) return;
+
+        const int delta = event->angleDelta().y();
+        const double factor = (delta > 0) ? 1.1 : 0.9;
+
+        m_view->SetZoom(factor);
+        m_view->Redraw();
+    }
+
+
+    void QtOccView::InitializeOCC() {
+        // This is called in constructor, actual initialization happens in InitViewer
+    }
+
+    void QtOccView::RedrawView() {
+        if (!m_view.IsNull()) {
+            m_view->Redraw();
+        }
+    }
+
+
+    // 从 OCC 当前选择里提取对象
+    Handle(AIS_InteractiveObject) QtOccView::GetFirstSelectedObject() const {
+        m_context->InitSelected();
+        if (m_context->MoreSelected()) {
+            return m_context->SelectedInteractive();
+        }
+        return nullptr;
+    }
+
+    Handle(StdSelect_BRepOwner) QtOccView::GetFirstSelectedOwner() const {
+        m_context->InitSelected();
+        if (m_context->MoreSelected()) {
+            return Handle(StdSelect_BRepOwner)::DownCast(m_context->SelectedOwner());
+        }
+        return nullptr;
+    }
+
+    // 专门清理旧状态
+    void QtOccView::ClearPreviousSelectionState() {
+        if (m_multiSelectionMode) {
+            return;
+        }
+
+        if (m_currentSelectionMode != 2) { // 边模式支持多选，不在这里清边
+            UnhighlightAllVertices();
+            UnhighlightAllFaces();
+            UnhighlightSketchElement();
+
+            // 普通单选模式下，清掉之前记录的 shape 选中状态
+            if (!m_currentSelectedAIS.IsNull()) {
+                m_context->SetSelected(m_currentSelectedAIS, Standard_False);
+                m_currentSelectedAIS.Nullify();
+                m_currentSelectedShape.reset();
+            }
+
+            // face / vertex / 普通单选模式下，清空 OCC 的当前选择池
+            m_context->ClearSelected(Standard_False);
+        }
+    }
+
+    // =========================================================================
+    // 总入口：处理选择分发
+    // =========================================================================
+    void QtOccView::HandleSelection(const QPoint& point) {
+        if (m_context.IsNull()) return;
+
+        // 检测 Ctrl 键：按住 Ctrl 时自动进入多选模式
+        bool ctrlHeld = QApplication::keyboardModifiers() & Qt::ControlModifier;
+        bool wasMultiMode = m_multiSelectionMode;
+        if (ctrlHeld) {
+            m_multiSelectionMode = true;
+        }
+
+        // 1. 清除之前的选择状态（多选模式下会跳过）
+        ClearPreviousSelectionState();
+
+        // 2. 检测鼠标位置下的对象
+        m_context->MoveTo(point.x(), point.y(), m_view, Standard_True);
+
         if (m_context->HasDetected()) {
-            Handle(AIS_InteractiveObject) detectedObj = m_context->DetectedInteractive();
-            if (!detectedObj.IsNull()) {
-                bool isAlreadySelected = false;
+            if (m_multiSelectionMode) {
+                m_context->ShiftSelect(Standard_True);
+            }
+            else {
+                m_context->Select(Standard_True);
+            }
 
-                for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
-                    if (m_context->SelectedInteractive() == detectedObj) {
-                        isAlreadySelected = true;
+            // 3. 根据当前选择模式处理
+            switch (m_currentSelectionMode) {
+            case 2: ProcessEdgeSelection(); break;
+            case 1: ProcessVertexSelection(); break;
+            case 4: ProcessFaceSelection(); break;
+            default: ProcessShapeOrSketchSelection(); break;
+            }
+        }
+        else {
+            qDebug() << "No object detected, clearing all selections";
+            if (m_currentSelectionMode != 2) {
+                UnhighlightAllEdges();
+            }
+            // 点击空白处时，如果不是多选模式，清除所有草图高亮
+            if (!m_multiSelectionMode) {
+                UnhighlightSketchElement();
+            }
+            ClearCentroid();
+        }
+
+        // 恢复多选模式状态（如果是 Ctrl 临时开启的）
+        if (ctrlHeld && !wasMultiMode) {
+            // 不恢复，保持多选状态直到用户点击空白处
+            // m_multiSelectionMode = wasMultiMode;
+        }
+
+        m_view->Redraw();
+        emit ViewChanged();
+    }
+
+    // 子模式处理函数
+    void QtOccView::ProcessEdgeSelection() {
+        qDebug() << "Edge selection mode detected, attempting to select edge...";
+
+        int selectedCount = 0;
+        // 边模式可能涉及多选，因此保留循环遍历
+        for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
+            selectedCount++;
+            Handle(AIS_InteractiveObject) anIO = m_context->SelectedInteractive();
+            Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(anIO);
+
+            if (!aisShape.IsNull()) {
+                cad_core::ShapePtr parentShape = nullptr;
+                for (const auto& pair : m_shapeToAIS) {
+                    if (pair.second == aisShape) {
+                        parentShape = pair.first;
                         break;
                     }
                 }
 
-                if (isAlreadySelected) {
-                    m_context->ClearDetected(Standard_False);
+                if (!parentShape) {
+                    qDebug() << "Could not find parent shape for selected edge";
+                    continue;
+                }
+
+                Handle(StdSelect_BRepOwner) anOwner = Handle(StdSelect_BRepOwner)::DownCast(m_context->SelectedOwner());
+                if (!anOwner.IsNull()) {
+                    TopoDS_Shape selectedShape = anOwner->Shape();
+                    if (selectedShape.ShapeType() == TopAbs_EDGE) {
+                        TopoDS_Edge edge = TopoDS::Edge(selectedShape);
+
+                        bool alreadySelected = false;
+                        for (const auto& existingEdge : m_selectedEdges) {
+                            if (edge.IsSame(existingEdge)) {
+                                alreadySelected = true;
+                                break;
+                            }
+                        }
+
+                        if (!alreadySelected) {
+                            m_selectedEdges.push_back(edge);
+                            m_edgeParentShapes.push_back(parentShape);
+                            qDebug() << "Added edge to selection, total edges:" << m_selectedEdges.size();
+                            HighlightEdge(edge);
+                        }
+                        else {
+                            qDebug() << "Edge already selected";
+                        }
+                    }
+                }
+            }
+        }
+
+        if (selectedCount == 0) {
+            qDebug() << "No objects selected in context";
+        }
+    }
+
+    void QtOccView::ProcessVertexSelection() {
+        qDebug() << "Vertex selection mode detected, attempting to select vertex...";
+
+        // 顶点一般单选，直接利用工具函数获取第一个对象
+        Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(GetFirstSelectedObject());
+        if (!aisShape.IsNull()) {
+            Handle(StdSelect_BRepOwner) anOwner = GetFirstSelectedOwner();
+            if (!anOwner.IsNull()) {
+                TopoDS_Shape selectedShape = anOwner->Shape();
+                if (selectedShape.ShapeType() == TopAbs_VERTEX) {
+                    TopoDS_Vertex vertex = TopoDS::Vertex(selectedShape);
+                    HighlightVertex(vertex);
+                    qDebug() << "Vertex selected";
                 }
             }
         }
     }
 
-    // 左键按住拖动才旋转
-    if (m_currentMouseButton == Qt::LeftButton) {
-        const int dragThreshold = QApplication::startDragDistance();
-        const int moveDistance = (currentPos - m_leftPressPos).manhattanLength();
+    void QtOccView::ProcessFaceSelection() {
+        qDebug() << "Face selection mode detected, attempting to select face...";
 
-        if (!m_isLeftDragging && moveDistance >= dragThreshold) {
-            m_isLeftDragging = true;
-            m_view->StartRotation(m_leftPressPos.x(), m_leftPressPos.y());
+        // 面一般单选，直接利用工具函数获取第一个对象
+        Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(m_context->DetectedInteractive());
+        if (!aisShape.IsNull()) {
+            Handle(StdSelect_BRepOwner) anOwner = Handle(StdSelect_BRepOwner)::DownCast(m_context->DetectedOwner());
+            if (!anOwner.IsNull()) {
+                TopoDS_Shape selectedShape = anOwner->Shape();
+                if (selectedShape.ShapeType() == TopAbs_FACE) {
+                    TopoDS_Face face = TopoDS::Face(selectedShape);
+                    qDebug() << "Face selected, emitting FaceSelected signal";
+                    emit FaceSelected(face);
+                }
+            }
+        }
+    }
+
+    void QtOccView::ProcessShapeOrSketchSelection() {
+        Handle(AIS_InteractiveObject) selectedObj = m_context->DetectedInteractive();
+
+        if (!selectedObj.IsNull()) {
+            Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(selectedObj);
+
+            // 1. 点中的是草图闭合轮廓 (Sketch Profile)
+            if (m_sketchProfileMap.find(selectedObj) != m_sketchProfileMap.end()) {
+                cad_core::ShapePtr profileShape = m_sketchProfileMap[selectedObj];
+
+                m_currentSelectedAIS = aisShape;
+                m_currentSelectedShape = profileShape;
+
+                // Sweep 动态平面预览逻辑 
+
+                if (m_sweepInteractionState == SweepInteractionMode::SelectingProfile) {
+
+                    if (profileShape && !profileShape->GetOCCTShape().IsNull()) {
+                        m_sweepCentroid = profileShape->GetCentroid();
+
+                        TopoDS_Face face = TopoDS::Face(profileShape->GetOCCTShape());
+                        Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
+                        Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
+
+                        if (!plane.IsNull()) {
+                            gp_Ax3 profileCS = plane->Pln().Position();
+                            m_sweepProfileNormal = profileCS.Direction(); // 记录原截面法线
+                            gp_Dir profileX = profileCS.XDirection();
+
+                            // 切换交互状态为：预览路径平面 (Previewing Path Plane)
+                            m_sweepInteractionState = SweepInteractionMode::PreviewingPathPlane;
+
+                            // 生成初始的路径坐标系 (以质心为原点，原法线为X轴，原X轴为法线)
+                            m_baseSweepPathCS = gp_Ax3(m_sweepCentroid, profileX, m_sweepProfileNormal);
+                            m_currentSweepPathCS = m_baseSweepPathCS;
+
+                            // 生成一个面片用来做视觉预览
+                            gp_Pln previewPln(m_currentSweepPathCS);
+                            // 缩小 UV 边界范围，让面片变小
+                            TopoDS_Face previewFace = BRepBuilderAPI_MakeFace(previewPln, -5.0, 5.0, -5.0, 5.0).Face();
+
+                            // 包装成可显示的 AIS 对象 (AIS_Shape)
+                            Handle(AIS_Shape) aisPlane = new AIS_Shape(previewFace);
+                            aisPlane->SetColor(Quantity_NOC_LIGHTSEAGREEN); // 海绿色，具有科技感
+                            aisPlane->SetTransparency(0.6);                 // 半透明，不遮挡模型
+                            aisPlane->SetDisplayMode(AIS_Shaded);           // 实体着色模式
+                            aisPlane->SetZLayer(Graphic3d_ZLayerId_Topmost);// 确保显示在最顶层，不被截面遮挡
+
+                            m_sweepPlanePreview = aisPlane;
+                            m_context->Display(m_sweepPlanePreview, Standard_False);
+                            m_view->Redraw();
+
+                            qDebug() << "Entered Sweep Plane Preview State.";
+                        }
+                    }
+                }
+
+                // 发射信号给 UI 面板
+                emit ShapeSelected(profileShape);
+                qDebug() << "Sketch Profile selected natively.";
+            }
+
+            // 2. 点中的是草图元素 
+            else if (m_sketchElementMap.find(selectedObj) != m_sketchElementMap.end()) {
+                if (m_multiSelectionMode) {
+                    // 多选模式：不清除旧高亮，追加新高亮到列表
+                    Handle(AIS_Shape) highlight = new AIS_Shape(aisShape->Shape());
+                    highlight->SetColor(Quantity_NOC_BLUE1);
+                    highlight->SetWidth(4.0);
+                    highlight->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
+                    m_context->Display(highlight, Standard_False);
+                    m_sketchHighlightList.push_back(highlight);
+                }
+                else {
+                    // 单选模式：清除旧高亮，只保留一个
+                    UnhighlightSketchElement();
+                    m_sketchHighlightAIS = new AIS_Shape(aisShape->Shape());
+                    m_sketchHighlightAIS->SetColor(Quantity_NOC_BLUE1);
+                    m_sketchHighlightAIS->SetWidth(4.0);
+                    m_sketchHighlightAIS->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
+                    m_context->Display(m_sketchHighlightAIS, Standard_False);
+                }
+
+                m_currentSelectedAIS = aisShape;
+                qDebug() << "Sketch element selected" << (m_multiSelectionMode ? "(multi)" : "(single)");
+            }
+
+            // 3. 点中的是普通 3D 实体 
+            else {
+                cad_core::ShapePtr foundShape = nullptr;
+                for (const auto& pair : m_shapeToAIS) {
+                    if (pair.second == aisShape) {
+                        foundShape = pair.first;
+                        break;
+                    }
+                }
+
+                m_currentSelectedAIS = aisShape;
+                m_currentSelectedShape = foundShape;
+
+                if (foundShape) {
+                    emit ShapeSelected(foundShape);
+                    qDebug() << "Normal model shape selected natively.";
+                }
+            }
+        }
+    }
+
+
+    void QtOccView::OnRedrawTimer() {
+        RedrawView();
+    }
+
+    // 选择模式设置
+    void QtOccView::SetSelectionMode(cad_core::SelectionMode mode) {
+        if (m_selectionManager) {
+            m_selectionManager->SetSelectionMode(mode);
+        }
+    }
+
+    // 获取选择结果
+    std::vector<cad_core::SelectionInfo> QtOccView::GetSelectedShapes() const {
+        if (m_selectionManager) {
+            return m_selectionManager->GetSelectedShapes();
+        }
+        return std::vector<cad_core::SelectionInfo>();
+    }
+
+    std::vector<cad_core::SelectionInfo> QtOccView::GetSelectedFaces() const {
+        if (m_selectionManager) {
+            return m_selectionManager->GetSelectedFaces();
+        }
+        return std::vector<cad_core::SelectionInfo>();
+    }
+
+    std::vector<cad_core::SelectionInfo> QtOccView::GetSelectedEdges() const {
+        if (m_selectionManager) {
+            return m_selectionManager->GetSelectedEdges();
+        }
+        return std::vector<cad_core::SelectionInfo>();
+    }
+
+    std::vector<cad_core::SelectionInfo> QtOccView::GetSelectedVertices() const {
+        if (m_selectionManager) {
+            return m_selectionManager->GetSelectedVertices();
+        }
+        return std::vector<cad_core::SelectionInfo>();
+    }
+
+    // Fix for view turning white when window loses focus
+    void QtOccView::focusInEvent(QFocusEvent* event) {
+        QWidget::focusInEvent(event);
+
+        // Minimal focus handling to prevent flicker
+        if (!m_view.IsNull() && m_isInitialized) {
+            // Don't touch window mapping - let it be handled by showEvent and paintEvent
+            qDebug() << "Focus gained - view is initialized";
+        }
+    }
+
+    void QtOccView::focusOutEvent(QFocusEvent* event) {
+        QWidget::focusOutEvent(event);
+
+        // Minimal handling - don't force redraws on focus loss
+        // This reduces flicker when mouse enters/leaves the widget
+    }
+
+    void QtOccView::enterEvent(QEvent* event) {
+        QWidget::enterEvent(event);
+
+        // Don't perform any heavy operations on mouse enter
+        // This prevents flicker when mouse enters the widget
+    }
+
+    void QtOccView::leaveEvent(QEvent* event) {
+        QWidget::leaveEvent(event);
+
+        // Don't perform any heavy operations on mouse leave
+        // This prevents flicker when mouse leaves the widget
+    }
+
+    void QtOccView::showEvent(QShowEvent* event) {
+        QWidget::showEvent(event);
+
+        // Try to initialize if not done yet
+        if (!m_isInitialized) {
+            InitViewer();
+            return; // InitViewer will handle the initial redraw
         }
 
-        if (m_isLeftDragging) {
-            m_view->Rotation(currentPos.x(), currentPos.y());
+        // Minimal redraw when widget is shown - only if necessary
+        if (!m_view.IsNull()) {
+            m_view->MustBeResized();
             m_view->Redraw();
         }
     }
-    else if (m_currentMouseButton == Qt::MiddleButton) {
-        QPoint delta = currentPos - m_lastMousePos;
-        m_view->Pan(delta.x(), -delta.y());
-        m_view->Redraw();
-    }
-    else if (m_currentMouseButton == Qt::RightButton) {
-        QPoint delta = currentPos - m_lastMousePos;
-        if (delta.y() != 0) {
-            double factor = (delta.y() > 0) ? 0.9 : 1.1;
-            m_view->SetZoom(factor);
-            m_view->Redraw();
+
+    // Add event handler for window activation changes
+    void QtOccView::changeEvent(QEvent* event) {
+        QWidget::changeEvent(event);
+
+        if (event->type() == QEvent::ActivationChange ||
+            event->type() == QEvent::WindowStateChange ||
+            event->type() == QEvent::WindowActivate ||
+            event->type() == QEvent::WindowDeactivate) {
+
+            if (!m_view.IsNull() && !m_context.IsNull()) {
+                // Force maintain viewer state regardless of activation
+                m_context->UpdateCurrentViewer();
+                m_view->Redraw();
+            }
         }
     }
 
-    m_lastMousePos = currentPos;
-}
-
-void QtOccView::mouseReleaseEvent(QMouseEvent* event) {
-    // 优先处理草图模式
-    if (IsInSketchMode() && !m_sketchMode->IsTemporary3DViewActive()) {
-        m_sketchMode->HandleMouseRelease(event);
-        m_currentMouseButton = Qt::NoButton;
-        m_isLeftDragging = false;
-        return;
-    }
-
-    // 非草图模式：左键释放时，如果没有拖动，则作为一次点击选择
-    if (event->button() == Qt::LeftButton) {
-        if (!m_isLeftDragging) {
-            HandleSelection(event->pos());
+    // Select shape programmatically for document tree synchronization
+    void QtOccView::SelectShape(const cad_core::ShapePtr& shape) {
+        if (!shape || m_context.IsNull()) {
+            return;
         }
-        m_isLeftDragging = false;
-    }
 
-    m_currentMouseButton = Qt::NoButton;
-}
-
-void QtOccView::keyPressEvent(QKeyEvent* event) {
-    
-    // 1. 优先拦截空格键，用于开启临时 3D 视角
-    if (event->key() == Qt::Key_Space) {
-        if (!event->isAutoRepeat() && m_sketchMode && m_sketchMode->IsInSketchMode()) {
-            m_sketchMode->StartTemporary3DView();
-        }
-        event->accept();
-        return; // 拦截完毕直接返回，不要往下传了
-    }
-
-    // 转发事件给草图模式
-    if (m_sketchMode && m_sketchMode->IsInSketchMode()) {
-        m_sketchMode->HandleKeyPress(event);
-    }
-
-    // 3. 原有的父类调用
-    QWidget::keyPressEvent(event);
-}
-
-
-void QtOccView::keyReleaseEvent(QKeyEvent* event) {
- 
-    // 如果松开的是空格键
-    if (event->key() == Qt::Key_Space) {
-        if (!event->isAutoRepeat() && m_sketchMode && m_sketchMode->IsInSketchMode()) {
-            m_sketchMode->StopTemporary3DView();
-        }
-        event->accept();
-        return;
-    }
-
-    QWidget::keyReleaseEvent(event);
-}
-
-void QtOccView::wheelEvent(QWheelEvent* event) {
-    if (m_view.IsNull()) return;
-    
-    const int delta = event->angleDelta().y();
-    const double factor = (delta > 0) ? 1.1 : 0.9;
-    
-    m_view->SetZoom(factor);
-    m_view->Redraw();
-}
-
-
-void QtOccView::InitializeOCC() {
-    // This is called in constructor, actual initialization happens in InitViewer
-}
-
-void QtOccView::RedrawView() {
-    if (!m_view.IsNull()) {
-        m_view->Redraw();
-    }
-}
-
-
-// 从 OCC 当前选择里提取对象
-Handle(AIS_InteractiveObject) QtOccView::GetFirstSelectedObject() const {
-    m_context->InitSelected();
-    if (m_context->MoreSelected()) {
-        return m_context->SelectedInteractive();
-    }
-    return nullptr;
-}
-
-Handle(StdSelect_BRepOwner) QtOccView::GetFirstSelectedOwner() const {
-    m_context->InitSelected();
-    if (m_context->MoreSelected()) {
-        return Handle(StdSelect_BRepOwner)::DownCast(m_context->SelectedOwner());
-    }
-    return nullptr;
-}
-
-// 专门清理旧状态
-void QtOccView::ClearPreviousSelectionState() {
-    if (m_multiSelectionMode) {
-        return;
-    }
-    
-    if (m_currentSelectionMode != 2) { // 边模式支持多选，不在这里清边
-        UnhighlightAllVertices();
-        UnhighlightAllFaces();
-        UnhighlightSketchElement();
-
-        // 普通单选模式下，清掉之前记录的 shape 选中状态
+        // Clear any previous selection first (single selection mode)
         if (!m_currentSelectedAIS.IsNull()) {
             m_context->SetSelected(m_currentSelectedAIS, Standard_False);
             m_currentSelectedAIS.Nullify();
             m_currentSelectedShape.reset();
         }
 
-        // face / vertex / 普通单选模式下，清空 OCC 的当前选择池
-        m_context->ClearSelected(Standard_False);
-    }
-}
+        // Find the AIS_Shape corresponding to this shape
+        auto it = m_shapeToAIS.find(shape);
+        if (it != m_shapeToAIS.end()) {
+            Handle(AIS_Shape) aisShape = it->second;
+            if (!aisShape.IsNull()) {
+                // Set new selection with highlighting
+                m_context->SetSelected(aisShape, Standard_True);
+                m_context->HilightSelected(Standard_True);
+                m_currentSelectedAIS = aisShape;
+                m_currentSelectedShape = shape;
 
-// =========================================================================
-// 总入口：处理选择分发
-// =========================================================================
-void QtOccView::HandleSelection(const QPoint& point) {
-    if (m_context.IsNull()) return;
-
-    // 检测 Ctrl 键：按住 Ctrl 时自动进入多选模式
-    bool ctrlHeld = QApplication::keyboardModifiers() & Qt::ControlModifier;
-    bool wasMultiMode = m_multiSelectionMode;
-    if (ctrlHeld) {
-        m_multiSelectionMode = true;
-    }
-
-    // 1. 清除之前的选择状态（多选模式下会跳过）
-    ClearPreviousSelectionState();
-
-    // 2. 检测鼠标位置下的对象
-    m_context->MoveTo(point.x(), point.y(), m_view, Standard_True);
-
-    if (m_context->HasDetected()) {
-        if (m_multiSelectionMode) {
-            m_context->ShiftSelect(Standard_True);
-        }
-        else {
-            m_context->Select(Standard_True);
-        }
-
-        // 3. 根据当前选择模式处理
-        switch (m_currentSelectionMode) {
-        case 2: ProcessEdgeSelection(); break;
-        case 1: ProcessVertexSelection(); break;
-        case 4: ProcessFaceSelection(); break;
-        default: ProcessShapeOrSketchSelection(); break;
-        }
-    }
-    else {
-        qDebug() << "No object detected, clearing all selections";
-        if (m_currentSelectionMode != 2) {
-            UnhighlightAllEdges();
-        }
-        // 点击空白处时，如果不是多选模式，清除所有草图高亮
-        if (!m_multiSelectionMode) {
-            UnhighlightSketchElement();
-        }
-        ClearCentroid();
-    }
-
-    // 恢复多选模式状态（如果是 Ctrl 临时开启的）
-    if (ctrlHeld && !wasMultiMode) {
-        // 不恢复，保持多选状态直到用户点击空白处
-        // m_multiSelectionMode = wasMultiMode;
-    }
-
-    m_view->Redraw();
-    emit ViewChanged();
-}
-
-// 子模式处理函数
-void QtOccView::ProcessEdgeSelection() {
-    qDebug() << "Edge selection mode detected, attempting to select edge...";
-
-    int selectedCount = 0;
-    // 边模式可能涉及多选，因此保留循环遍历
-    for (m_context->InitSelected(); m_context->MoreSelected(); m_context->NextSelected()) {
-        selectedCount++;
-        Handle(AIS_InteractiveObject) anIO = m_context->SelectedInteractive();
-        Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(anIO);
-
-        if (!aisShape.IsNull()) {
-            cad_core::ShapePtr parentShape = nullptr;
-            for (const auto& pair : m_shapeToAIS) {
-                if (pair.second == aisShape) {
-                    parentShape = pair.first;
-                    break;
-                }
-            }
-
-            if (!parentShape) {
-                qDebug() << "Could not find parent shape for selected edge";
-                continue;
-            }
-
-            Handle(StdSelect_BRepOwner) anOwner = Handle(StdSelect_BRepOwner)::DownCast(m_context->SelectedOwner());
-            if (!anOwner.IsNull()) {
-                TopoDS_Shape selectedShape = anOwner->Shape();
-                if (selectedShape.ShapeType() == TopAbs_EDGE) {
-                    TopoDS_Edge edge = TopoDS::Edge(selectedShape);
-
-                    bool alreadySelected = false;
-                    for (const auto& existingEdge : m_selectedEdges) {
-                        if (edge.IsSame(existingEdge)) {
-                            alreadySelected = true;
-                            break;
-                        }
-                    }
-
-                    if (!alreadySelected) {
-                        m_selectedEdges.push_back(edge);
-                        m_edgeParentShapes.push_back(parentShape);
-                        qDebug() << "Added edge to selection, total edges:" << m_selectedEdges.size();
-                        HighlightEdge(edge);
-                    }
-                    else {
-                        qDebug() << "Edge already selected";
-                    }
-                }
+                // Redraw to show selection
+                m_view->Redraw();
             }
         }
     }
 
-    if (selectedCount == 0) {
-        qDebug() << "No objects selected in context";
-    }
-}
+    // Edge selection methods for fillet/chamfer operations
+    void QtOccView::ClearEdgeSelection() {
+        if (m_context.IsNull()) return;
 
-void QtOccView::ProcessVertexSelection() {
-    qDebug() << "Vertex selection mode detected, attempting to select vertex...";
+        // Remove all edge highlights
+        UnhighlightAllEdges();
 
-    // 顶点一般单选，直接利用工具函数获取第一个对象
-    Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(GetFirstSelectedObject());
-    if (!aisShape.IsNull()) {
-        Handle(StdSelect_BRepOwner) anOwner = GetFirstSelectedOwner();
-        if (!anOwner.IsNull()) {
-            TopoDS_Shape selectedShape = anOwner->Shape();
-            if (selectedShape.ShapeType() == TopAbs_VERTEX) {
-                TopoDS_Vertex vertex = TopoDS::Vertex(selectedShape);
-                HighlightVertex(vertex);
-                qDebug() << "Vertex selected";
-            }
-        }
-    }
-}
+        // Clear edge lists and parent shape tracking
+        m_selectedEdges.clear();
+        m_highlightedEdges.clear();
+        m_edgeParentShapes.clear();
 
-void QtOccView::ProcessFaceSelection() {
-    qDebug() << "Face selection mode detected, attempting to select face...";
-
-    // 面一般单选，直接利用工具函数获取第一个对象
-    Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(m_context->DetectedInteractive());
-    if (!aisShape.IsNull()) {
-        Handle(StdSelect_BRepOwner) anOwner = Handle(StdSelect_BRepOwner)::DownCast(m_context->DetectedOwner());
-        if (!anOwner.IsNull()) {
-            TopoDS_Shape selectedShape = anOwner->Shape();
-            if (selectedShape.ShapeType() == TopAbs_FACE) {
-                TopoDS_Face face = TopoDS::Face(selectedShape);
-                qDebug() << "Face selected, emitting FaceSelected signal";
-                emit FaceSelected(face);
-            }
-        }
-    }
-}
-
-void QtOccView::ProcessShapeOrSketchSelection() {
-    Handle(AIS_InteractiveObject) selectedObj = m_context->DetectedInteractive();
-
-    if (!selectedObj.IsNull()) {
-        Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(selectedObj);
-
-        // 1. 点中的是草图闭合轮廓 (Sketch Profile)
-        if (m_sketchProfileMap.find(selectedObj) != m_sketchProfileMap.end()) {
-            cad_core::ShapePtr profileShape = m_sketchProfileMap[selectedObj];
-
-            m_currentSelectedAIS = aisShape;
-            m_currentSelectedShape = profileShape;
-
-            // Sweep 动态平面预览逻辑 
-   
-            if (m_sweepInteractionState == SweepInteractionMode::SelectingProfile) {
-
-                if (profileShape && !profileShape->GetOCCTShape().IsNull()) {
-                    m_sweepCentroid = profileShape->GetCentroid();
-
-                    TopoDS_Face face = TopoDS::Face(profileShape->GetOCCTShape());
-                    Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
-                    Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
-
-                    if (!plane.IsNull()) {
-                        gp_Ax3 profileCS = plane->Pln().Position();
-                        m_sweepProfileNormal = profileCS.Direction(); // 记录原截面法线
-                        gp_Dir profileX = profileCS.XDirection();
-
-                        // 切换交互状态为：预览路径平面 (Previewing Path Plane)
-                        m_sweepInteractionState = SweepInteractionMode::PreviewingPathPlane;
-
-                        // 生成初始的路径坐标系 (以质心为原点，原法线为X轴，原X轴为法线)
-                        m_baseSweepPathCS = gp_Ax3(m_sweepCentroid, profileX, m_sweepProfileNormal);
-                        m_currentSweepPathCS = m_baseSweepPathCS;
-
-                        // 生成一个面片用来做视觉预览
-                        gp_Pln previewPln(m_currentSweepPathCS);
-                        // 缩小 UV 边界范围，让面片变小
-                        TopoDS_Face previewFace = BRepBuilderAPI_MakeFace(previewPln, -5.0, 5.0, -5.0, 5.0).Face();
-
-                        // 包装成可显示的 AIS 对象 (AIS_Shape)
-                        Handle(AIS_Shape) aisPlane = new AIS_Shape(previewFace);
-                        aisPlane->SetColor(Quantity_NOC_LIGHTSEAGREEN); // 海绿色，具有科技感
-                        aisPlane->SetTransparency(0.6);                 // 半透明，不遮挡模型
-                        aisPlane->SetDisplayMode(AIS_Shaded);           // 实体着色模式
-                        aisPlane->SetZLayer(Graphic3d_ZLayerId_Topmost);// 确保显示在最顶层，不被截面遮挡
-
-                        m_sweepPlanePreview = aisPlane;
-                        m_context->Display(m_sweepPlanePreview, Standard_False);
-                        m_view->Redraw();
-
-                        qDebug() << "Entered Sweep Plane Preview State.";
-                    }
-                }
-            }
-
-            // 发射信号给 UI 面板
-            emit ShapeSelected(profileShape);
-            qDebug() << "Sketch Profile selected natively.";
-        }
-
-        // 2. 点中的是草图元素 
-        else if (m_sketchElementMap.find(selectedObj) != m_sketchElementMap.end()) {
-            if (m_multiSelectionMode) {
-                // 多选模式：不清除旧高亮，追加新高亮到列表
-                Handle(AIS_Shape) highlight = new AIS_Shape(aisShape->Shape());
-                highlight->SetColor(Quantity_NOC_BLUE1);
-                highlight->SetWidth(4.0);
-                highlight->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
-                m_context->Display(highlight, Standard_False);
-                m_sketchHighlightList.push_back(highlight);
-            }
-            else {
-                // 单选模式：清除旧高亮，只保留一个
-                UnhighlightSketchElement();
-                m_sketchHighlightAIS = new AIS_Shape(aisShape->Shape());
-                m_sketchHighlightAIS->SetColor(Quantity_NOC_BLUE1);
-                m_sketchHighlightAIS->SetWidth(4.0);
-                m_sketchHighlightAIS->SetPolygonOffsets(Aspect_POM_Line, 1.0f, -2.0f);
-                m_context->Display(m_sketchHighlightAIS, Standard_False);
-            }
-
-            m_currentSelectedAIS = aisShape;
-            qDebug() << "Sketch element selected" << (m_multiSelectionMode ? "(multi)" : "(single)");
-        }
-
-        // 3. 点中的是普通 3D 实体 
-        else {
-            cad_core::ShapePtr foundShape = nullptr;
-            for (const auto& pair : m_shapeToAIS) {
-                if (pair.second == aisShape) {
-                    foundShape = pair.first;
-                    break;
-                }
-            }
-
-            m_currentSelectedAIS = aisShape;
-            m_currentSelectedShape = foundShape;
-
-            if (foundShape) {
-                emit ShapeSelected(foundShape);
-                qDebug() << "Normal model shape selected natively.";
-            }
-        }
-    }
-}
-
-
-void QtOccView::OnRedrawTimer() {
-    RedrawView();
-}
-
-// 选择模式设置
-void QtOccView::SetSelectionMode(cad_core::SelectionMode mode) {
-    if (m_selectionManager) {
-        m_selectionManager->SetSelectionMode(mode);
-    }
-}
-
-// 获取选择结果
-std::vector<cad_core::SelectionInfo> QtOccView::GetSelectedShapes() const {
-    if (m_selectionManager) {
-        return m_selectionManager->GetSelectedShapes();
-    }
-    return std::vector<cad_core::SelectionInfo>();
-}
-
-std::vector<cad_core::SelectionInfo> QtOccView::GetSelectedFaces() const {
-    if (m_selectionManager) {
-        return m_selectionManager->GetSelectedFaces();
-    }
-    return std::vector<cad_core::SelectionInfo>();
-}
-
-std::vector<cad_core::SelectionInfo> QtOccView::GetSelectedEdges() const {
-    if (m_selectionManager) {
-        return m_selectionManager->GetSelectedEdges();
-    }
-    return std::vector<cad_core::SelectionInfo>();
-}
-
-std::vector<cad_core::SelectionInfo> QtOccView::GetSelectedVertices() const {
-    if (m_selectionManager) {
-        return m_selectionManager->GetSelectedVertices();
-    }
-    return std::vector<cad_core::SelectionInfo>();
-}
-
-// Fix for view turning white when window loses focus
-void QtOccView::focusInEvent(QFocusEvent* event) {
-    QWidget::focusInEvent(event);
-    
-    // Minimal focus handling to prevent flicker
-    if (!m_view.IsNull() && m_isInitialized) {
-        // Don't touch window mapping - let it be handled by showEvent and paintEvent
-        qDebug() << "Focus gained - view is initialized";
-    }
-}
-
-void QtOccView::focusOutEvent(QFocusEvent* event) {
-    QWidget::focusOutEvent(event);
-    
-    // Minimal handling - don't force redraws on focus loss
-    // This reduces flicker when mouse enters/leaves the widget
-}
-
-void QtOccView::enterEvent(QEvent* event) {
-    QWidget::enterEvent(event);
-    
-    // Don't perform any heavy operations on mouse enter
-    // This prevents flicker when mouse enters the widget
-}
-
-void QtOccView::leaveEvent(QEvent* event) {
-    QWidget::leaveEvent(event);
-    
-    // Don't perform any heavy operations on mouse leave
-    // This prevents flicker when mouse leaves the widget
-}
-
-void QtOccView::showEvent(QShowEvent* event) {
-    QWidget::showEvent(event);
-    
-    // Try to initialize if not done yet
-    if (!m_isInitialized) {
-        InitViewer();
-        return; // InitViewer will handle the initial redraw
-    }
-    
-    // Minimal redraw when widget is shown - only if necessary
-    if (!m_view.IsNull()) {
-        m_view->MustBeResized();
         m_view->Redraw();
     }
-}
 
-// Add event handler for window activation changes
-void QtOccView::changeEvent(QEvent* event) {
-    QWidget::changeEvent(event);
-    
-    if (event->type() == QEvent::ActivationChange || 
-        event->type() == QEvent::WindowStateChange ||
-        event->type() == QEvent::WindowActivate ||
-        event->type() == QEvent::WindowDeactivate) {
-        
-        if (!m_view.IsNull() && !m_context.IsNull()) {
-            // Force maintain viewer state regardless of activation
-            m_context->UpdateCurrentViewer();
-            m_view->Redraw();
+    std::map<cad_core::ShapePtr, std::vector<TopoDS_Edge>> QtOccView::GetSelectedEdgesByShape() const {
+        std::map<cad_core::ShapePtr, std::vector<TopoDS_Edge>> result;
+
+        // Group edges by their parent shapes using parallel vectors
+        for (size_t i = 0; i < m_selectedEdges.size() && i < m_edgeParentShapes.size(); ++i) {
+            const TopoDS_Edge& edge = m_selectedEdges[i];
+            const cad_core::ShapePtr& parentShape = m_edgeParentShapes[i];
+
+            if (parentShape) {
+                result[parentShape].push_back(edge);
+            }
         }
+
+        return result;
     }
-}
-
-// Select shape programmatically for document tree synchronization
-void QtOccView::SelectShape(const cad_core::ShapePtr& shape) {
-    if (!shape || m_context.IsNull()) {
-        return;
-    }
-    
-    // Clear any previous selection first (single selection mode)
-    if (!m_currentSelectedAIS.IsNull()) {
-        m_context->SetSelected(m_currentSelectedAIS, Standard_False);
-        m_currentSelectedAIS.Nullify();
-        m_currentSelectedShape.reset();
-    }
-    
-    // Find the AIS_Shape corresponding to this shape
-    auto it = m_shapeToAIS.find(shape);
-    if (it != m_shapeToAIS.end()) {
-        Handle(AIS_Shape) aisShape = it->second;
-        if (!aisShape.IsNull()) {
-            // Set new selection with highlighting
-            m_context->SetSelected(aisShape, Standard_True);
-            m_context->HilightSelected(Standard_True);
-            m_currentSelectedAIS = aisShape;
-            m_currentSelectedShape = shape;
-            
-            // Redraw to show selection
-            m_view->Redraw();
-        }
-    }
-}
-
-// Edge selection methods for fillet/chamfer operations
-void QtOccView::ClearEdgeSelection() {
-    if (m_context.IsNull()) return;
-    
-    // Remove all edge highlights
-    UnhighlightAllEdges();
-    
-    // Clear edge lists and parent shape tracking
-    m_selectedEdges.clear();
-    m_highlightedEdges.clear();
-    m_edgeParentShapes.clear();
-    
-    m_view->Redraw();
-}
-
-std::map<cad_core::ShapePtr, std::vector<TopoDS_Edge>> QtOccView::GetSelectedEdgesByShape() const {
-    std::map<cad_core::ShapePtr, std::vector<TopoDS_Edge>> result;
-    
-    // Group edges by their parent shapes using parallel vectors
-    for (size_t i = 0; i < m_selectedEdges.size() && i < m_edgeParentShapes.size(); ++i) {
-        const TopoDS_Edge& edge = m_selectedEdges[i];
-        const cad_core::ShapePtr& parentShape = m_edgeParentShapes[i];
-        
-        if (parentShape) {
-            result[parentShape].push_back(edge);
-        }
-    }
-    
-    return result;
-}
 
 
-// 仅供边多选或特殊业务预览使用
-// 普通 hover / 选中优先使用 OCC 自带 LocalDynamic / LocalSelected
-void QtOccView::HighlightEdge(const TopoDS_Edge& edge) {
-    if (m_context.IsNull()) return;
-    
-    // Create AIS object for edge highlighting
-    Handle(AIS_Shape) aisEdge = new AIS_Shape(edge);
-    
-    // Set edge highlighting properties - make it thicker and colored
-    Handle(Prs3d_Drawer) drawer = aisEdge->Attributes();
-    drawer->SetLineAspect(new Prs3d_LineAspect(Quantity_NOC_RED, Aspect_TOL_SOLID, 3.0));
-    drawer->SetWireAspect(new Prs3d_LineAspect(Quantity_NOC_RED, Aspect_TOL_SOLID, 3.0));
-    
-    // Display the highlighted edge
-    m_context->Display(aisEdge, Standard_False);
-    m_highlightedEdges.push_back(aisEdge);
-    
-    m_view->Redraw();
-}
+    // 仅供边多选或特殊业务预览使用
+    // 普通 hover / 选中优先使用 OCC 自带 LocalDynamic / LocalSelected
+    void QtOccView::HighlightEdge(const TopoDS_Edge& edge) {
+        if (m_context.IsNull()) return;
 
-void QtOccView::UnhighlightAllEdges() {
-    if (m_context.IsNull()) return;
-    
-    // Remove all highlighted edges from display
-    for (const auto& highlightedEdge : m_highlightedEdges) {
-        m_context->Remove(highlightedEdge, Standard_False);
-    }
-    
-    m_highlightedEdges.clear();
-    m_view->Redraw();
-}
+        // Create AIS object for edge highlighting
+        Handle(AIS_Shape) aisEdge = new AIS_Shape(edge);
 
+        // Set edge highlighting properties - make it thicker and colored
+        Handle(Prs3d_Drawer) drawer = aisEdge->Attributes();
+        drawer->SetLineAspect(new Prs3d_LineAspect(Quantity_NOC_RED, Aspect_TOL_SOLID, 3.0));
+        drawer->SetWireAspect(new Prs3d_LineAspect(Quantity_NOC_RED, Aspect_TOL_SOLID, 3.0));
 
-// 仅供特殊点选择或调试预览使用
-// 普通 hover / 选中优先使用 OCC 自带 LocalDynamic / LocalSelected
-void QtOccView::HighlightVertex(const TopoDS_Vertex& vertex) {
-    if (m_context.IsNull()) return;
-    
-    // 使用临时AIS对象显示高亮的点
-    Handle(AIS_Shape) aisVertex = new AIS_Shape(vertex);
-    
-    // 设置点的高亮属性 - 红色球形
-    aisVertex->SetColor(Quantity_NOC_RED);
-    aisVertex->SetWidth(5.0);
-    
-    // 显示高亮的点
-    m_context->Display(aisVertex, Standard_False);
-    
-    // 添加到选中点列表
-    bool alreadySelected = false;
-    for (const auto& existingVertex : m_selectedVertices) {
-        if (vertex.IsSame(existingVertex)) {
-            alreadySelected = true;
-            break;
-        }
-    }
-    
-    if (!alreadySelected) {
-        m_selectedVertices.push_back(vertex);
-        m_highlightedVertices.push_back(aisVertex);
-        qDebug() << "Added vertex to selection, total vertices:" << m_selectedVertices.size();
-    }
-    
-    m_view->Redraw();
-}
+        // Display the highlighted edge
+        m_context->Display(aisEdge, Standard_False);
+        m_highlightedEdges.push_back(aisEdge);
 
-void QtOccView::UnhighlightAllVertices() {
-    if (m_context.IsNull()) return;
-    
-    // Remove all highlighted vertices from display
-    for (const auto& highlightedVertex : m_highlightedVertices) {
-        m_context->Remove(highlightedVertex, Standard_False);
-    }
-    
-    m_highlightedVertices.clear();
-    m_selectedVertices.clear();
-    m_view->Redraw();
-}
-
-
-// 仅供特殊业务预览使用（如相邻面预览、辅助提示）
-// 不再作为普通点击选面的默认高亮方式
-void QtOccView::HighlightFace(const TopoDS_Face& face) {
-    if (m_context.IsNull()) return;
-    
-    // 使用临时AIS对象显示高亮的面
-    Handle(AIS_Shape) aisFace = new AIS_Shape(face);
-    
-    // 设置面的高亮属性 - 半透明红色
-    aisFace->SetColor(Quantity_NOC_RED);
-    aisFace->SetTransparency(0.3); // 半透明
-    aisFace->SetDisplayMode(AIS_Shaded);
-    
-    aisFace->SetZLayer(Graphic3d_ZLayerId_Topmost);
-
-    // 显示高亮的面
-    m_context->Display(aisFace, Standard_False);
-    
-    // 添加到选中面列表
-    bool alreadySelected = false;
-    for (const auto& existingFace : m_selectedFaces) {
-        if (face.IsSame(existingFace)) {
-            alreadySelected = true;
-            break;
-        }
-    }
-    
-    if (!alreadySelected) {
-        m_selectedFaces.push_back(face);
-        m_highlightedFaces.push_back(aisFace);
-        qDebug() << "Added face to selection, total faces:" << m_selectedFaces.size();
-    }
-    
-    m_view->Redraw();
-}
-
-void QtOccView::UnhighlightAllFaces() {
-    if (m_context.IsNull()) return;
-    
-    // Remove all highlighted faces from display
-    for (const auto& highlightedFace : m_highlightedFaces) {
-        m_context->Remove(highlightedFace, Standard_False);
-    }
-    
-    m_highlightedFaces.clear();
-    m_selectedFaces.clear();
-    m_view->Redraw();
-}
-
-void QtOccView::ClearOpFace() {
-    if (!m_previewFaceAIS.IsNull() && !m_context.IsNull()) {
-        m_context->Remove(m_previewFaceAIS, Standard_False);
-        m_previewFaceAIS.Nullify();
         m_view->Redraw();
     }
-}
 
-void QtOccView::ShowOpFace(int faceIndex) {
-    ClearOpFace(); // 先清理旧的
+    void QtOccView::UnhighlightAllEdges() {
+        if (m_context.IsNull()) return;
 
-    // 确保当前有选中的边以及对应的父实体
-    if (m_selectedEdges.empty() || m_edgeParentShapes.empty()) return;
+        // Remove all highlighted edges from display
+        for (const auto& highlightedEdge : m_highlightedEdges) {
+            m_context->Remove(highlightedEdge, Standard_False);
+        }
 
-    TopoDS_Edge currentEdge = m_selectedEdges[0];
-    cad_core::ShapePtr parentShape = m_edgeParentShapes[0]; // 直接使用现有的父形状记录
-
-    if (!parentShape) return;
-
-    std::vector<TopoDS_Face> adjacentFaces = cad_core::FilletChamferOperations::GetAdjacentFaces(parentShape, currentEdge);
-
-    TopoDS_Face faceToHighlight;
-    if (faceIndex == 0 && adjacentFaces.size() > 0) {
-        faceToHighlight = adjacentFaces[0];
-    }
-    else if (faceIndex == 1 && adjacentFaces.size() > 1) {
-        faceToHighlight = adjacentFaces[1];
+        m_highlightedEdges.clear();
+        m_view->Redraw();
     }
 
-    if (!faceToHighlight.IsNull()) {
-        // 复用 HighlightFace 渲染风格
-        Handle(AIS_Shape) aisFace = new AIS_Shape(faceToHighlight);
-        aisFace->SetColor(Quantity_NOC_RED); 
-        aisFace->SetTransparency(0.3);
+
+    // 仅供特殊点选择或调试预览使用
+    // 普通 hover / 选中优先使用 OCC 自带 LocalDynamic / LocalSelected
+    void QtOccView::HighlightVertex(const TopoDS_Vertex& vertex) {
+        if (m_context.IsNull()) return;
+
+        // 使用临时AIS对象显示高亮的点
+        Handle(AIS_Shape) aisVertex = new AIS_Shape(vertex);
+
+        // 设置点的高亮属性 - 红色球形
+        aisVertex->SetColor(Quantity_NOC_RED);
+        aisVertex->SetWidth(5.0);
+
+        // 显示高亮的点
+        m_context->Display(aisVertex, Standard_False);
+
+        // 添加到选中点列表
+        bool alreadySelected = false;
+        for (const auto& existingVertex : m_selectedVertices) {
+            if (vertex.IsSame(existingVertex)) {
+                alreadySelected = true;
+                break;
+            }
+        }
+
+        if (!alreadySelected) {
+            m_selectedVertices.push_back(vertex);
+            m_highlightedVertices.push_back(aisVertex);
+            qDebug() << "Added vertex to selection, total vertices:" << m_selectedVertices.size();
+        }
+
+        m_view->Redraw();
+    }
+
+    void QtOccView::UnhighlightAllVertices() {
+        if (m_context.IsNull()) return;
+
+        // Remove all highlighted vertices from display
+        for (const auto& highlightedVertex : m_highlightedVertices) {
+            m_context->Remove(highlightedVertex, Standard_False);
+        }
+
+        m_highlightedVertices.clear();
+        m_selectedVertices.clear();
+        m_view->Redraw();
+    }
+
+
+    // 仅供特殊业务预览使用（如相邻面预览、辅助提示）
+    // 不再作为普通点击选面的默认高亮方式
+    void QtOccView::HighlightFace(const TopoDS_Face& face) {
+        if (m_context.IsNull()) return;
+
+        // 使用临时AIS对象显示高亮的面
+        Handle(AIS_Shape) aisFace = new AIS_Shape(face);
+
+        // 设置面的高亮属性 - 半透明红色
+        aisFace->SetColor(Quantity_NOC_RED);
+        aisFace->SetTransparency(0.3); // 半透明
         aisFace->SetDisplayMode(AIS_Shaded);
 
+        aisFace->SetZLayer(Graphic3d_ZLayerId_Topmost);
+
+        // 显示高亮的面
         m_context->Display(aisFace, Standard_False);
-        m_previewFaceAIS = aisFace; 
+
+        // 添加到选中面列表
+        bool alreadySelected = false;
+        for (const auto& existingFace : m_selectedFaces) {
+            if (face.IsSame(existingFace)) {
+                alreadySelected = true;
+                break;
+            }
+        }
+
+        if (!alreadySelected) {
+            m_selectedFaces.push_back(face);
+            m_highlightedFaces.push_back(aisFace);
+            qDebug() << "Added face to selection, total faces:" << m_selectedFaces.size();
+        }
 
         m_view->Redraw();
     }
-}
 
-// =============================================================================
-// Sketch Mode Implementation
-// =============================================================================
-namespace {
-    /**
-     * @brief 将草图局部 2D 点转换为世界 3D 点
-     */
-    static gp_Pnt Sketch2DToWorld(const cad_sketch::SketchPointPtr& pt, const gp_Ax3& cs)
-    {
-        if (!pt) return gp_Pnt(0, 0, 0);
+    void QtOccView::UnhighlightAllFaces() {
+        if (m_context.IsNull()) return;
 
-        gp_Pnt origin = cs.Location();
-        gp_Dir xDir = cs.XDirection();
-        gp_Dir yDir = cs.YDirection();
+        // Remove all highlighted faces from display
+        for (const auto& highlightedFace : m_highlightedFaces) {
+            m_context->Remove(highlightedFace, Standard_False);
+        }
 
-        return origin.Translated(
-            gp_Vec(xDir) * pt->GetX() +
-            gp_Vec(yDir) * pt->GetY()
-        );
+        m_highlightedFaces.clear();
+        m_selectedFaces.clear();
+        m_view->Redraw();
     }
 
-    // 根据元素类型生成对应的 OCC 拓扑形状
-    static TopoDS_Shape MakeShapeFromSketchElement(const cad_sketch::SketchElementPtr& elem, const gp_Ax3& cs) {
-        if (!elem) return TopoDS_Shape();
-
-        if (auto point = std::dynamic_pointer_cast<cad_sketch::SketchPoint>(elem)) {
-            gp_Pnt worldPt = Sketch2DToWorld(point, cs);
-            return BRepBuilderAPI_MakeVertex(worldPt); // 生成 OCC 的顶点
+    void QtOccView::ClearOpFace() {
+        if (!m_previewFaceAIS.IsNull() && !m_context.IsNull()) {
+            m_context->Remove(m_previewFaceAIS, Standard_False);
+            m_previewFaceAIS.Nullify();
+            m_view->Redraw();
         }
-        // 1. 如果是直线
-        else if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
-            gp_Pnt p1 = Sketch2DToWorld(line->GetStartPoint(), cs);
-            gp_Pnt p2 = Sketch2DToWorld(line->GetEndPoint(), cs);
-            if (p1.Distance(p2) > Precision::Confusion()) {
-                return BRepBuilderAPI_MakeEdge(p1, p2);
+    }
+
+    void QtOccView::ShowOpFace(int faceIndex) {
+        ClearOpFace(); // 先清理旧的
+
+        // 确保当前有选中的边以及对应的父实体
+        if (m_selectedEdges.empty() || m_edgeParentShapes.empty()) return;
+
+        TopoDS_Edge currentEdge = m_selectedEdges[0];
+        cad_core::ShapePtr parentShape = m_edgeParentShapes[0]; // 直接使用现有的父形状记录
+
+        if (!parentShape) return;
+
+        std::vector<TopoDS_Face> adjacentFaces = cad_core::FilletChamferOperations::GetAdjacentFaces(parentShape, currentEdge);
+
+        TopoDS_Face faceToHighlight;
+        if (faceIndex == 0 && adjacentFaces.size() > 0) {
+            faceToHighlight = adjacentFaces[0];
+        }
+        else if (faceIndex == 1 && adjacentFaces.size() > 1) {
+            faceToHighlight = adjacentFaces[1];
+        }
+
+        if (!faceToHighlight.IsNull()) {
+            // 复用 HighlightFace 渲染风格
+            Handle(AIS_Shape) aisFace = new AIS_Shape(faceToHighlight);
+            aisFace->SetColor(Quantity_NOC_RED);
+            aisFace->SetTransparency(0.3);
+            aisFace->SetDisplayMode(AIS_Shaded);
+
+            m_context->Display(aisFace, Standard_False);
+            m_previewFaceAIS = aisFace;
+
+            m_view->Redraw();
+        }
+    }
+
+    // =============================================================================
+    // Sketch Mode Implementation
+    // =============================================================================
+    namespace {
+        /**
+         * @brief 将草图局部 2D 点转换为世界 3D 点
+         */
+        static gp_Pnt Sketch2DToWorld(const cad_sketch::SketchPointPtr& pt, const gp_Ax3& cs)
+        {
+            if (!pt) return gp_Pnt(0, 0, 0);
+
+            gp_Pnt origin = cs.Location();
+            gp_Dir xDir = cs.XDirection();
+            gp_Dir yDir = cs.YDirection();
+
+            return origin.Translated(
+                gp_Vec(xDir) * pt->GetX() +
+                gp_Vec(yDir) * pt->GetY()
+            );
+        }
+
+        // 根据元素类型生成对应的 OCC 拓扑形状
+        static TopoDS_Shape MakeShapeFromSketchElement(const cad_sketch::SketchElementPtr& elem, const gp_Ax3& cs) {
+            if (!elem) return TopoDS_Shape();
+
+            if (auto point = std::dynamic_pointer_cast<cad_sketch::SketchPoint>(elem)) {
+                gp_Pnt worldPt = Sketch2DToWorld(point, cs);
+                return BRepBuilderAPI_MakeVertex(worldPt); // 生成 OCC 的顶点
             }
-        }
-        // 2. 如果是圆
-        else if (auto circle = std::dynamic_pointer_cast<cad_sketch::SketchCircle>(elem)) {
-            gp_Pnt center = Sketch2DToWorld(circle->GetCenter(), cs);
-            double radius = circle->GetRadius();
-            if (radius > Precision::Confusion()) {
-                // 用当前草图的法线方向和 X 轴方向构造一个平面坐标系
-                gp_Ax2 ax2(center, cs.Direction(), cs.XDirection());
-                gp_Circ gpCirc(ax2, radius);
-                return BRepBuilderAPI_MakeEdge(gpCirc); // OCC 生成圆形边
+            // 1. 如果是直线
+            else if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
+                gp_Pnt p1 = Sketch2DToWorld(line->GetStartPoint(), cs);
+                gp_Pnt p2 = Sketch2DToWorld(line->GetEndPoint(), cs);
+                if (p1.Distance(p2) > Precision::Confusion()) {
+                    return BRepBuilderAPI_MakeEdge(p1, p2);
+                }
             }
-        }
-        // 3. 如果是圆弧
-        else if (auto arc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
-            gp_Pnt center = Sketch2DToWorld(arc->GetCenter(), cs);
-            double radius = arc->GetRadius();
-            if (radius > Precision::Confusion()) {
-                // 用当前草图的法线方向和 X 轴方向构造一个平面坐标系 
-                gp_Ax2 ax2(center, cs.Direction(), cs.XDirection());
-                gp_Circ gpCirc(ax2, radius); // 构造几何基础圆
-
-                // 获取圆弧的起止弧度 
-                double startAngle = arc->GetStartAngle();
-                double endAngle = arc->GetEndAngle();
-
-                // OCC 创建圆弧边：沿着基础圆，从起始参数逆时针绘制到终止参数
-                return BRepBuilderAPI_MakeEdge(gpCirc, startAngle, endAngle);
+            // 2. 如果是圆
+            else if (auto circle = std::dynamic_pointer_cast<cad_sketch::SketchCircle>(elem)) {
+                gp_Pnt center = Sketch2DToWorld(circle->GetCenter(), cs);
+                double radius = circle->GetRadius();
+                if (radius > Precision::Confusion()) {
+                    // 用当前草图的法线方向和 X 轴方向构造一个平面坐标系
+                    gp_Ax2 ax2(center, cs.Direction(), cs.XDirection());
+                    gp_Circ gpCirc(ax2, radius);
+                    return BRepBuilderAPI_MakeEdge(gpCirc); // OCC 生成圆形边
+                }
             }
-        }
+            // 3. 如果是圆弧
+            else if (auto arc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
+                gp_Pnt center = Sketch2DToWorld(arc->GetCenter(), cs);
+                double radius = arc->GetRadius();
+                if (radius > Precision::Confusion()) {
+                    // 用当前草图的法线方向和 X 轴方向构造一个平面坐标系 
+                    gp_Ax2 ax2(center, cs.Direction(), cs.XDirection());
+                    gp_Circ gpCirc(ax2, radius); // 构造几何基础圆
 
-        // 4. 如果是样条曲线
-        else if (auto curve = std::dynamic_pointer_cast<cad_sketch::SketchCurve>(elem)) {
-            const auto& rawPoints = curve->GetControlPoints();
+                    // 获取圆弧的起止弧度 
+                    double startAngle = arc->GetStartAngle();
+                    double endAngle = arc->GetEndAngle();
 
-            // 1. 数据清洗：过滤掉距离过近的点
-            std::vector<gp_Pnt> validPoints;
-            const double MIN_DISTANCE = 1e-5; // 设定一个最小容差距离
-
-            for (const auto& pt : rawPoints) {
-                gp_Pnt worldPt = Sketch2DToWorld(pt, cs);
-                // 如果是第一个点，或者当前点与上一个有效点的距离大于最小容差，才加入有效列表
-                if (validPoints.empty() || validPoints.back().Distance(worldPt) > MIN_DISTANCE) {
-                    validPoints.push_back(worldPt);
+                    // OCC 创建圆弧边：沿着基础圆，从起始参数逆时针绘制到终止参数
+                    return BRepBuilderAPI_MakeEdge(gpCirc, startAngle, endAngle);
                 }
             }
 
-            // 2. 至少需要两个有效点才能进行插值 
-            if (validPoints.size() >= 2) {
-                // OCC 的数组索引是从 1 开始的
-                Handle(TColgp_HArray1OfPnt) occPoints = new TColgp_HArray1OfPnt(1, validPoints.size());
+            // 4. 如果是样条曲线
+            else if (auto curve = std::dynamic_pointer_cast<cad_sketch::SketchCurve>(elem)) {
+                const auto& rawPoints = curve->GetControlPoints();
 
-                for (size_t i = 0; i < validPoints.size(); ++i) {
-                    occPoints->SetValue(i + 1, validPoints[i]);
-                }
+                // 1. 数据清洗：过滤掉距离过近的点
+                std::vector<gp_Pnt> validPoints;
+                const double MIN_DISTANCE = 1e-5; // 设定一个最小容差距离
 
-                // 3. 捕获 OCC 底层抛出的异常 
-                try {
-                    GeomAPI_Interpolate interpolator(occPoints, Standard_False, Precision::Confusion());
-                    interpolator.Perform();
-
-                    if (interpolator.IsDone()) {
-                        Handle(Geom_BSplineCurve) splineCurve = interpolator.Curve();
-                        return BRepBuilderAPI_MakeEdge(splineCurve);
+                for (const auto& pt : rawPoints) {
+                    gp_Pnt worldPt = Sketch2DToWorld(pt, cs);
+                    // 如果是第一个点，或者当前点与上一个有效点的距离大于最小容差，才加入有效列表
+                    if (validPoints.empty() || validPoints.back().Distance(worldPt) > MIN_DISTANCE) {
+                        validPoints.push_back(worldPt);
                     }
                 }
-                catch (...) { // 捕获 Standard_Failure 或其他底层异常
-                    qDebug() << "Curve interpolation failed due to invalid geometric input.";
-                    // 发生异常时返回空形状，只丢弃这一帧的渲染，绝不让程序闪退
-                    return TopoDS_Shape();
+
+                // 2. 至少需要两个有效点才能进行插值 
+                if (validPoints.size() >= 2) {
+                    // OCC 的数组索引是从 1 开始的
+                    Handle(TColgp_HArray1OfPnt) occPoints = new TColgp_HArray1OfPnt(1, validPoints.size());
+
+                    for (size_t i = 0; i < validPoints.size(); ++i) {
+                        occPoints->SetValue(i + 1, validPoints[i]);
+                    }
+
+                    // 3. 捕获 OCC 底层抛出的异常 
+                    try {
+                        GeomAPI_Interpolate interpolator(occPoints, Standard_False, Precision::Confusion());
+                        interpolator.Perform();
+
+                        if (interpolator.IsDone()) {
+                            Handle(Geom_BSplineCurve) splineCurve = interpolator.Curve();
+                            return BRepBuilderAPI_MakeEdge(splineCurve);
+                        }
+                    }
+                    catch (...) { // 捕获 Standard_Failure 或其他底层异常
+                        qDebug() << "Curve interpolation failed due to invalid geometric input.";
+                        // 发生异常时返回空形状，只丢弃这一帧的渲染，绝不让程序闪退
+                        return TopoDS_Shape();
+                    }
                 }
             }
+            return TopoDS_Shape();
         }
-        return TopoDS_Shape();
+
+        // 用于追踪每个草图拥有的蓝色轮廓面，防止互相误删
+        static std::map<cad_sketch::Sketch*, std::vector<Handle(AIS_InteractiveObject)>> s_sketchProfileCache;
     }
 
-    // 用于追踪每个草图拥有的蓝色轮廓面，防止互相误删
-    static std::map<cad_sketch::Sketch*, std::vector<Handle(AIS_InteractiveObject)>> s_sketchProfileCache;
-}
-     
 
     bool QtOccView::IsInSketchMode() const {
         return m_sketchMode && m_sketchMode->IsInSketchMode();
@@ -1615,17 +1621,17 @@ namespace {
         if (!m_sketchMode) {
             try {
                 m_sketchMode = std::make_unique<SketchMode>(this, this);
-            
+
                 // Connect sketch mode signals
                 if (m_sketchMode) {
                     connect(m_sketchMode.get(), &SketchMode::sketchModeEntered,
-                            this, &QtOccView::SketchModeEntered);
+                        this, &QtOccView::SketchModeEntered);
                     connect(m_sketchMode.get(), &SketchMode::sketchModeExited,
-                            this, &QtOccView::SketchModeExited);
-                    connect(m_sketchMode.get(), &SketchMode::sketchHistoryChanged, 
-                            this, &QtOccView::SketchHistoryChanged);
-                    connect(m_sketchMode.get(), &SketchMode::toolChanged, 
-                            this, &QtOccView::SketchToolChanged);
+                        this, &QtOccView::SketchModeExited);
+                    connect(m_sketchMode.get(), &SketchMode::sketchHistoryChanged,
+                        this, &QtOccView::SketchHistoryChanged);
+                    connect(m_sketchMode.get(), &SketchMode::toolChanged,
+                        this, &QtOccView::SketchToolChanged);
 
                 }
                 qDebug() << "Sketch mode initialized successfully";
@@ -1635,7 +1641,7 @@ namespace {
                 return;
             }
         }
-    
+
         try {
             if (m_sketchMode->EnterSketchMode(face)) {
                 qDebug() << "Successfully entered sketch mode";
@@ -1653,7 +1659,8 @@ namespace {
                     m_currentSelectionMode = 0;
                 }
                 emit SketchModeEntered();
-            } else {
+            }
+            else {
                 qDebug() << "Failed to enter sketch mode";
             }
         }
@@ -1696,10 +1703,10 @@ namespace {
         if (!m_sketchMode) {
             return;
         }
-    
+
         try {
             m_sketchMode->ExitSketchMode();
-        
+
             qDebug() << "Exited sketch mode";
             emit SketchModeExited();
         }
@@ -1714,7 +1721,7 @@ namespace {
             qDebug() << "Cannot start rectangle tool: not in sketch mode";
             return;
         }
-    
+
         m_sketchMode->StartRectangleTool();
         qDebug() << "Started rectangle tool";
     }
@@ -1761,7 +1768,7 @@ namespace {
 
         // 3. 设置视觉效果 (浅蓝色 + 半透明)
         aisFace->SetColor(Quantity_NOC_LIGHTSKYBLUE1); // 浅天蓝色
-        aisFace->SetTransparency(0.6);                
+        aisFace->SetTransparency(0.6);
 
         // 4. 强化面的边界线 (Boundary Draw)，让边缘更清晰
         Handle(Prs3d_Drawer) drawer = aisFace->Attributes();
@@ -1884,9 +1891,9 @@ namespace {
     void QtOccView::ClearSketchObjects() {
         if (m_context.IsNull()) return;
 
-        UnhighlightSketchElement();           
-        m_currentSelectedAIS.Nullify();       
-        m_currentSelectedShape.reset();      
+        UnhighlightSketchElement();
+        m_currentSelectedAIS.Nullify();
+        m_currentSelectedShape.reset();
 
         for (auto& obj : m_sketchObjects) {
             m_context->Remove(obj, Standard_False);
@@ -1983,10 +1990,30 @@ namespace {
     void QtOccView::SetSketchVisibility(const std::shared_ptr<cad_sketch::Sketch>& sketch, bool visible) {
         if (!sketch || m_context.IsNull()) return;
 
-        // 1. 控制属于该草图的红线 (Elements)
+        // ★ 收集所有需要匹配的元素（包括顶层元素 + 子点）
+        std::vector<cad_sketch::SketchElementPtr> allTargets;
         for (const auto& elem : sketch->GetElements()) {
+            allTargets.push_back(elem);
+
+            // 把线段/圆弧/圆的子点也加入匹配列表
+            if (auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem)) {
+                if (line->GetStartPoint()) allTargets.push_back(line->GetStartPoint());
+                if (line->GetEndPoint())   allTargets.push_back(line->GetEndPoint());
+            }
+            else if (auto arc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
+                if (arc->GetStartPoint()) allTargets.push_back(arc->GetStartPoint());
+                if (arc->GetEndPoint())   allTargets.push_back(arc->GetEndPoint());
+                if (arc->GetCenter())     allTargets.push_back(arc->GetCenter());
+            }
+            else if (auto circle = std::dynamic_pointer_cast<cad_sketch::SketchCircle>(elem)) {
+                if (circle->GetCenter())  allTargets.push_back(circle->GetCenter());
+            }
+        }
+
+        // 1. 控制属于该草图的红线和端点标记 (Elements + Point Markers)
+        for (const auto& target : allTargets) {
             for (const auto& pair : m_sketchElementMap) {
-                if (pair.second == elem) {
+                if (pair.second == target) {
                     if (visible) m_context->Display(pair.first, Standard_False);
                     else m_context->Erase(pair.first, Standard_False);
                 }
@@ -2028,7 +2055,7 @@ namespace {
         }
 
         // 1. 删除该草图对应的所有元素 AIS
-        for (const auto& elem : allElems){
+        for (const auto& elem : allElems) {
             for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ) {
                 if (it->second == elem) {
                     if (m_currentSelectedAIS == it->first) {
@@ -2245,17 +2272,17 @@ namespace {
     }
 
     //草图历史记录管理
-    void QtOccView::UndoSketch() { 
-        if (IsInSketchMode()) m_sketchMode->Undo(); 
+    void QtOccView::UndoSketch() {
+        if (IsInSketchMode()) m_sketchMode->Undo();
     }
-    void QtOccView::RedoSketch() { 
-        if (IsInSketchMode()) m_sketchMode->Redo(); 
+    void QtOccView::RedoSketch() {
+        if (IsInSketchMode()) m_sketchMode->Redo();
     }
-    bool QtOccView::CanUndoSketch() const { 
-        return IsInSketchMode() && m_sketchMode->CanUndo(); 
+    bool QtOccView::CanUndoSketch() const {
+        return IsInSketchMode() && m_sketchMode->CanUndo();
     }
-    bool QtOccView::CanRedoSketch() const { 
-        return IsInSketchMode() && m_sketchMode->CanRedo(); 
+    bool QtOccView::CanRedoSketch() const {
+        return IsInSketchMode() && m_sketchMode->CanRedo();
     }
 
     // 渲染草图闭合线框
@@ -2383,7 +2410,7 @@ namespace {
         ClearCentroid();
 
         // 视图层只负责“画”，不管数学逻辑
-        TopoDS_Shape sphereShape = BRepPrimAPI_MakeSphere(pnt,0.1).Shape();
+        TopoDS_Shape sphereShape = BRepPrimAPI_MakeSphere(pnt, 0.1).Shape();
         Handle(AIS_Shape) aisSphere = new AIS_Shape(sphereShape);
 
         aisSphere->SetColor(Quantity_NOC_RED);
@@ -2448,10 +2475,11 @@ namespace {
         }
         m_sketchMode->ExitSketchMode();
         m_sweepInteractionState = SweepInteractionMode::None;
+        m_isDrawingSweepPath = false;   // ★ 修复：重置标记，否则后续轮廓永远不渲染
         ClearCentroid();
         m_view->Redraw();
     }
-    
+
     // Sweep 交互状态控制 
     void QtOccView::StartSweepInteraction() {
         // 解锁：进入等待选择截面的状态
@@ -2505,4 +2533,3 @@ namespace {
     }
 
 } // namespace cad_ui
-

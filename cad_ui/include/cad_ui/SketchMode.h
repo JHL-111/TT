@@ -304,6 +304,9 @@ namespace cad_ui {
         QtOccView* m_viewer; // 视图渲染器指针
         bool m_isActive;     // 是否处于激活状态
 
+        // 标记鼠标是否真的移动了（区分"点击"和"拖拽"）
+        bool m_didActuallyMove = false;
+
         // 草图核心数据模型
         cad_sketch::SketchPtr m_currentSketch; // 存储绘制的线段与约束
         TopoDS_Face m_sketchFace;              // 依附的三维拓扑面 (Topological Face)
