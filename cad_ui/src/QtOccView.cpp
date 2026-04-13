@@ -2037,7 +2037,32 @@ namespace cad_ui {
     void QtOccView::RemoveSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch) {
         if (!sketch || m_context.IsNull()) return;
 
-        // 收集所有要删的元素（包括端点）
+        // 辅助lambda：按坐标匹配移除 SketchPoint 的 AIS 对象
+        auto removePointByCoord = [&](double px, double py) {
+            for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ) {
+                auto pt = std::dynamic_pointer_cast<cad_sketch::SketchPoint>(it->second);
+                if (pt && std::abs(pt->GetX() - px) < 1e-9 && std::abs(pt->GetY() - py) < 1e-9) {
+                    if (m_currentSelectedAIS == it->first) {
+                        UnhighlightSketchElement();
+                        m_currentSelectedAIS.Nullify();
+                        m_currentSelectedShape.reset();
+                    }
+                    m_context->Remove(it->first, Standard_False);
+                    auto vecIt = std::find(m_sketchObjects.begin(), m_sketchObjects.end(), it->first);
+                    if (vecIt != m_sketchObjects.end()) m_sketchObjects.erase(vecIt);
+                    it = m_sketchElementMap.erase(it);
+                    return;
+                }
+                else {
+                    ++it;
+                }
+            }
+            };
+
+        // 收集要删的弧元素（单独处理其端点）
+        std::vector<std::shared_ptr<cad_sketch::SketchArc>> arcsToClean;
+
+        // 收集所有要删的元素（包括端点，但排除 Arc 端点）
         std::vector<cad_sketch::SketchElementPtr> allElems;
         for (const auto& elem : sketch->GetElements()) {
             allElems.push_back(elem);
@@ -2046,15 +2071,15 @@ namespace cad_ui {
                 allElems.push_back(line->GetEndPoint());
             }
             else if (auto arc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
-                allElems.push_back(arc->GetStartPoint());
-                allElems.push_back(arc->GetEndPoint());
+                // Arc 端点不加入 allElems，因为指针每次不同，改用坐标匹配
+                arcsToClean.push_back(arc);
             }
             else if (auto circle = std::dynamic_pointer_cast<cad_sketch::SketchCircle>(elem)) {
                 allElems.push_back(circle->GetCenter());
             }
         }
 
-        // 1. 删除该草图对应的所有元素 AIS
+        // 1. 删除该草图对应的所有元素 AIS（指针匹配）
         for (const auto& elem : allElems) {
             for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ) {
                 if (it->second == elem) {
@@ -2078,47 +2103,41 @@ namespace cad_ui {
             }
         }
 
-        // 2. 精准删除该草图对应的所有轮廓面
-        cad_sketch::Sketch* sketchKey = sketch.get();
-        auto cacheIt = s_sketchProfileCache.find(sketchKey);
-        if (cacheIt != s_sketchProfileCache.end()) {
-            // 利用精准缓存快速移除面
-            for (auto& ais : cacheIt->second) {
-                m_context->Remove(ais, Standard_False);
-                auto vecIt = std::find(m_sketchProfileObjects.begin(), m_sketchProfileObjects.end(), ais);
-                if (vecIt != m_sketchProfileObjects.end()) m_sketchProfileObjects.erase(vecIt);
-                m_sketchProfileMap.erase(ais);
-            }
-            s_sketchProfileCache.erase(cacheIt); // 释放缓存
+        // 2. 用坐标匹配清理 Arc 的端点
+        for (const auto& arc : arcsToClean) {
+            auto startPt = arc->GetStartPoint();
+            auto endPt = arc->GetEndPoint();
+            if (startPt) removePointByCoord(startPt->GetX(), startPt->GetY());
+            if (endPt) removePointByCoord(endPt->GetX(), endPt->GetY());
         }
-        else {
-            // 缓存中没有（如读档恢复的数据），走遍历删除
-            for (const auto& profile : sketch->GetProfiles()) {
-                TopoDS_Face face = profile->GetFace();
-                for (auto it = m_sketchProfileMap.begin(); it != m_sketchProfileMap.end(); ) {
-                    if (it->second && it->second->GetOCCTShape().IsSame(face)) {
-                        m_context->Remove(it->first, Standard_False);
-                        auto vecIt = std::find(m_sketchProfileObjects.begin(), m_sketchProfileObjects.end(), it->first);
-                        if (vecIt != m_sketchProfileObjects.end()) m_sketchProfileObjects.erase(vecIt);
-                        it = m_sketchProfileMap.erase(it);
-                    }
-                    else {
-                        ++it;
-                    }
-                }
-            }
-        }
-
-        m_context->ClearSelected(Standard_False);
-        m_context->UpdateCurrentViewer();
-        m_view->Redraw();
     }
 
     // 从屏幕上抹除指定的草图元素
     void QtOccView::RemoveSketchElements(const std::vector<cad_sketch::SketchElementPtr>& elements) {
         if (m_context.IsNull()) return;
 
-        // 扩展待删列表：把线段/弧的端点也加进来
+        // 辅助lambda：从 m_sketchElementMap 中按坐标匹配并移除 SketchPoint 的 AIS 对象
+        // 用于处理 SketchArc::GetStartPoint()/GetEndPoint() 每次返回新指针的问题
+        auto removePointByCoord = [&](double px, double py) {
+            for (auto it = m_sketchElementMap.begin(); it != m_sketchElementMap.end(); ++it) {
+                auto pt = std::dynamic_pointer_cast<cad_sketch::SketchPoint>(it->second);
+                if (pt && std::abs(pt->GetX() - px) < 1e-9 && std::abs(pt->GetY() - py) < 1e-9) {
+                    if (m_currentSelectedAIS == it->first) {
+                        UnhighlightSketchElement();
+                        m_currentSelectedAIS.Nullify();
+                        m_currentSelectedShape.reset();
+                        m_context->ClearSelected(Standard_False);
+                    }
+                    m_context->Remove(it->first, Standard_False);
+                    auto vecIt = std::find(m_sketchObjects.begin(), m_sketchObjects.end(), it->first);
+                    if (vecIt != m_sketchObjects.end()) m_sketchObjects.erase(vecIt);
+                    m_sketchElementMap.erase(it);
+                    return;
+                }
+            }
+            };
+
+        // 扩展待删列表：线段/圆的端点返回稳定指针，可直接比较
         std::vector<cad_sketch::SketchElementPtr> allToRemove;
         for (const auto& elem : elements) {
             allToRemove.push_back(elem);
@@ -2126,13 +2145,11 @@ namespace cad_ui {
                 allToRemove.push_back(line->GetStartPoint());
                 allToRemove.push_back(line->GetEndPoint());
             }
-            else if (auto arc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
-                allToRemove.push_back(arc->GetStartPoint());
-                allToRemove.push_back(arc->GetEndPoint());
-            }
             else if (auto circle = std::dynamic_pointer_cast<cad_sketch::SketchCircle>(elem)) {
                 allToRemove.push_back(circle->GetCenter());
             }
+            // Arc 的端点不加入 allToRemove，因为 GetStartPoint()/GetEndPoint()
+            // 每次创建新对象，指针比较会失败。改用坐标匹配方式处理。
         }
 
         for (const auto& elem : allToRemove) {
@@ -2152,6 +2169,17 @@ namespace cad_ui {
                 }
             }
         }
+
+        // 单独处理 Arc 的端点：用坐标匹配来找到并移除对应的 AIS 点对象
+        for (const auto& elem : elements) {
+            if (auto arc = std::dynamic_pointer_cast<cad_sketch::SketchArc>(elem)) {
+                auto startPt = arc->GetStartPoint();
+                auto endPt = arc->GetEndPoint();
+                if (startPt) removePointByCoord(startPt->GetX(), startPt->GetY());
+                if (endPt) removePointByCoord(endPt->GetX(), endPt->GetY());
+            }
+        }
+
         m_context->UpdateCurrentViewer();
     }
 
