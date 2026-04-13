@@ -20,26 +20,28 @@
 namespace cad_ui {
 
     // =============================================================================
-    // SketchToolBase Implementation (工具基类实现)
+    // SketchToolBase Implementation 
     // =============================================================================
     gp_Pnt SketchToolBase::ScreenToSketchPlane(const QPoint& screenPoint) {
         if (m_view.IsNull()) return gp_Pnt(0, 0, 0);
 
         Standard_Real X, Y, Z, dX, dY, dZ;
-        // 将 2D 屏幕坐标转换为 3D 空间中的一条射线 (Ray)
+        // Convert 2D screen coordinates to a ray in 3D space
         m_view->ConvertWithProj(screenPoint.x(), screenPoint.y(), X, Y, Z, dX, dY, dZ);
 
-        gp_Pnt rayOrigin(X, Y, Z);  // 射线起点 (摄像机位置)
-        gp_Dir rayDir(dX, dY, dZ);  // 射线方向 (视线方向)
-        gp_Lin ray(rayOrigin, rayDir); // 构造射线
+        gp_Pnt rayOrigin(X, Y, Z); 
+        gp_Dir rayDir(dX, dY, dZ);  
+        gp_Lin ray(rayOrigin, rayDir); 
 
-        // 计算射线与草图平面 (Sketch Plane) 的解析交点 (Intersection)
+        // Calculate the analytical intersection point of the ray and the sketch plane 
         IntAna_IntConicQuad intersection(ray, m_sketchPlane, Precision::Angular(), Precision::Confusion());
         if (intersection.IsDone() && intersection.NbPoints() > 0) {
-            return intersection.Point(1); // 返回唯一的交点坐标
+            return intersection.Point(1); 
         }
-        return gp_Pnt(0, 0, 0); // 降级返回原点
+        return gp_Pnt(0, 0, 0); 
     }
+
+
 
     // 1. 三参数函数（直接调用四参数版本，丢弃类型即可，这样就不需要改画图代码了）
     bool SketchToolBase::GetSnappedCoordinate(const QPoint& screenPoint, Standard_Real& u, Standard_Real& v) {

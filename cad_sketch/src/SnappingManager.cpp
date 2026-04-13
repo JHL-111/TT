@@ -296,30 +296,32 @@ SnapResult SnappingManager::SnapToNearest(const cad_core::Point& inputPoint, con
     return result;
 }
 
-// 点到线段的几何距离计算 (矢量投影法)
+// Calculation of geometric distance from a point to a line segment (vector projection method)
 double SnappingManager::DistanceToLineSegment(const cad_core::Point& p, const cad_core::Point& a, const cad_core::Point& b, cad_core::Point& closestPoint) const {
-    double l2 = a.Distance(b) * a.Distance(b); // 线段长度的平方
+    double l2 = a.Distance(b) * a.Distance(b); 
     if (l2 == 0.0) {
         closestPoint = a;
         return p.Distance(a);
     }
 
-    // 投影计算，限制在 0.0 到 1.0 之间，确保点在线段内部而不是延长线上
+    // Projection calculation, restricted within the range of 0.0 to 1.0, 
+    // ensuring that the point lies within the line segment rather than on the extension line.
     double t = std::max(0.0, std::min(1.0, ((p.X() - a.X()) * (b.X() - a.X()) + (p.Y() - a.Y()) * (b.Y() - a.Y())) / l2));
 
     closestPoint = cad_core::Point(a.X() + t * (b.X() - a.X()), a.Y() + t * (b.Y() - a.Y()), 0);
     return p.Distance(closestPoint);
 }
 
-// 点到圆的几何距离计算
+// Calculation of the geometric distance from a point to a circle
 double SnappingManager::DistanceToCircle(const cad_core::Point& p, const cad_core::Point& center, double radius, cad_core::Point& closestPoint) const {
-    double d = p.Distance(center); // 鼠标到圆心的距离
+    double d = p.Distance(center); // Distance from the mouse to the center of the circle
     if (d == 0.0) {
         closestPoint = cad_core::Point(center.X() + radius, center.Y(), 0);
         return radius;
     }
 
-    // 顺着圆心到鼠标的连线，向外延伸或向内收缩，找到圆弧上的绝对点
+    // Following the line from the center of the circle to the mouse,
+    // extend it outward or contract it inward, and find the absolute point on the arc.
     closestPoint = cad_core::Point(
         center.X() + radius * (p.X() - center.X()) / d,
         center.Y() + radius * (p.Y() - center.Y()) / d,
@@ -328,21 +330,22 @@ double SnappingManager::DistanceToCircle(const cad_core::Point& p, const cad_cor
     return std::abs(d - radius);
 }
 
-// 点到圆弧的几何距离计算 (限定在角度范围内)
+// Calculation of the geometric distance from a point to an arc(limited within the angle range)
 double SnappingManager::DistanceToArc(const cad_core::Point& p, const cad_core::Point& center, double radius, double startAngle, double sweepAngle, cad_core::Point& closestPoint) const {
-    // 1. 计算鼠标所在点相对于圆心的角度
+    // 1. Calculate the angle of the point where the mouse is located relative to the center of the circle.
     double dx = p.X() - center.X();
     double dy = p.Y() - center.Y();
     double currentAngle = std::atan2(dy, dx);
     if (currentAngle < 0) currentAngle += 2 * M_PI;
 
-    // 2. 规范化起始角
+    // 2. Standardized initial angle
     double start = startAngle;
     while (start < 0) start += 2 * M_PI;
     while (start >= 2 * M_PI) start -= 2 * M_PI;
     double end = start + sweepAngle;
 
-    // 3. 判断鼠标角度是否在圆弧的扫掠扇区内 (处理跨越 0度/360度 边界的情况)
+    // 3. Determine whether the mouse angle is within the sweeping sector of the arc 
+    // (handle the cases where it crosses the 0 degree/360 degree boundary)
     bool inSweep = false;
     if (end <= 2 * M_PI) {
         inSweep = (currentAngle >= start && currentAngle <= end);
@@ -352,7 +355,8 @@ double SnappingManager::DistanceToArc(const cad_core::Point& p, const cad_core::
     }
 
     if (inSweep) {
-        // 如果在扇区内，最近点和完整的圆一样，是圆弧边缘上的垂足
+        // If within the sector 
+        // the nearest point is the same as the circumference of the circle，it is the foot of the perpendicular on the edge of the circle.
         closestPoint = cad_core::Point(
             center.X() + radius * std::cos(currentAngle),
             center.Y() + radius * std::sin(currentAngle),
@@ -361,7 +365,8 @@ double SnappingManager::DistanceToArc(const cad_core::Point& p, const cad_core::
         return p.Distance(closestPoint);
     }
     else {
-        // 如果不在扇区内，最近点一定是起点或终点
+        // If not within the sector
+        // the nearest point must be either the starting point or the ending point.
         cad_core::Point startPt(
             center.X() + radius * std::cos(startAngle),
             center.Y() + radius * std::sin(startAngle), 0

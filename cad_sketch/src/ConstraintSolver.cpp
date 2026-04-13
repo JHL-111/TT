@@ -182,22 +182,22 @@ namespace cad_sketch {
     }
 
     // =====================================================================
-    // Newton-Raphson 迭代核心
+    // Newton-Raphson Iterative
     // =====================================================================
 
     bool ConstraintSolver::IterativeSolve() {
-        int N = static_cast<int>(m_variables.size());   // 变量数
-        int M = GetTotalEquationCount();                 // 方程数
+        int N = static_cast<int>(m_variables.size());   // Number of variables
+        int M = GetTotalEquationCount();                 // Number of Equations
 
         if (N == 0 || M == 0) return true;
 
         double prevError = std::numeric_limits<double>::max();
-        int divergeCount = 0;  // ★ 新增：连续发散计数
+        int divergeCount = 0;  // Consecutive divergence counting
 
         for (int iteration = 0; iteration < m_maxIterations; ++iteration) {
             m_lastResult.iterations = iteration + 1;
 
-            // ----- Step 1: 组装 F 向量和 J 矩阵 -----
+            // ----- Step 1: Assemble the F vector and the J matrix  -----
             Eigen::VectorXd F(M);
             Eigen::MatrixXd J = Eigen::MatrixXd::Zero(M, N);
 
@@ -211,10 +211,10 @@ namespace cad_sketch {
                 if (eqCount == 0) continue;
 
                 for (int eq = 0; eq < eqCount; ++eq) {
-                    // 填误差值
+                    // Fill in the error value
                     F(eqRow) = constraint->GetErrorAt(eq);
 
-                    // 填雅可比矩阵的一行
+                    // Fill in a row of the Jacobian matrix
                     auto jacobianEntries = constraint->GetJacobianAt(eq);
                     for (const auto& entry : jacobianEntries) {
                         if (entry.variableIndex >= 0 && entry.variableIndex < N) {
@@ -226,19 +226,20 @@ namespace cad_sketch {
                 }
             }
 
-            // ----- Step 2: 检查收敛 -----
+            // ----- Step 2: Check convergence -----
             double error = F.norm();
             m_lastResult.finalError = error;
 
             if (error < m_tolerance) {
-                return true; // 收敛！
+                return true; 
             }
 
-            // ★ 新增：检测误差是否在持续增大（发散）
+            // Check whether the detection error is continuously increasing (diverging)
             if (error > prevError * 1.1) {
                 divergeCount++;
                 if (divergeCount >= 5) {
-                    // 连续 5 次误差增大，判定为约束冲突/发散
+                    // If there are 5 consecutive increases in errors, 
+                    // it is determined as a constraint conflict / divergence.
                     return false;
                 }
             }
@@ -247,32 +248,35 @@ namespace cad_sketch {
             }
             prevError = error;
 
-            // ----- Step 3: 解法方程 (J^T·J)·Δx = -J^T·F -----
-            // 法方程形式适用于超定/欠定系统
+            // ----- Step 3: solve equation (J^T·J)·Δx = -J^T·F -----
+            // The form of the mathematical equation is applicable to over-determined/under-determined systems
             Eigen::MatrixXd JtJ = J.transpose() * J;
             Eigen::VectorXd JtF = J.transpose() * F;
 
-            // 添加微小的正则化项，防止奇异矩阵（Levenberg-Marquardt 思想）
+            // Add a small regularization term to prevent the occurrence of singular matrices 
+            // (following the Levenberg-Marquardt concept)
             double lambda = 1e-8 * JtJ.diagonal().maxCoeff();
             if (lambda < 1e-12) lambda = 1e-12;
             JtJ.diagonal().array() += lambda;
 
-            // LDLT 分解求解
+            // LDLT Decomposition and compute
             Eigen::VectorXd dx = JtJ.ldlt().solve(-JtF);
 
-            // 检查求解是否有效
+            // check if valid
             if (dx.hasNaN()) {
-                return false; // 数值问题，求解失败
+                return false; 
             }
 
-            // ★ 新增：限制单步最大位移，防止坐标飞掉
+            // Limit the maximum displacement of a single step
             double maxStep = dx.lpNorm<Eigen::Infinity>();
             if (maxStep > 1e6) {
-                // 步长过大说明系统可能发散或约束冲突，提前终止
+                // If the step size is too large, 
+                // it indicates that the system may be diverging or encountering constraint conflicts, 
+                // and the process should be terminated prematurely.
                 return false;
             }
 
-            // ----- Step 4: 阻尼更新变量 -----
+            // ----- Step 4: update variable -----
             for (int i = 0; i < N; ++i) {
                 if (m_variables[i].isX) {
                     double newVal = m_variables[i].point->GetX() + m_damping * dx(i);
@@ -285,13 +289,13 @@ namespace cad_sketch {
             }
         }
 
-        // 超过最大迭代次数仍未收敛
+        // Failed to converge even after exceeding the maximum number of iterations
         m_lastResult.finalError = CalculateSystemError();
         return false;
     }
 
     // =====================================================================
-    // 辅助函数
+    // auxiliary function
     // =====================================================================
 
     double ConstraintSolver::CalculateSystemError() const {
