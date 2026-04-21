@@ -1,7 +1,7 @@
 ﻿#include "cad_feature/ExtrudeFeature.h"
 #include "cad_core/CreateBoxCommand.h"
 
-// 包含 OCC 相关的拉伸库
+// OCC extrusion libraries
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
@@ -72,10 +72,10 @@ namespace cad_feature {
     }
 
     std::shared_ptr<cad_core::ICommand> ExtrudeFeature::CreateCommand() const {
-        return nullptr; // 暂时不用
+        return nullptr;
     }
 
-    // Feature 自己执行拉伸操作
+    // The feature performs the extrusion operation itself
     cad_core::ShapePtr ExtrudeFeature::CreateShape() const {
         if (!ValidateParameters()) {
             return nullptr;
@@ -86,7 +86,7 @@ namespace cad_feature {
             TopoDS_Face profileFace;
             gp_Dir extrudeNormal(0, 0, 1);
 
-            // 识别选中的是线框还是平面
+            // Determine whether the input is a wire or a face
             if (topoShape.ShapeType() == TopAbs_WIRE || topoShape.ShapeType() == TopAbs_EDGE) {
                 BRepBuilderAPI_MakeWire wireMaker;
                 if (topoShape.ShapeType() == TopAbs_EDGE) {
@@ -109,7 +109,7 @@ namespace cad_feature {
                 return nullptr;
             }
 
-            // 计算法线 (自动计算面的垂直方向)
+            // Compute the face normal (automatic surface normal direction)
             Handle(Geom_Surface) surface = BRep_Tool::Surface(profileFace);
             Standard_Real uMin, uMax, vMin, vMax;
             BRepTools::UVBounds(profileFace, uMin, uMax, vMin, vMax);
@@ -122,10 +122,10 @@ namespace cad_feature {
                 if (profileFace.Orientation() == TopAbs_REVERSED) extrudeNormal.Reverse();
             }
 
-            // 构造拉伸向量
+            // Build the extrusion vector
             gp_Vec extrudeVec(extrudeNormal.XYZ() * GetDistance());
 
-            // 执行 3D 拉伸
+            // Perform the 3D extrusion
             BRepPrimAPI_MakePrism prismMaker(profileFace, extrudeVec);
             if (!prismMaker.IsDone()) return nullptr;
 

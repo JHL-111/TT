@@ -4,66 +4,66 @@
 
 namespace cad_feature {
 
-ParameterPanel::ParameterPanel(QWidget* parent) : QWidget(parent) {
-    m_mainLayout = new QVBoxLayout(this);
-    
-    m_scrollArea = new QScrollArea(this);
-    m_scrollArea->setWidgetResizable(true);
-    m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    
-    m_contentWidget = new QWidget();
-    m_contentLayout = new QVBoxLayout(m_contentWidget);
-    
-    m_scrollArea->setWidget(m_contentWidget);
-    m_mainLayout->addWidget(m_scrollArea);
-    
-    setLayout(m_mainLayout);
-}
+    ParameterPanel::ParameterPanel(QWidget* parent) : QWidget(parent) {
+        m_mainLayout = new QVBoxLayout(this);
 
-void ParameterPanel::SetFeature(const FeaturePtr& feature) {
-    m_feature = feature;
-    UpdateParameters();
-}
+        m_scrollArea = new QScrollArea(this);
+        m_scrollArea->setWidgetResizable(true);
+        m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
-const FeaturePtr& ParameterPanel::GetFeature() const {
-    return m_feature;
-}
+        m_contentWidget = new QWidget();
+        m_contentLayout = new QVBoxLayout(m_contentWidget);
 
-void ParameterPanel::UpdateParameters() {
-    ClearParameters();
-    
-    if (!m_feature) {
-        return;
+        m_scrollArea->setWidget(m_contentWidget);
+        m_mainLayout->addWidget(m_scrollArea);
+
+        setLayout(m_mainLayout);
     }
-    
-    CreateParameterWidgets();
-}
 
-void ParameterPanel::ClearParameters() {
-    QLayoutItem* item;
-    while ((item = m_contentLayout->takeAt(0)) != nullptr) {
-        delete item->widget();
-        delete item;
+    void ParameterPanel::SetFeature(const FeaturePtr& feature) {
+        m_feature = feature;
+        UpdateParameters();
     }
-}
 
-void ParameterPanel::SetParameterChangedCallback(std::function<void(const std::string&, double)> callback) {
-    m_parameterChangedCallback = callback;
-}
-
-void ParameterPanel::OnParameterChanged() {
-    // 这个槽将连接到参数控件
-    // 实现取决于特定的控件类型
-}
-
-void ParameterPanel::CreateParameterWidgets() {
-    if (!m_feature) {
-        return;
+    const FeaturePtr& ParameterPanel::GetFeature() const {
+        return m_feature;
     }
-    
-    // 根据特征类型创建参数控件
-    switch (m_feature->GetType()) {
+
+    void ParameterPanel::UpdateParameters() {
+        ClearParameters();
+
+        if (!m_feature) {
+            return;
+        }
+
+        CreateParameterWidgets();
+    }
+
+    void ParameterPanel::ClearParameters() {
+        QLayoutItem* item;
+        while ((item = m_contentLayout->takeAt(0)) != nullptr) {
+            delete item->widget();
+            delete item;
+        }
+    }
+
+    void ParameterPanel::SetParameterChangedCallback(std::function<void(const std::string&, double)> callback) {
+        m_parameterChangedCallback = callback;
+    }
+
+    void ParameterPanel::OnParameterChanged() {
+        // This slot will be connected to parameter widgets.
+        // Implementation depends on the specific widget type.
+    }
+
+    void ParameterPanel::CreateParameterWidgets() {
+        if (!m_feature) {
+            return;
+        }
+
+        // Create parameter widgets based on feature type
+        switch (m_feature->GetType()) {
         case FeatureType::Extrude: {
             CreateGroupBox("Extrude parameters");
             CreateDoubleParameter("distance", m_feature->GetParameter("distance"), 0.1, 1000.0);
@@ -99,90 +99,90 @@ void ParameterPanel::CreateParameterWidgets() {
         }
         default:
             break;
-    }
-    
-    // 在末尾添加伸缩
-    m_contentLayout->addStretch();
-}
+        }
 
-void ParameterPanel::CreateDoubleParameter(const std::string& name, double value, double min, double max) {
-    QHBoxLayout* layout = new QHBoxLayout();
-    
-    QLabel* label = new QLabel(QString::fromStdString(name));
-    label->setFixedWidth(100);
-    
-    QDoubleSpinBox* spinBox = new QDoubleSpinBox();
-    spinBox->setRange(min, max);
-    spinBox->setValue(value);
-    spinBox->setDecimals(3);
-    spinBox->setSingleStep(0.1);
-    
-    // 连接到参数变更回调
-    connect(spinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), 
+        // Add a stretch at the end
+        m_contentLayout->addStretch();
+    }
+
+    void ParameterPanel::CreateDoubleParameter(const std::string& name, double value, double min, double max) {
+        QHBoxLayout* layout = new QHBoxLayout();
+
+        QLabel* label = new QLabel(QString::fromStdString(name));
+        label->setFixedWidth(100);
+
+        QDoubleSpinBox* spinBox = new QDoubleSpinBox();
+        spinBox->setRange(min, max);
+        spinBox->setValue(value);
+        spinBox->setDecimals(3);
+        spinBox->setSingleStep(0.1);
+
+        // Connect to the parameter change callback
+        connect(spinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             [this, name](double value) {
                 if (m_feature) {
                     m_feature->SetParameter(name, value);
                     NotifyParameterChanged(name, value);
                 }
             });
-    
-    layout->addWidget(label);
-    layout->addWidget(spinBox);
-    
-    m_contentLayout->addLayout(layout);
-}
 
-void ParameterPanel::CreateIntParameter(const std::string& name, int value, int min, int max) {
-    QHBoxLayout* layout = new QHBoxLayout();
-    
-    QLabel* label = new QLabel(QString::fromStdString(name));
-    label->setFixedWidth(100);
-    
-    QSpinBox* spinBox = new QSpinBox();
-    spinBox->setRange(min, max);
-    spinBox->setValue(value);
-    
-    // 连接到参数变更回调
-    connect(spinBox, QOverload<int>::of(&QSpinBox::valueChanged), 
+        layout->addWidget(label);
+        layout->addWidget(spinBox);
+
+        m_contentLayout->addLayout(layout);
+    }
+
+    void ParameterPanel::CreateIntParameter(const std::string& name, int value, int min, int max) {
+        QHBoxLayout* layout = new QHBoxLayout();
+
+        QLabel* label = new QLabel(QString::fromStdString(name));
+        label->setFixedWidth(100);
+
+        QSpinBox* spinBox = new QSpinBox();
+        spinBox->setRange(min, max);
+        spinBox->setValue(value);
+
+        // Connect to the parameter change callback
+        connect(spinBox, QOverload<int>::of(&QSpinBox::valueChanged),
             [this, name](int value) {
                 if (m_feature) {
                     m_feature->SetParameter(name, static_cast<double>(value));
                     NotifyParameterChanged(name, static_cast<double>(value));
                 }
             });
-    
-    layout->addWidget(label);
-    layout->addWidget(spinBox);
-    
-    m_contentLayout->addLayout(layout);
-}
 
-void ParameterPanel::CreateBoolParameter(const std::string& name, bool value) {
-    QCheckBox* checkBox = new QCheckBox(QString::fromStdString(name));
-    checkBox->setChecked(value);
-    
-    // 连接到参数变更回调
-    connect(checkBox, &QCheckBox::toggled, 
+        layout->addWidget(label);
+        layout->addWidget(spinBox);
+
+        m_contentLayout->addLayout(layout);
+    }
+
+    void ParameterPanel::CreateBoolParameter(const std::string& name, bool value) {
+        QCheckBox* checkBox = new QCheckBox(QString::fromStdString(name));
+        checkBox->setChecked(value);
+
+        // Connect to the parameter change callback
+        connect(checkBox, &QCheckBox::toggled,
             [this, name](bool checked) {
                 if (m_feature) {
                     m_feature->SetParameter(name, checked ? 1.0 : 0.0);
                     NotifyParameterChanged(name, checked ? 1.0 : 0.0);
                 }
             });
-    
-    m_contentLayout->addWidget(checkBox);
-}
 
-void ParameterPanel::CreateGroupBox(const std::string& title) {
-    QGroupBox* groupBox = new QGroupBox(QString::fromStdString(title));
-    m_contentLayout->addWidget(groupBox);
-}
-
-void ParameterPanel::NotifyParameterChanged(const std::string& name, double value) {
-    if (m_parameterChangedCallback) {
-        m_parameterChangedCallback(name, value);
+        m_contentLayout->addWidget(checkBox);
     }
-}
+
+    void ParameterPanel::CreateGroupBox(const std::string& title) {
+        QGroupBox* groupBox = new QGroupBox(QString::fromStdString(title));
+        m_contentLayout->addWidget(groupBox);
+    }
+
+    void ParameterPanel::NotifyParameterChanged(const std::string& name, double value) {
+        if (m_parameterChangedCallback) {
+            m_parameterChangedCallback(name, value);
+        }
+    }
 
 } // namespace cad_feature
 

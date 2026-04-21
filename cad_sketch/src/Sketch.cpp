@@ -2,7 +2,7 @@
 #include "cad_sketch/SketchLine.h"
 #include "cad_sketch/SketchCircle.h"
 #include "cad_sketch/SketchArc.h"
-#include "cad_sketch/SketchCurve.h" 
+#include "cad_sketch/SketchCurve.h"
 
 #include <iostream>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -34,7 +34,7 @@
 #include <GProp_GProps.hxx>
 #include <BRepGProp.hxx>
 #include <BRepCheck_Wire.hxx>
-#include <BRepCheck_Status.hxx> 
+#include <BRepCheck_Status.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRep_Tool.hxx>
 #include <TopExp.hxx>
@@ -50,7 +50,8 @@
 #include <set>
 #include <numeric>
 
-// 这是一个将局部 2D 点转为世界 3D 坐标并生成 OCC Edge 的内部辅助函数
+// Internal helper: converts a local 2D sketch point to a world 3D coordinate
+// and builds an OCC Edge from a sketch element.
 static TopoDS_Shape CreateEdgeFromElement(const cad_sketch::SketchElementPtr& elem, const gp_Ax3& cs) {
     auto Sketch2DToWorld = [](const cad_sketch::SketchPointPtr& pt, const gp_Ax3& ax) {
         return ax.Location().Translated(gp_Vec(ax.XDirection()) * pt->GetX() + gp_Vec(ax.YDirection()) * pt->GetY());
@@ -103,33 +104,38 @@ static TopoDS_Shape CreateEdgeFromElement(const cad_sketch::SketchElementPtr& el
 }
 
 // ============================================================================
-// 验证一个 face 是否是真正有效的封闭轮廓
-// 三层验证：1.外环线框闭合  2.BRepCheck严格验证  3.面积有限且合理
+// Validate whether a face is a truly valid closed profile.
+// Three-stage validation:
+//   1. The outer boundary wire must be closed.
+//   2. Strict BRepCheck validation.
+//   3. The area must be finite and reasonable.
 // ============================================================================
 static bool IsValidClosedProfile(const TopoDS_Face& face, double tolerance) {
-    // 1. 外环线框必须存在
+    // 1. The outer boundary wire must exist
     TopoDS_Wire outerWire = BRepTools::OuterWire(face);
     if (outerWire.IsNull()) return false;
 
-    // 2. 拓扑闭合检查
+    // 2. Topological closure check
     if (!outerWire.Closed()) return false;
 
-    // 3. BRepCheck 严格闭合性验证（检查首尾顶点是否真正重合）
+    // 3. Strict BRepCheck closure validation (checks that start and end vertices truly coincide)
     BRepCheck_Wire checker(outerWire);
     if (checker.Closed() != BRepCheck_NoError) return false;
 
-    // 4. 遍历外环的所有顶点，检查线框是否真正首尾相连
-    //    （防止 BOPAlgo_BuilderFace 产出的"假闭合"面 —— UV 有限但空间不封闭）
+    // 4. Iterate over all vertices in the outer wire and verify that the wire is truly connected.
+    //    (Guards against "pseudo-closed" faces produced by BOPAlgo_BuilderFace
+    //     that have finite UV bounds but are not spatially closed.)
     TopTools_IndexedDataMapOfShapeListOfShape vertexEdgeMap;
     TopExp::MapShapesAndAncestors(outerWire, TopAbs_VERTEX, TopAbs_EDGE, vertexEdgeMap);
     for (Standard_Integer i = 1; i <= vertexEdgeMap.Extent(); ++i) {
-        // 每个顶点必须恰好连接 2 条边，否则线框在该点是开放的
+        // Each vertex must connect exactly 2 edges; otherwise the wire is open at that vertex
         if (vertexEdgeMap(i).Extent() < 2) {
             return false;
         }
     }
 
-    // 5. 面积必须有限且合理（过滤掉无穷大的"宇宙背景面"）
+    // 5. The area must be finite and reasonable
+    //    (filters out the infinite "background face" that spans the universe)
     GProp_GProps props;
     BRepGProp::SurfaceProperties(face, props);
     double area = props.Mass();
@@ -139,9 +145,10 @@ static bool IsValidClosedProfile(const TopoDS_Face& face, double tolerance) {
 }
 
 // ============================================================================
-// 预处理：在所有交叉处（T型 + X型）切割边，然后合并重合顶点
-// T型：一条边的端点落在另一条边的中间
-// X型：两条边在各自的中间部位相交
+// Pre-processing: split edges at all intersection points (T-type and X-type),
+// then merge coincident vertices.
+//   T-type: one edge's endpoint lies in the middle of another edge.
+//   X-type: two edges intersect somewhere in the middle of each.
 // ============================================================================
 static TopTools_ListOfShape SplitEdgesAtAllIntersections(const TopTools_ListOfShape& edgeList, double tolerance) {
     std::vector<TopoDS_Edge> edges;
@@ -149,7 +156,7 @@ static TopTools_ListOfShape SplitEdgesAtAllIntersections(const TopTools_ListOfSh
         edges.push_back(TopoDS::Edge(it.Value()));
     }
 
-    // key = 边的索引, value = 需要切割的参数列表
+    // key = edge index, value = list of parameter values at which to split
     std::map<int, std::vector<double>> splitParams;
 
     int n = (int)edges.size();
@@ -175,7 +182,7 @@ static TopTools_ListOfShape SplitEdgesAtAllIntersections(const TopTools_ListOfSh
             gp_Pnt pj2 = vj2.IsNull() ? gp_Pnt() : BRep_Tool::Pnt(vj2);
             double marginJ = (lj - fj) * 0.01;
 
-            // ---- X型交叉：两条边中间部位相交 ----
+            // ---- X-type intersection: two edges cross in their interiors ----
             try {
                 GeomAPI_ExtremaCurveCurve extrema(ci, cj, fi, li, fj, lj);
                 for (int k = 1; k <= extrema.NbExtrema(); ++k) {
@@ -189,14 +196,14 @@ static TopTools_ListOfShape SplitEdgesAtAllIntersections(const TopTools_ListOfSh
                     gp_Pnt ptOnI = ci->Value(paramI);
                     gp_Pnt ptOnJ = cj->Value(paramJ);
 
-                    // 判断是否在边 i 的内部（不在端点处）
+                    // Check whether the intersection lies in the interior of edge i (not at an endpoint)
                     bool atEndpointI = (!vi1.IsNull() && ptOnI.Distance(pi1) < tolerance) ||
                         (!vi2.IsNull() && ptOnI.Distance(pi2) < tolerance);
                     if (!atEndpointI && paramI > fi + marginI && paramI < li - marginI) {
                         splitParams[i].push_back(paramI);
                     }
 
-                    // 判断是否在边 j 的内部（不在端点处）
+                    // Check whether the intersection lies in the interior of edge j (not at an endpoint)
                     bool atEndpointJ = (!vj1.IsNull() && ptOnJ.Distance(pj1) < tolerance) ||
                         (!vj2.IsNull() && ptOnJ.Distance(pj2) < tolerance);
                     if (!atEndpointJ && paramJ > fj + marginJ && paramJ < lj - marginJ) {
@@ -206,7 +213,7 @@ static TopTools_ListOfShape SplitEdgesAtAllIntersections(const TopTools_ListOfSh
             }
             catch (...) {}
 
-            // ---- T型交叉：边 j 的端点落在边 i 的内部 ----
+            // ---- T-type intersection: an endpoint of edge j lies in the interior of edge i ----
             auto checkTJunction = [&](const gp_Pnt& pt, int targetIdx,
                 const Handle(Geom_Curve)& curve,
                 Standard_Real first, Standard_Real last,
@@ -225,17 +232,17 @@ static TopTools_ListOfShape SplitEdgesAtAllIntersections(const TopTools_ListOfSh
                     }
                 };
 
-            // 边 j 的端点 → 投影到边 i
+            // Endpoints of edge j projected onto edge i
             if (!vj1.IsNull()) checkTJunction(pj1, i, ci, fi, li, pi1, pi2, vi1, vi2, marginI);
             if (!vj2.IsNull() && !vj1.IsSame(vj2)) checkTJunction(pj2, i, ci, fi, li, pi1, pi2, vi1, vi2, marginI);
 
-            // 边 i 的端点 → 投影到边 j
+            // Endpoints of edge i projected onto edge j
             if (!vi1.IsNull()) checkTJunction(pi1, j, cj, fj, lj, pj1, pj2, vj1, vj2, marginJ);
             if (!vi2.IsNull() && !vi1.IsSame(vi2)) checkTJunction(pi2, j, cj, fj, lj, pj1, pj2, vj1, vj2, marginJ);
         }
     }
 
-    // ---- 执行切割 ----
+    // ---- Perform the splits ----
     TopTools_ListOfShape result;
     for (int i = 0; i < n; ++i) {
         auto it = splitParams.find(i);
@@ -276,8 +283,9 @@ static TopTools_ListOfShape SplitEdgesAtAllIntersections(const TopTools_ListOfSh
 }
 
 // ============================================================================
-// 合并重合顶点：让同一几何位置的所有边共享同一个 TopoDS_Vertex
-// 这样 BOPAlgo_BuilderFace 才能正确连成封闭 wire
+// Merge coincident vertices: make all edges at the same geometric location
+// share the same TopoDS_Vertex, so that BOPAlgo_BuilderFace can correctly
+// assemble closed wires.
 // ============================================================================
 static TopTools_ListOfShape ShareVerticesInEdges(const TopTools_ListOfShape& edgeList, double tolerance) {
     struct SharedVtx {
@@ -315,7 +323,7 @@ static TopTools_ListOfShape ShareVerticesInEdges(const TopTools_ListOfShape& edg
         TopoDS_Vertex sv1 = findOrMakeVertex(p1);
 
         if (v2.IsNull() || v1.IsSame(v2)) {
-            // 封闭边（圆）
+            // Closed edge (circle)
             try {
                 BRepBuilderAPI_MakeEdge me(curve, sv1, sv1, first, last);
                 if (me.IsDone()) { result.Append(me.Edge()); continue; }
@@ -456,7 +464,7 @@ namespace cad_sketch {
 
         const double tolerance = 0.1;
 
-        // ── 1. 生成所有边 ──
+        // ── 1. Generate all edges ──
         TopTools_ListOfShape edgeList;
         for (const auto& elem : m_elements) {
             TopoDS_Shape shape = CreateEdgeFromElement(elem, cs);
@@ -466,25 +474,25 @@ namespace cad_sketch {
         }
         if (edgeList.IsEmpty()) return;
 
-        // ── 2. 在所有交叉处切割边（T型 + X型）──
+        // ── 2. Split edges at all intersections (T-type and X-type) ──
         TopTools_ListOfShape splitEdges = SplitEdgesAtAllIntersections(edgeList, tolerance);
 
-        // ── 3. 合并重合顶点，建立拓扑连接 ──
+        // ── 3. Merge coincident vertices to establish topological connectivity ──
         TopTools_ListOfShape connectedEdges = ShareVerticesInEdges(splitEdges, tolerance);
 
-        // 收集边到 vector
+        // Collect edges into a vector
         std::vector<TopoDS_Edge> edgeVec;
         for (TopTools_ListIteratorOfListOfShape it(connectedEdges); it.More(); it.Next()) {
             edgeVec.push_back(TopoDS::Edge(it.Value()));
         }
         if (edgeVec.empty()) return;
 
-        // ── 4. 构建半边数据结构（planar subdivision）──
-        // 4a. 收集唯一顶点及其 2D 坐标
+        // ── 4. Build a half-edge data structure (planar subdivision) ──
+        // 4a. Collect unique vertices and their 2D coordinates
         struct VtxInfo {
             gp_Pnt pt3d;
             double x2d, y2d;
-            std::vector<int> outHalfEdges; // 从该顶点出发的半边索引
+            std::vector<int> outHalfEdges; // indices of half-edges leaving this vertex
         };
         std::vector<VtxInfo> vertices;
 
@@ -499,20 +507,20 @@ namespace cad_sketch {
             return (int)vertices.size() - 1;
             };
 
-        // 4b. 构建半边
+        // 4b. Build half-edges
         struct HalfEdge {
-            int edgeIdx;    // 在 edgeVec 中的索引
-            bool forward;   // 沿曲线正方向
+            int edgeIdx;    // index in edgeVec
+            bool forward;   // true = along the curve's positive direction
             int startVtx;
             int endVtx;
-            int twin;       // 同一条边反方向的半边
-            int next;       // 同一个面循环中的下一条半边
+            int twin;       // half-edge in the opposite direction of the same edge
+            int next;       // next half-edge in the same face loop
             bool visited;
         };
         std::vector<HalfEdge> halfEdges;
 
-        // 处理开放边（有两个不同端点的边）
-        std::vector<int> circleEdgeIndices; // 单独处理封闭边（圆）
+        // Process open edges (edges with two distinct endpoints)
+        std::vector<int> circleEdgeIndices; // closed edges (circles) handled separately
         for (int ei = 0; ei < (int)edgeVec.size(); ++ei) {
             TopoDS_Edge& edge = edgeVec[ei];
             TopoDS_Vertex v1, v2;
@@ -520,7 +528,7 @@ namespace cad_sketch {
             if (v1.IsNull() || v2.IsNull()) continue;
 
             if (v1.IsSame(v2)) {
-                // 封闭边（圆），后面单独处理
+                // Closed edge (circle) — handled separately below
                 circleEdgeIndices.push_back(ei);
                 continue;
             }
@@ -543,7 +551,7 @@ namespace cad_sketch {
             vertices[vi2].outHalfEdges.push_back(revIdx);
         }
 
-        // 4c. 计算每条半边离开起始顶点的切线角度
+        // 4c. Compute the departure tangent angle for each half-edge leaving its start vertex
         auto halfEdgeAngle = [&](int heIdx) -> double {
             HalfEdge& he = halfEdges[heIdx];
             TopoDS_Edge& edge = edgeVec[he.edgeIdx];
@@ -565,39 +573,41 @@ namespace cad_sketch {
             return atan2(dy, dx);
             };
 
-        // 4d. 每个顶点的出边按角度逆时针排序
+        // 4d. Sort outgoing half-edges at each vertex by angle (counter-clockwise)
         for (auto& vtx : vertices) {
             std::sort(vtx.outHalfEdges.begin(), vtx.outHalfEdges.end(),
                 [&](int a, int b) { return halfEdgeAngle(a) < halfEdgeAngle(b); });
         }
 
-        // 4e. 链接 next 指针
-        // 半边 h 从 A→B，到达 B 后，找 h 的 twin（从 B→A）在 B 的出边列表中的位置，
-        // 逆时针排序中 twin 的前一个出边就是该面循环的下一条半边。
+        // 4e. Link the next pointers.
+        // Half-edge h goes from A→B. On arriving at B, find h's twin (B→A) in B's
+        // outgoing list; the entry immediately before the twin in counter-clockwise
+        // order is the next half-edge in that face loop.
         for (int hi = 0; hi < (int)halfEdges.size(); ++hi) {
             HalfEdge& he = halfEdges[hi];
             int arriveVtx = he.endVtx;
             int twinIdx = he.twin;
 
             auto& outList = vertices[arriveVtx].outHalfEdges;
-            // 找 twin 在 outList 中的位置
+            // Find the position of twin in outList
             int twinPos = -1;
             for (int k = 0; k < (int)outList.size(); ++k) {
                 if (outList[k] == twinIdx) { twinPos = k; break; }
             }
             if (twinPos < 0) { he.next = -1; continue; }
 
-            // 前一个（逆时针排序中 twin 的前一个 = 顺时针方向的下一个）
+            // The entry one position before the twin in CCW order is the next
+            // half-edge in the clockwise (interior) face loop
             int prevPos = (twinPos - 1 + (int)outList.size()) % (int)outList.size();
             he.next = outList[prevPos];
         }
 
-        // ── 5. 遍历所有面循环，收集候选面 ──
+        // ── 5. Traverse all face loops and collect candidate faces ──
         struct FaceCandidate {
-            std::vector<int> loopHEs;          // 半边索引
-            std::vector<std::pair<double, double>> poly2D; // 顶点2D坐标
+            std::vector<int> loopHEs;           // half-edge indices
+            std::vector<std::pair<double, double>> poly2D; // 2D vertex coordinates
             double signedArea;
-            double cx, cy;                     // 质心
+            double cx, cy;                      // centroid
         };
         std::vector<FaceCandidate> candidates;
 
@@ -624,7 +634,7 @@ namespace cad_sketch {
 
             if (!valid || loop.size() < 3) continue;
 
-            // 收集 2D 顶点、计算有符号面积和质心
+            // Collect 2D vertices; compute signed area and centroid
             FaceCandidate fc;
             fc.loopHEs = loop;
             fc.signedArea = 0.0;
@@ -646,16 +656,17 @@ namespace cad_sketch {
             double absArea = std::abs(fc.signedArea);
             if (absArea < Precision::Confusion() || absArea > 1e10) continue;
 
-            // 只保留逆时针循环（正面积 = 内部面）
-            // 负面积循环是外部无穷大面的边界，直接丢弃
+            // Keep only counter-clockwise loops (positive area = interior face).
+            // Clockwise loops are the boundary of the outer infinite face — discard them.
             if (fc.signedArea <= 0) continue;
 
             candidates.push_back(std::move(fc));
         }
 
-        // ── 5b. 去除外边界面 ──
-        // 如果一个面包含了其他面的质心，说明它是外边界（覆盖了其他面），应该被移除。
-        // 使用射线法做2D点在多边形内的判定。
+        // ── 5b. Remove outer boundary faces ──
+        // If a face contains the centroid of another face, it is an outer boundary
+        // (it covers the other face) and should be discarded.
+        // Uses the ray-casting algorithm for 2D point-in-polygon testing.
         auto pointInPolygon = [](double px, double py,
             const std::vector<std::pair<double, double>>& poly) -> bool {
                 int n = (int)poly.size();
@@ -681,13 +692,13 @@ namespace cad_sketch {
                     containedCount++;
                 }
             }
-            // 如果面 i 包含了至少一个其他面的质心，说明 i 是外边界
+            // If face i contains at least one other face's centroid, it is an outer boundary
             if (containedCount > 0) {
                 isRedundant[i] = true;
             }
         }
 
-        // ── 5c. 从非冗余候选构建实际面 ──
+        // ── 5c. Build actual faces from non-redundant candidates ──
         gp_Pln sketchPlane(cs);
 
         for (int i = 0; i < (int)candidates.size(); ++i) {
@@ -717,7 +728,7 @@ namespace cad_sketch {
             }
         }
 
-        // ── 6. 处理封闭边（圆等）──
+        // ── 6. Handle closed edges (circles, etc.) ──
         for (int ci : circleEdgeIndices) {
             TopoDS_Edge& edge = edgeVec[ci];
             BRepBuilderAPI_MakeWire wireMaker;
@@ -738,8 +749,10 @@ namespace cad_sketch {
             }
         }
 
-        // ── 7. 处理未被半边遍历覆盖的独立封闭轮廓 ──
-        // （如独立矩形等 —— 上面的半边算法已涵盖，这里做兜底）
+        // ── 7. Fallback: handle independent closed contours not covered by the
+        //       half-edge traversal (e.g. standalone rectangles).
+        //       The half-edge algorithm above should already cover these; this is
+        //       a safety net.
         if (m_profiles.empty()) {
             Handle(TopTools_HSequenceOfShape) allEdges = new TopTools_HSequenceOfShape();
             for (TopTools_ListIteratorOfListOfShape it(connectedEdges); it.More(); it.Next()) {

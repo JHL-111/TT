@@ -24,7 +24,8 @@ namespace cad_ui {
         QHBoxLayout* btnLayout = new QHBoxLayout();
         m_clearBtn = new QPushButton("Clear Selection", this);
         m_confirmBtn = new QPushButton("Create Loft", this);
-        m_confirmBtn->setEnabled(false); // 必须选够两个才能点
+        m_confirmBtn->setEnabled(false); // At least two selections are required before confirmation
+
 
         btnLayout->addWidget(m_clearBtn);
         btnLayout->addWidget(m_confirmBtn);
@@ -41,7 +42,8 @@ namespace cad_ui {
     void CreateLoftDialog::SetSelectedShape(cad_core::ShapePtr shape) {
         if (!shape) return;
 
-        // 防抖：避免同一个面被重复添加
+        // Debounce: avoid adding the same face repeatedly
+
         for (const auto& existing : m_selectedSections) {
             if (existing->GetOCCTShape().IsSame(shape->GetOCCTShape())) {
                 return;
@@ -64,7 +66,8 @@ namespace cad_ui {
     }
 
     void CreateLoftDialog::OnConfirm() {
-        // 默认生成实体 
+        // Generate a solid by default 
+
         emit loftRequested(m_selectedSections, true);
         accept();
     }

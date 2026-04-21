@@ -1,6 +1,6 @@
 set(TARGET_NAME cad_sketch)
 
-# 头文件
+# Header files
 set(HEADERS
     include/cad_sketch/SketchPoint.h
     include/cad_sketch/SketchLine.h
@@ -14,10 +14,9 @@ set(HEADERS
     include/cad_sketch/Sketch.h
     include/cad_sketch/SketchProfile.h
     include/cad_sketch/SnappingManager.h
-    include/cad_sketch/Constraintsolvertest.h
 )
 
-# 源文件
+# Source files
 set(SOURCES
     src/SketchPoint.cpp
     src/SketchLine.cpp
@@ -33,25 +32,25 @@ set(SOURCES
     src/SnappingManager.cpp
 )
 
-# 创建静态库
+# Create static library
 add_library(${TARGET_NAME} STATIC ${HEADERS} ${SOURCES})
 
-# 包含目录
+# Include directories
 target_include_directories(${TARGET_NAME} PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${OpenCASCADE_INCLUDE_DIR}
 )
 
-# 添加 Eigen 依赖 
+# Add Eigen dependency
 find_package(Eigen3 REQUIRED)
 
 target_link_libraries(${TARGET_NAME} 
     cad_core
     ${OpenCASCADE_LIBRARIES}
-    Eigen3::Eigen                               # 新增
+    Eigen3::Eigen                          
 )
 
-# 链接库
+# Link libraries
 target_link_libraries(${TARGET_NAME} 
     cad_core
     ${OpenCASCADE_LIBRARIES}

@@ -6,44 +6,44 @@
 
 namespace cad_sketch {
 
-enum class SketchElementType {
-    Point,
-    Line,
-    Circle,
-    Arc,
-    Curve
-};
+    enum class SketchElementType {
+        Point,
+        Line,
+        Circle,
+        Arc,
+        Curve
+    };
 
-class SketchElement {
-public:
-    SketchElement(SketchElementType type);
-    virtual ~SketchElement() = default;
+    class SketchElement {
+    public:
+        SketchElement(SketchElementType type);
+        virtual ~SketchElement() = default;
 
-    virtual void Translate(double dx, double dy) = 0; // 平移接口
+        virtual void Translate(double dx, double dy) = 0; // Translation interface
 
-    virtual void Rotate(double cx, double cy, double angleRad) = 0;// 旋转接口
+        virtual void Rotate(double cx, double cy, double angleRad) = 0; // Rotation interface
 
-    SketchElementType GetType() const;
-    int GetId() const;
-    void SetId(int id);
-    
-    bool IsSelected() const;
-    void SetSelected(bool selected);
-    
-    bool IsVisible() const;
-    void SetVisible(bool visible);
-    
-    virtual std::string GetDescription() const = 0;
+        SketchElementType GetType() const;
+        int GetId() const;
+        void SetId(int id);
 
-protected:
-    SketchElementType m_type;
-    int m_id;
-    bool m_selected;
-    bool m_visible;
-    
-    static int s_nextId;
-};
+        bool IsSelected() const;
+        void SetSelected(bool selected);
 
-using SketchElementPtr = std::shared_ptr<SketchElement>;
+        bool IsVisible() const;
+        void SetVisible(bool visible);
+
+        virtual std::string GetDescription() const = 0;
+
+    protected:
+        SketchElementType m_type;
+        int m_id;
+        bool m_selected;
+        bool m_visible;
+
+        static int s_nextId;
+    };
+
+    using SketchElementPtr = std::shared_ptr<SketchElement>;
 
 } // namespace cad_sketch

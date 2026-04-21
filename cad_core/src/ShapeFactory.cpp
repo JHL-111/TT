@@ -9,102 +9,106 @@
 
 namespace cad_core {
 
-ShapePtr ShapeFactory::CreateRectangleFace(double width, double height) {
-    try {
-        // 1. 定义一个基于原点的 XY 平面 (XY Plane)
-        gp_Pln xyPlane = gp::XOY();
+    ShapePtr ShapeFactory::CreateRectangleFace(double width, double height) {
+        try {
+            // 1. Define an XY plane at the origin
+            gp_Pln xyPlane = gp::XOY();
 
-        // 2. 计算矩形的边界范围 (使其中心在原点)
-        double halfWidth = width / 2.0;
-        double halfHeight = height / 2.0;
+            // 2. Compute the bounding extents of the rectangle (centred at the origin)
+            double halfWidth = width / 2.0;
+            double halfHeight = height / 2.0;
 
-        // 3. 直接利用平面和边界生成面 (Face)
-        BRepBuilderAPI_MakeFace faceMaker(xyPlane, -halfWidth, halfWidth, -halfHeight, halfHeight);
+            // 3. Build the face directly from the plane and its bounds
+            BRepBuilderAPI_MakeFace faceMaker(xyPlane, -halfWidth, halfWidth, -halfHeight, halfHeight);
 
-        if (faceMaker.IsDone()) {
-            return std::make_shared<Shape>(faceMaker.Shape());
+            if (faceMaker.IsDone()) {
+                return std::make_shared<Shape>(faceMaker.Shape());
+            }
         }
+        catch (...) {
+            // Exception handling
+        }
+        return nullptr;
     }
-    catch (...) {
-        // 异常处理
+
+    ShapePtr ShapeFactory::CreateBox(const Point& corner1, const Point& corner2) {
+        try {
+            BRepPrimAPI_MakeBox boxMaker(corner1.GetOCCTPoint(), corner2.GetOCCTPoint());
+            TopoDS_Shape shape = boxMaker.Shape();
+            if (boxMaker.IsDone() && !shape.IsNull()) {
+                return std::make_shared<Shape>(shape);
+            }
+        }
+        catch (...) {
+            // Handle OCCT exceptions
+        }
+        return nullptr;
     }
-    return nullptr;
-}
 
-ShapePtr ShapeFactory::CreateBox(const Point& corner1, const Point& corner2) {
-    try {
-        BRepPrimAPI_MakeBox boxMaker(corner1.GetOCCTPoint(), corner2.GetOCCTPoint());
-        TopoDS_Shape shape = boxMaker.Shape();
-        if (boxMaker.IsDone() && !shape.IsNull()) {
-            return std::make_shared<Shape>(shape);
+    ShapePtr ShapeFactory::CreateBox(double width, double height, double depth) {
+        try {
+            // Ensure all dimensions are positive
+            if (width <= 0 || height <= 0 || depth <= 0) {
+                return nullptr;
+            }
+
+            BRepPrimAPI_MakeBox boxMaker(width, height, depth);
+            TopoDS_Shape shape = boxMaker.Shape();
+            if (boxMaker.IsDone() && !shape.IsNull()) {
+                return std::make_shared<Shape>(shape);
+            }
         }
-    } catch (...) {
-        // 处理OCCT异常
+        catch (...) {
+            // Handle OCCT exceptions
+        }
+        return nullptr;
     }
-    return nullptr;
-}
 
-ShapePtr ShapeFactory::CreateBox(double width, double height, double depth) {
-    try {
-        // 确保尺寸为正值
-        if (width <= 0 || height <= 0 || depth <= 0) {
-            return nullptr;
+    ShapePtr ShapeFactory::CreateCylinder(const Point& center, double radius, double height) {
+        try {
+            // Ensure all dimensions are positive
+            if (radius <= 0 || height <= 0) {
+                return nullptr;
+            }
+
+            gp_Ax2 axis(center.GetOCCTPoint(), gp_Dir(0, 0, 1));
+            BRepPrimAPI_MakeCylinder cylMaker(axis, radius, height);
+            TopoDS_Shape shape = cylMaker.Shape();
+            if (cylMaker.IsDone() && !shape.IsNull()) {
+                return std::make_shared<Shape>(shape);
+            }
         }
-        
-        BRepPrimAPI_MakeBox boxMaker(width, height, depth);
-        TopoDS_Shape shape = boxMaker.Shape();
-        if (boxMaker.IsDone() && !shape.IsNull()) {
-            return std::make_shared<Shape>(shape);
+        catch (...) {
+            // Handle OCCT exceptions
         }
-    } catch (...) {
-        // 处理OCCT异常
+        return nullptr;
     }
-    return nullptr;
-}
 
-ShapePtr ShapeFactory::CreateCylinder(const Point& center, double radius, double height) {
-    try {
-        // 确保尺寸为正值
-        if (radius <= 0 || height <= 0) {
-            return nullptr;
-        }
-        
-        gp_Ax2 axis(center.GetOCCTPoint(), gp_Dir(0, 0, 1));
-        BRepPrimAPI_MakeCylinder cylMaker(axis, radius, height);
-        TopoDS_Shape shape = cylMaker.Shape();
-        if (cylMaker.IsDone() && !shape.IsNull()) {
-            return std::make_shared<Shape>(shape);
-        }
-    } catch (...) {
-        // 处理OCCT异常
+    ShapePtr ShapeFactory::CreateCylinder(double radius, double height) {
+        return CreateCylinder(Point(0, 0, 0), radius, height);
     }
-    return nullptr;
-}
 
-ShapePtr ShapeFactory::CreateCylinder(double radius, double height) {
-    return CreateCylinder(Point(0, 0, 0), radius, height);
-}
+    ShapePtr ShapeFactory::CreateSphere(const Point& center, double radius) {
+        try {
+            // Ensure the radius is positive
+            if (radius <= 0) {
+                return nullptr;
+            }
 
-ShapePtr ShapeFactory::CreateSphere(const Point& center, double radius) {
-    try {
-        // 确保半径为正值
-        if (radius <= 0) {
-            return nullptr;
+            BRepPrimAPI_MakeSphere sphereMaker(center.GetOCCTPoint(), radius);
+            TopoDS_Shape shape = sphereMaker.Shape();
+            if (sphereMaker.IsDone() && !shape.IsNull()) {
+                return std::make_shared<Shape>(shape);
+            }
         }
-        
-        BRepPrimAPI_MakeSphere sphereMaker(center.GetOCCTPoint(), radius);
-        TopoDS_Shape shape = sphereMaker.Shape();
-        if (sphereMaker.IsDone() && !shape.IsNull()) {
-            return std::make_shared<Shape>(shape);
+        catch (...) {
+            // Handle OCCT exceptions
         }
-    } catch (...) {
-        // 处理OCCT异常
+        return nullptr;
     }
-    return nullptr;
-}
 
-ShapePtr ShapeFactory::CreateSphere(double radius) {
-    return CreateSphere(Point(0, 0, 0), radius);
-}
+    ShapePtr ShapeFactory::CreateSphere(double radius) {
+        return CreateSphere(Point(0, 0, 0), radius);
+    }
 
 } // namespace cad_core

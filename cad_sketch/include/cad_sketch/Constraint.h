@@ -1,10 +1,11 @@
 ﻿/**
  * @file Constraint.h
- * @brief 几何约束系统 - 草图参数化建模的核心
+ * @brief Geometric constraint system - the core of parametric sketch modelling
  *
- * 约束基类定义了所有几何约束的公共接口。
- * 每个约束子类需要提供：误差函数、雅可比矩阵条目、方程数量。
- * 这些信息被 ConstraintSolver 用于 Newton-Raphson 迭代求解。
+ * The constraint base class defines the common interface for all geometric constraints.
+ * Each constraint subclass must provide: an error function, Jacobian entries, and an
+ * equation count. This information is used by ConstraintSolver during Newton-Raphson
+ * iterative solving.
  */
 
 #pragma once
@@ -36,13 +37,15 @@ namespace cad_sketch {
     };
 
     /**
-     * @brief 雅可比矩阵条目 —— 记录某个方程对某个变量的偏导数
+     * @brief Jacobian entry — records the partial derivative of one equation
+     *        with respect to one variable.
      *
-     * 求解器在组装雅可比矩阵 J 时使用：J[equationIndex][variableIndex] = derivative
+     * Used by the solver when assembling the Jacobian matrix J:
+     * J[equationIndex][variableIndex] = derivative
      */
     struct JacobianEntry {
-        int variableIndex;   // 变量在全局变量向量中的索引
-        double derivative;   // 偏导数值 ∂error/∂variable
+        int variableIndex;   // Index of the variable in the global variable vector
+        double derivative;   // Partial derivative value: ∂error/∂variable
     };
 
     class Constraint {
@@ -60,52 +63,54 @@ namespace cad_sketch {
         bool IsActive() const;
         void SetActive(bool active);
 
-        // ---------- 原有接口（保持兼容） ----------
+        // ---------- Original interface (kept for compatibility) ----------
 
-        /** 检查约束引用的元素是否合法 */
+        /** Check whether the elements referenced by this constraint are valid */
         virtual bool IsValid() const = 0;
 
-        /** 返回约束的文字描述（UI 显示用） */
+        /** Return a human-readable description of the constraint (for the UI) */
         virtual std::string GetDescription() const = 0;
 
-        /** 返回第一个方程的误差值（保持向后兼容） */
+        /** Return the error value of the first equation (kept for backward compatibility) */
         virtual double GetError() const = 0;
 
-        // ---------- Newton-Raphson 求解器需要的新接口 ----------
+        // ---------- New interface required by the Newton-Raphson solver ----------
 
         /**
-         * 这个约束产生几个方程
-         * 例如：Horizontal 产生 1 个方程，Coincident 产生 2 个方程
+         * Number of equations produced by this constraint.
+         * e.g. Horizontal produces 1 equation; Coincident produces 2.
          */
         virtual int GetEquationCount() const = 0;
 
         /**
-         * 返回第 eqIndex 个方程的误差值
-         * 默认实现：eqIndex=0 时调用 GetError()
+         * Return the error value of equation eqIndex.
+         * Default implementation: calls GetError() when eqIndex == 0.
          */
         virtual double GetErrorAt(int eqIndex) const { return GetError(); }
 
         /**
-         * 收集这个约束涉及的所有 SketchPoint 指针
-         * 求解器会用这些指针注册变量（每个点有 x, y 两个变量）
+         * Collect all SketchPoint pointers involved in this constraint.
+         * The solver uses these to register variables (each point has x and y variables).
          */
         virtual std::vector<SketchPointPtr> GetInvolvedPoints() const = 0;
 
         /**
-         * 返回第 eqIndex 个方程对所有变量的偏导数
-         * variableIndex 由求解器在变量注册后分配
+         * Return the partial derivatives of equation eqIndex with respect to all variables.
+         * variableIndex values are assigned by the solver after variable registration.
          *
-         * 子类需要通过 m_variableMap 查找自己的点对应的全局变量索引
+         * Subclasses look up their points' global variable indices via m_variableMap.
          */
         virtual std::vector<JacobianEntry> GetJacobianAt(int eqIndex) const = 0;
 
         /**
-         * 求解器在变量注册后调用此函数，告诉约束它的点对应的全局变量索引
-         * key: SketchPoint 指针, value: 该点 x 坐标在全局变量向量中的索引（y = x+1）
+         * Called by the solver after variable registration to inform the constraint
+         * of the global variable indices for its points.
+         * key: SketchPoint pointer,  value: index of that point's x coordinate
+         * in the global variable vector (y index = x index + 1)
          */
         void SetVariableMap(const std::map<SketchPoint*, int>& varMap);
 
-        /** 获取某个点的 x 变量索引，y = x+1 */
+        /** Get the x-variable index for a given point; y index = x index + 1 */
         int GetPointVariableIndex(const SketchPointPtr& point) const;
 
     protected:
@@ -114,7 +119,7 @@ namespace cad_sketch {
         std::vector<SketchElementPtr> m_elements;
         bool m_active;
 
-        /** 点指针 -> 全局变量索引的映射（由求解器设置） */
+        /** Map from point pointer to global variable index (set by the solver) */
         std::map<SketchPoint*, int> m_variableMap;
 
         static int s_nextId;

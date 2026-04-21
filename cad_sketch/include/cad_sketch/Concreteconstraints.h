@@ -1,21 +1,21 @@
 ﻿/**
  * @file ConcreteConstraints.h
- * @brief 所有具体几何约束的实现
+ * @brief Implementations of all concrete geometric constraints
  *
- * 包含 10 种约束类型：
- *   1. HorizontalConstraint    - 线段水平（两端点 Y 相同）
- *   2. VerticalConstraint      - 线段竖直（两端点 X 相同）
- *   3. CoincidentConstraint    - 两点重合
- *   4. DistanceConstraint      - 两点之间距离 = 目标值
- *   5. ParallelConstraint      - 两条线段平行
- *   6. PerpendicularConstraint - 两条线段垂直
- *   7. AngleConstraint         - 两条线段夹角 = 目标值
- *   8. EqualLengthConstraint   - 两条线段等长
- *   9. FixedConstraint         - 点固定在指定坐标
- *  10. RadiusConstraint        - 圆/弧半径 = 目标值
+ * Contains 10 constraint types:
+ *   1. HorizontalConstraint    - Line is horizontal (both endpoints share the same Y)
+ *   2. VerticalConstraint      - Line is vertical (both endpoints share the same X)
+ *   3. CoincidentConstraint    - Two points coincide
+ *   4. DistanceConstraint      - Distance between two points equals a target value
+ *   5. ParallelConstraint      - Two line segments are parallel
+ *   6. PerpendicularConstraint - Two line segments are perpendicular
+ *   7. AngleConstraint         - Angle between two line segments equals a target value
+ *   8. EqualLengthConstraint   - Two line segments have equal length
+ *   9. FixedConstraint         - A point is fixed at specified coordinates
+ *  10. RadiusConstraint        - Circle/arc radius equals a target value
  *
- * 每个约束都实现了 GetError / GetJacobianAt / GetInvolvedPoints
- * 供 Newton-Raphson 求解器使用。
+ * Each constraint implements GetError / GetJacobianAt / GetInvolvedPoints
+ * for use by the Newton-Raphson solver.
  */
 
 #pragma once
@@ -29,8 +29,8 @@
 namespace cad_sketch {
 
     // =========================================================================
-    // 1. HorizontalConstraint — 线段水平
-    //    方程: p2.y - p1.y = 0
+    // 1. HorizontalConstraint — line is horizontal
+    //    Equation: p2.y - p1.y = 0
     // =========================================================================
     class HorizontalConstraint : public Constraint {
     public:
@@ -48,8 +48,8 @@ namespace cad_sketch {
     };
 
     // =========================================================================
-    // 2. VerticalConstraint — 线段竖直
-    //    方程: p2.x - p1.x = 0
+    // 2. VerticalConstraint — line is vertical
+    //    Equation: p2.x - p1.x = 0
     // =========================================================================
     class VerticalConstraint : public Constraint {
     public:
@@ -67,8 +67,8 @@ namespace cad_sketch {
     };
 
     // =========================================================================
-    // 3. CoincidentConstraint — 两点重合
-    //    方程: p1.x - p2.x = 0, p1.y - p2.y = 0 （两个方程）
+    // 3. CoincidentConstraint — two points coincide
+    //    Equations: p1.x - p2.x = 0,  p1.y - p2.y = 0  (two equations)
     // =========================================================================
     class CoincidentConstraint : public Constraint {
     public:
@@ -88,8 +88,8 @@ namespace cad_sketch {
     };
 
     // =========================================================================
-    // 4. DistanceConstraint — 两点距离 = targetDistance
-    //    方程: (p1.x-p2.x)² + (p1.y-p2.y)² - d² = 0
+    // 4. DistanceConstraint — distance between two points equals targetDistance
+    //    Equation: (p1.x-p2.x)² + (p1.y-p2.y)² - d² = 0
     // =========================================================================
     class DistanceConstraint : public Constraint {
     public:
@@ -112,9 +112,9 @@ namespace cad_sketch {
     };
 
     // =========================================================================
-    // 5. ParallelConstraint — 两线段平行
-    //    方程: (a2.x-a1.x)*(b2.y-b1.y) - (a2.y-a1.y)*(b2.x-b1.x) = 0
-    //    即两个方向向量的叉积为零
+    // 5. ParallelConstraint — two line segments are parallel
+    //    Equation: (a2.x-a1.x)*(b2.y-b1.y) - (a2.y-a1.y)*(b2.x-b1.x) = 0
+    //    i.e. the cross product of the two direction vectors is zero
     // =========================================================================
     class ParallelConstraint : public Constraint {
     public:
@@ -133,9 +133,9 @@ namespace cad_sketch {
     };
 
     // =========================================================================
-    // 6. PerpendicularConstraint — 两线段垂直
-    //    方程: (a2.x-a1.x)*(b2.x-b1.x) + (a2.y-a1.y)*(b2.y-b1.y) = 0
-    //    即两个方向向量的点积为零
+    // 6. PerpendicularConstraint — two line segments are perpendicular
+    //    Equation: (a2.x-a1.x)*(b2.x-b1.x) + (a2.y-a1.y)*(b2.y-b1.y) = 0
+    //    i.e. the dot product of the two direction vectors is zero
     // =========================================================================
     class PerpendicularConstraint : public Constraint {
     public:
@@ -154,9 +154,9 @@ namespace cad_sketch {
     };
 
     // =========================================================================
-    // 7. AngleConstraint — 两线段夹角 = targetAngle (弧度)
-    //    方程: atan2(cross, dot) - targetAngle = 0
-    //    其中 cross = dx1*dy2 - dy1*dx2, dot = dx1*dx2 + dy1*dy2
+    // 7. AngleConstraint — angle between two segments equals targetAngle (radians)
+    //    Equation: atan2(cross, dot) - targetAngle = 0
+    //    where cross = dx1*dy2 - dy1*dx2,  dot = dx1*dx2 + dy1*dy2
     // =========================================================================
     class AngleConstraint : public Constraint {
     public:
@@ -175,12 +175,12 @@ namespace cad_sketch {
     private:
         SketchLinePtr m_line1;
         SketchLinePtr m_line2;
-        double m_targetAngle; // 弧度
+        double m_targetAngle; // radians
     };
 
     // =========================================================================
-    // 8. EqualLengthConstraint — 两线段等长
-    //    方程: |L1|² - |L2|² = 0
+    // 8. EqualLengthConstraint — two line segments have equal length
+    //    Equation: |L1|² - |L2|² = 0
     // =========================================================================
     class EqualLengthConstraint : public Constraint {
     public:
@@ -199,13 +199,13 @@ namespace cad_sketch {
     };
 
     // =========================================================================
-    // 9. FixedConstraint — 固定点坐标
-    //    方程: p.x - tx = 0, p.y - ty = 0 （两个方程）
+    // 9. FixedConstraint — fix a point at given coordinates
+    //    Equations: p.x - tx = 0,  p.y - ty = 0  (two equations)
     // =========================================================================
     class FixedConstraint : public Constraint {
     public:
         FixedConstraint(const SketchPointPtr& point, double targetX, double targetY);
-        FixedConstraint(const SketchPointPtr& point); // 固定在当前位置
+        FixedConstraint(const SketchPointPtr& point); // Fix at the current position
 
         void SetTarget(double x, double y) { m_targetX = x; m_targetY = y; }
 
@@ -224,11 +224,13 @@ namespace cad_sketch {
     };
 
     // =========================================================================
-    // 10. RadiusConstraint — 圆/弧半径约束
-    //     这是一个特殊约束：它不修改点坐标，而是直接设置半径值
-    //     方程: currentRadius - targetRadius = 0
-    //     注意: 由于半径不是求解器变量系统的一部分（变量只有点坐标），
-    //     这个约束通过直接赋值来实现，不参与 Newton-Raphson 迭代
+    // 10. RadiusConstraint — circle/arc radius constraint
+    //     This is a special constraint: it does not modify point coordinates;
+    //     instead it directly sets the radius value.
+    //     Equation: currentRadius - targetRadius = 0
+    //     Note: because radius is not part of the solver's variable system
+    //     (variables are point coordinates only), this constraint is applied
+    //     by direct assignment and does not participate in Newton-Raphson iteration.
     // =========================================================================
     class RadiusConstraint : public Constraint {
     public:
@@ -241,11 +243,11 @@ namespace cad_sketch {
         bool IsValid() const override;
         std::string GetDescription() const override;
         double GetError() const override;
-        int GetEquationCount() const override { return 0; } // 不参与矩阵求解
+        int GetEquationCount() const override { return 0; } // Does not participate in matrix solving
         std::vector<SketchPointPtr> GetInvolvedPoints() const override;
         std::vector<JacobianEntry> GetJacobianAt(int eqIndex) const override;
 
-        /** 直接应用半径值（求解器在迭代前调用） */
+        /** Apply the radius value directly (called by the solver before iteration) */
         void ApplyDirectly();
 
     private:
@@ -254,4 +256,4 @@ namespace cad_sketch {
         double m_targetRadius;
     };
 
-} // namespace cad_sketch#pragma once
+} // namespace cad_sketch

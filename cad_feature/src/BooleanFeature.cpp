@@ -9,7 +9,7 @@ namespace cad_feature {
 
     void BooleanFeature::SetOperationType(BooleanType type) {
         m_boolType = type;
-        // 同步修改父类的特征类型标识，以便 UI 图标等能正确识别
+        // Synchronously update the parent feature type identifier
         if (type == BooleanType::Union) m_type = FeatureType::Union;
         else if (type == BooleanType::Intersection) m_type = FeatureType::Intersection;
         else if (type == BooleanType::Difference) m_type = FeatureType::Cut;
@@ -31,18 +31,18 @@ namespace cad_feature {
 
     bool BooleanFeature::ValidateParameters() const {
         if (m_boolType == BooleanType::Union) {
-            return (m_targets.size() + m_tools.size()) >= 2; // 至少需要2个物体合并
+            return (m_targets.size() + m_tools.size()) >= 2; // Union requires at least 2 shapes
         }
         else {
-            return !m_targets.empty() && !m_tools.empty();   // 交集和差集必须同时有 target 和 tool
+            return !m_targets.empty() && !m_tools.empty(); // Intersection and difference both need a target and a tool
         }
     }
 
     std::shared_ptr<cad_core::ICommand> BooleanFeature::CreateCommand() const {
-        return nullptr; // 暂时不用
+        return nullptr; // Not yet implemented
     }
 
-    // 生成布尔运算后的 3D 实体
+    // Generate the resulting 3D solid from the boolean operation
     cad_core::ShapePtr BooleanFeature::CreateShape() const {
         if (!ValidateParameters()) return nullptr;
 

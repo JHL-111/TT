@@ -10,7 +10,7 @@
 
 namespace cad_ui {
 
-    class QtOccView; // 前向声明
+    class QtOccView; // Forward declaration
 
     class CreateSweepDialog : public QDialog {
         Q_OBJECT
@@ -29,19 +29,19 @@ namespace cad_ui {
         void OnCreatePathToggled(bool checked);
 
     protected:
-        // 重写 reject 方法以捕获对话框关闭事件 
+        // Override reject() to handle dialog close events cleanly
         void reject() override;
 
     private:
         QtOccView* m_view;
 
-        // UI 控件
+        // UI controls
         QLabel* m_instructionLabel;
         QDoubleSpinBox* m_twistSpinner;
         QDoubleSpinBox* m_scaleSpinner;
         QCheckBox* m_keepOrientationCheck;
         QPushButton* m_btnApply;
-        QPushButton* m_btnCancel;      
+        QPushButton* m_btnCancel;
         QPushButton* m_btnCreatePath;
 
         void SetupUI();

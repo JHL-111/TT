@@ -44,47 +44,57 @@ namespace cad_ui {
     void DocumentTree::CreateContextMenu() {
         m_contextMenu = new QMenu(this);
 
-        // 编辑动作
+        // Edit action
+
         m_editSketchAction = new QAction("Edit Sketch", this);
         m_deleteAction = new QAction("Delete", this);
         m_renameAction = new QAction("Rename", this);
         m_toggleVisibilityAction = new QAction("Toggle Visibility", this);
 
-        // 把编辑按钮也加进原有的菜单里
+        // Add the edit action to the existing context menu
+
         m_contextMenu->addAction(m_editSketchAction);
-        m_contextMenu->addSeparator(); // 加条分割线好看点
+        m_contextMenu->addSeparator(); // Add a separator for clarity
+
         m_contextMenu->addAction(m_deleteAction);
         m_contextMenu->addAction(m_renameAction);
         m_contextMenu->addSeparator();
         m_contextMenu->addAction(m_toggleVisibilityAction);
 
-        // 绑定信号
+        // Connect signals
+
         connect(m_editSketchAction, &QAction::triggered, this, &DocumentTree::OnEditSketch);
         connect(m_deleteAction, &QAction::triggered, this, &DocumentTree::OnDeleteItem);
         connect(m_renameAction, &QAction::triggered, this, &DocumentTree::OnRenameItem);
         connect(m_toggleVisibilityAction, &QAction::triggered, this, &DocumentTree::OnToggleVisibility);
     }
 
-    // 整合后的右键弹出事件
+    // Unified right-click context menu handler
+
     void DocumentTree::contextMenuEvent(QContextMenuEvent* event) {
         QTreeWidgetItem* item = itemAt(event->pos());
 
-        // 如果点在了空白处，或者根节点上，不弹菜单
+        // Do not show the menu when clicking empty space or a root node
+
         if (!item || item == m_shapesRoot || item == m_featuresRoot || item == m_sketchesRoot) {
             return;
         }
 
-        // 检查当前点中的是不是草图
+        // Check whether the clicked item is a sketch
+
         auto sketch = item->data(0, Qt::UserRole).value<std::shared_ptr<cad_sketch::Sketch>>();
 
-        // 只有点中草图时，“编辑草图”按钮才可见，否则隐藏
+        // Show "Edit Sketch" only when a sketch node is clicked
+
         m_editSketchAction->setVisible(sketch != nullptr);
 
-        // 弹出你原有的、功能完整的菜单
+        // Show the existing full-featured menu
+
         m_contextMenu->exec(event->globalPos());
     }
 
-    // 向外发射编辑信号
+    // Emit the external edit signal
+
     void DocumentTree::OnEditSketch() {
         QTreeWidgetItem* item = currentItem();
         if (!item) return;
@@ -123,25 +133,30 @@ namespace cad_ui {
     void DocumentTree::AddSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch) {
         if (!sketch) return;
 
-        // 查重拦截：如果这棵树上已经存在这个草图了，就直接退出
+        // Duplicate guard: exit if this sketch already exists in the tree
+
         for (int i = 0; i < m_sketchesRoot->childCount(); ++i) {
             QTreeWidgetItem* existingItem = m_sketchesRoot->child(i);
             auto existingSketch = existingItem->data(0, Qt::UserRole).value<std::shared_ptr<cad_sketch::Sketch>>();
             if (existingSketch == sketch) {
-                return; // 发现重复，直接拦截
+                return; // Duplicate found, abort insertion
+
             }
         }
 
-        // 先获取当前的草图数量 (此时还没有添加新节点)
+        // Get the current sketch count before adding the new node
+
         int currentCount = m_sketchesRoot->childCount();
 
         QTreeWidgetItem* item = new QTreeWidgetItem();
 
-        // 设置名字
+        // Set the display name
+
         item->setText(0, QString("Sketch %1").arg(currentCount + 1));
         item->setData(0, Qt::UserRole, QVariant::fromValue(sketch));
 
-        // 属性都设置好之后，最后再将它挂载到树上
+        // Attach the node to the tree after all properties are configured
+
         m_sketchesRoot->addChild(item);
         m_sketchesRoot->setExpanded(true);
     }
@@ -231,17 +246,20 @@ namespace cad_ui {
 
         auto shape = item->data(0, Qt::UserRole).value<cad_core::ShapePtr>();
         if (shape) {
-            emit ShapeDeleted(shape); // 通知外界去删除真实的 3D 数据
+            emit ShapeDeleted(shape); // Notify external logic to delete the actual 3D data
+
         }
 
         auto feature = item->data(0, Qt::UserRole).value<cad_feature::FeaturePtr>();
         if (feature) {
-            emit FeatureDeleted(feature); // 通知外界去删除真实的特征数据
+            emit FeatureDeleted(feature); // Notify external logic to delete the actual feature data
+
         }
 
         auto sketch = item->data(0, Qt::UserRole).value<std::shared_ptr<cad_sketch::Sketch>>();
         if (sketch) {
-            emit SketchDeleted(sketch); // 通知外界删除草图数据与视图对象
+            emit SketchDeleted(sketch); // Notify external logic to delete sketch data and view objects
+
         }
 
 
@@ -269,20 +287,24 @@ namespace cad_ui {
             return;
         }
 
-        // 切换字体删除线样式（作为UI表现）
+        // Toggle the strikeout font style as a UI indicator
+
         QFont font = item->font(0);
         bool isCurrentlyHidden = font.strikeOut();
-        font.setStrikeOut(!isCurrentlyHidden); // 状态反转
+        font.setStrikeOut(!isCurrentlyHidden); // Toggle the current state
+
         item->setFont(0, font);
 
         auto shape = item->data(0, Qt::UserRole).value<cad_core::ShapePtr>();
         if (shape) {
-            // 如果当前没有删除线，说明下一步是隐藏(false)；如果有，下一步是显示(true)
+            // If there is no strikeout, the next state is hidden (false); otherwise it becomes visible (true)
+
             bool willBeVisible = isCurrentlyHidden;
             emit ShapeVisibilityChanged(shape, willBeVisible);
         }
 
-        // 如果是草图，则发射草图的隐藏/显示信号
+        // If this is a sketch, emit the sketch visibility signal
+
         auto sketch = item->data(0, Qt::UserRole).value<std::shared_ptr<cad_sketch::Sketch>>();
         if (sketch) {
             bool willBeVisible = isCurrentlyHidden;
@@ -294,7 +316,8 @@ namespace cad_ui {
         std::vector<std::shared_ptr<cad_sketch::Sketch>> sketches;
         if (!m_sketchesRoot) return sketches;
 
-        // 遍历 Sketches 根节点下的所有子节点
+        // Traverse all children under the Sketches root node
+
         for (int i = 0; i < m_sketchesRoot->childCount(); ++i) {
             QTreeWidgetItem* item = m_sketchesRoot->child(i);
             auto sketch = item->data(0, Qt::UserRole).value<std::shared_ptr<cad_sketch::Sketch>>();
@@ -313,7 +336,8 @@ namespace cad_ui {
             auto itemSketch = item->data(0, Qt::UserRole).value<std::shared_ptr<cad_sketch::Sketch>>();
             if (itemSketch == sketch) {
                 QFont font = item->font(0);
-                font.setStrikeOut(hidden); // 加上或取消删除线
+                font.setStrikeOut(hidden); // Apply or remove the strikeout effect
+
                 item->setFont(0, font);
                 break;
             }

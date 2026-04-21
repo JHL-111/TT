@@ -1,6 +1,6 @@
 set(TARGET_NAME cad_ui)
 
-# 头文件
+# Header files
 set(HEADERS
     include/cad_ui/MainWindow.h
     include/cad_ui/QtOccView.h
@@ -23,7 +23,7 @@ set(HEADERS
 
 )
 
-# 源文件
+# Source files
 set(SOURCES
     src/MainWindow.cpp
     src/QtOccView.cpp
@@ -45,21 +45,21 @@ set(SOURCES
     src/CreateLoftDialog.cpp
 )
 
-# 资源文件
+# Resource files
 set(RESOURCES
     resources/resources.qrc
 )
 
-# 创建静态库
+# Create static library
 add_library(${TARGET_NAME} STATIC ${HEADERS} ${SOURCES} ${RESOURCES})
 
-# 包含目录
+# Include directories
 target_include_directories(${TARGET_NAME} PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${OpenCASCADE_INCLUDE_DIR}
 )
 
-# 链接库
+# Link libraries
 target_link_libraries(${TARGET_NAME} 
     cad_core
     cad_sketch

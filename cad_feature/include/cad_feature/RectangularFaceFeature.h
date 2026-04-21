@@ -10,14 +10,14 @@ namespace cad_feature {
         RectangularFaceFeature(const std::string& name);
         virtual ~RectangularFaceFeature() = default;
 
-        // 设置与获取参数 (Parameters)
+        // Set/get parameters
         void SetWidth(double width);
         double GetWidth() const;
 
         void SetHeight(double height);
         double GetHeight() const;
 
-        // 覆盖基类接口
+        // Override base class virtual functions
         cad_core::ShapePtr CreateShape() const override;
         bool ValidateParameters() const override;
         std::shared_ptr<cad_core::ICommand> CreateCommand() const override;
@@ -25,4 +25,4 @@ namespace cad_feature {
 
     using RectangularFaceFeaturePtr = std::shared_ptr<RectangularFaceFeature>;
 
-} // namespace cad_feature#pragma once
+} // namespace cad_feature

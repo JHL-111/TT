@@ -1,5 +1,5 @@
 ﻿/**
- * 这个类封装了OpenCASCADE的TopoDS_Shape
+ * This class wraps OpenCASCADE's TopoDS_Shape.
  */
 
 #pragma once
@@ -10,70 +10,70 @@
 
 namespace cad_core {
 
-/**
- * @class Shape
- * @brief 几何形状的包装类
- * 
- */
-class Shape {
-public:
-    //默认构造函数 
-    Shape();
-    
-    /** 
-     * 从OpenCASCADE形状构造
-     * @param shape OpenCASCADE的原生形状
+    /**
+     * @class Shape
+     * @brief Wrapper class for geometric shapes
+     *
      */
-    explicit Shape(const TopoDS_Shape& shape);
-    
-    /** 虚析构函数 
-    virtual ~Shape() = default;
+    class Shape {
+    public:
+        // Default constructor
+        Shape();
 
-    /** 
-     * 获取底层的OpenCASCADE形状 
-     * @return
-     */
-    const TopoDS_Shape& GetOCCTShape() const;
-    
-    /** 
-     * 设置底层形状
-     * @param shape 新的OpenCASCADE形状
-     */
-    void SetOCCTShape(const TopoDS_Shape& shape);
-    
-    /** 
-     * 检查形状是否有效
-     * @return true如果形状有效，false如果是个"空壳"
-     */
-    bool IsValid() const;
-    
-    /** 
-     * 计算体积 
-     * @return 体积值，单位取决于你的建模单位
-     * TODO: 添加单位处理和错误检查
-     */
-    double Volume() const;
-    
-    /** 
-     * 计算表面积 
-     * @return 表面积值
-     * TODO: 对于非封闭形状可能需要特殊处理
-     */
-    double Area() const;
+        /**
+         * Construct from an OpenCASCADE shape
+         * @param shape Native OpenCASCADE shape
+         */
+        explicit Shape(const TopoDS_Shape& shape);
 
+        /** Virtual destructor */
+        virtual ~Shape() = default;
 
-    /** * 计算几何质心/重心 
-     * 自动根据形状类型(实体/面/线)选择正确的计算方法
-     * @return 质心坐标点
-     */
-    gp_Pnt GetCentroid() const;
+        /**
+         * Get the underlying OpenCASCADE shape
+         * @return Reference to the TopoDS_Shape
+         */
+        const TopoDS_Shape& GetOCCTShape() const;
 
-private:
-    /** 存储实际的OpenCASCADE形状 */
-    TopoDS_Shape m_shape;
-};
+        /**
+         * Set the underlying shape
+         * @param shape New OpenCASCADE shape
+         */
+        void SetOCCTShape(const TopoDS_Shape& shape);
 
-/** 智能指针类型别名 */
-using ShapePtr = std::shared_ptr<Shape>;
+        /**
+         * Check whether the shape is valid
+         * @return true if the shape is valid, false if it is empty/null
+         */
+        bool IsValid() const;
+
+        /**
+         * Compute the volume
+         * @return Volume value; units depend on the modelling units in use
+         * TODO: Add unit handling and error checking
+         */
+        double Volume() const;
+
+        /**
+         * Compute the surface area
+         * @return Surface area value
+         * TODO: May require special handling for non-closed shapes
+         */
+        double Area() const;
+
+        /**
+         * Compute the geometric centroid/centre of mass.
+         * Automatically selects the correct method based on shape type (solid / face / wire).
+         * @return Centroid coordinates as a point
+         */
+        gp_Pnt GetCentroid() const;
+
+    private:
+        /** Stores the actual OpenCASCADE shape */
+        TopoDS_Shape m_shape;
+    };
+
+    /** Smart pointer type alias */
+    using ShapePtr = std::shared_ptr<Shape>;
 
 } // namespace cad_core

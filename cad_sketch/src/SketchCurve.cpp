@@ -1,4 +1,3 @@
-// cad_sketch/src/SketchCurve.cpp
 #include "cad_sketch/SketchCurve.h"
 
 namespace cad_sketch {
@@ -7,14 +6,14 @@ namespace cad_sketch {
     }
 
     void SketchCurve::Translate(double dx, double dy) {
-        // 遍历平移所有的控制点 (Translate all control points)
+        // Translate all control points
         for (auto& pt : m_controlPoints) {
             pt->Translate(dx, dy);
         }
     }
 
     void SketchCurve::Rotate(double cx, double cy, double angleRad) {
-        // 遍历旋转所有的控制点 (Rotate all control points)
+        // Rotate all control points
         for (auto& pt : m_controlPoints) {
             pt->Rotate(cx, cy, angleRad);
         }

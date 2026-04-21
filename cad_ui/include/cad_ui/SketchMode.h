@@ -19,28 +19,29 @@
 
 #include "cad_core/Shape.h"
 #include "cad_sketch/Sketch.h"
-#include "cad_sketch/SketchElement.h" 
+#include "cad_sketch/SketchElement.h"
 #include "cad_sketch/SketchLine.h"
 #include "cad_sketch/SketchCircle.h"
 #include "cad_sketch/SketchArc.h"
 #include "cad_sketch/SketchCurve.h"
 #include "cad_sketch/SnappingManager.h"
 
-// === 开始定义自定义命名空间 ===
 namespace cad_ui {
 
-    class QtOccView; 
+    class QtOccView;
 
     /**
      * @class SketchToolBase
-     * @brief 草图绘制工具的抽象基类 (Abstract Base Class)
-     * * 运用了多态，将各种绘图工具（线、矩形、圆）的通用行为统一管理。
+     * @brief Abstract base class for sketch drawing tools
+     *
+     * Uses polymorphism to manage the common behaviour of all drawing tools
+     * (line, rectangle, circle, etc.) uniformly.
      */
     class SketchToolBase : public QObject {
-        Q_OBJECT 
+        Q_OBJECT
     public:
         explicit SketchToolBase(QObject* parent = nullptr) : QObject(parent), m_isDrawing(false) {}
-        virtual ~SketchToolBase() = default; 
+        virtual ~SketchToolBase() = default;
 
         virtual void StartDrawing(const QPoint& startPoint) = 0;
         virtual void UpdateDrawing(const QPoint& currentPoint) = 0;
@@ -49,53 +50,49 @@ namespace cad_ui {
         virtual void HoverMove(const QPoint& currentPoint);
 
         bool IsDrawing() const { return m_isDrawing; }
-        
 
-        // 将草图平面和视图传递给工具
+        // Pass the sketch plane and view to the tool
         void SetSketchPlane(const gp_Pln& plane) { m_sketchPlane = plane; }
         void SetView(Handle(V3d_View) view) { m_view = view; }
 
-        // 注入捕捉上下文（传入管理器和当前草图已有元素）
+        // Inject snapping context (manager and existing sketch elements)
         void SetSnappingContext(cad_sketch::SnappingManager* manager, const std::vector<cad_sketch::SketchElementPtr>* elements) {
             m_snappingManager = manager;
             m_existingElements = elements;
         }
 
     signals:
-        // 绘制时的动态预览信号
+        // Dynamic preview signal during drawing
         void previewUpdated(const std::vector<cad_sketch::SketchElementPtr>& elements);
-        // 绘制完成的确认信号 
+        // Confirmation signal when drawing is complete
         void elementsCreated(const std::vector<cad_sketch::SketchElementPtr>& elements);
-        // 取消绘制信号 
+        // Drawing cancelled signal
         void drawingCancelled();
-        // 检测吸附小圆
+        // Snap indicator signals
         void snapPointDetected(const gp_Pnt& pnt, cad_sketch::SnapType snapType);
         void snapPointLost();
 
-        
-
     protected:
-        // 将二维的屏幕鼠标坐标转换到三维空间的草图平面上
+        // Convert 2D screen mouse coordinates to a 3D point on the sketch plane
         gp_Pnt ScreenToSketchPlane(const QPoint& screenPoint);
-        // 统一获取智能吸附后的 2D 坐标
-        
-        // 供真正画图时使用（不需要知道捕捉类型）
+
+        // Get the snapped 2D coordinate (for actual drawing — snap type not needed)
         bool GetSnappedCoordinate(const QPoint& screenPoint, Standard_Real& u, Standard_Real& v);
-        // 专门供悬停提示使用（能把捕捉类型传出来）
+        // Get the snapped 2D coordinate with snap type (for hover/tooltip use)
         bool GetSnappedCoordinate(const QPoint& screenPoint, Standard_Real& u, Standard_Real& v, cad_sketch::SnapType& outSnapType);
 
-        bool m_isDrawing;            // 标记当前是否正在绘制中
-        gp_Pln m_sketchPlane;        // 当前依附的草图平面 (Sketch Plane)
-        Handle(V3d_View) m_view;     // OCC 的视图句柄 (View Handle)
+        bool m_isDrawing;            // Whether drawing is currently in progress
+        gp_Pln m_sketchPlane;        // The sketch plane currently attached to
+        Handle(V3d_View) m_view;     // OCC view handle
 
-        // 捕捉相关的成员变量
+        // Snapping-related member variables
         cad_sketch::SnappingManager* m_snappingManager = nullptr;
         const std::vector<cad_sketch::SketchElementPtr>* m_existingElements = nullptr;
     };
 
     /**
      * @class SketchRectangleTool
-     * @brief 矩形绘制工具 (Rectangle Drawing Tool)
+     * @brief Rectangle drawing tool
      */
     class SketchRectangleTool : public SketchToolBase {
         Q_OBJECT
@@ -108,18 +105,18 @@ namespace cad_ui {
         void CancelDrawing() override;
 
     private:
-        QPoint m_startPoint;   // 起点屏幕坐标
-        QPoint m_currentPoint; // 当前鼠标屏幕坐标
-        std::vector<cad_sketch::SketchElementPtr> m_currentElements; // 当前正在绘制的图元合集
+        QPoint m_startPoint;   // Start point in screen coordinates
+        QPoint m_currentPoint; // Current mouse position in screen coordinates
+        std::vector<cad_sketch::SketchElementPtr> m_currentElements; // Elements currently being drawn
 
-        // 直接接收处理好的 2D UV 坐标
+        // Receives pre-computed 2D UV coordinates directly
         std::vector<cad_sketch::SketchElementPtr> CreateRectangleLines(Standard_Real u1, Standard_Real v1, Standard_Real u2, Standard_Real v2);
     };
 
     /**
      * @class SketchPointTool
-     * @brief 草图点绘制工具 (Point Drawing Tool)
-     * 只需要单次点击即可生成一个点。
+     * @brief Point drawing tool
+     * A single click is sufficient to create a point.
      */
     class SketchPointTool : public SketchToolBase {
         Q_OBJECT
@@ -137,7 +134,7 @@ namespace cad_ui {
 
     /**
      * @class SketchLineTool
-     * @brief 直线绘制工具 (Line Drawing Tool)
+     * @brief Line drawing tool
      */
     class SketchLineTool : public SketchToolBase {
         Q_OBJECT
@@ -155,9 +152,9 @@ namespace cad_ui {
     };
 
     /**
- * @class SketchCircleTool
- * @brief 圆绘制工具 (Circle Drawing Tool)
- */
+     * @class SketchCircleTool
+     * @brief Circle drawing tool
+     */
     class SketchCircleTool : public SketchToolBase {
         Q_OBJECT
     public:
@@ -175,8 +172,9 @@ namespace cad_ui {
 
     /**
      * @class SketchArcTool
-     * @brief 圆弧绘制工具 (Arc Drawing Tool)
-     * 使用三点交互法：圆心 -> 起点(决定半径和起始角) -> 终点(决定终止角)
+     * @brief Arc drawing tool
+     * Uses a three-point interaction:
+     *   centre → start point (sets radius and start angle) → end point (sets end angle)
      */
     class SketchArcTool : public SketchToolBase {
         Q_OBJECT
@@ -188,11 +186,11 @@ namespace cad_ui {
         void FinishDrawing(const QPoint& endPoint) override;
         void CancelDrawing() override;
 
-        // 重写以支持鼠标未按下时的预览 (Preview on Hover)
+        // Override to support hover preview (mouse not pressed)
         void HoverMove(const QPoint& currentPoint) override;
 
     private:
-        // 交互状态 (Interaction States)
+        // Interaction states
         enum State { Init, CenterSet, StartSet };
         State m_state;
 
@@ -203,8 +201,8 @@ namespace cad_ui {
 
     /**
      * @class SketchCurveTool
-     * @brief 样条曲线绘制工具 (Spline Curve Drawing Tool)
-     * 支持连续点击添加节点，右键或回车完成绘制。
+     * @brief Spline curve drawing tool
+     * Supports adding nodes by successive clicks; right-click or Enter to finish.
      */
     class SketchCurveTool : public SketchToolBase {
         Q_OBJECT
@@ -217,21 +215,23 @@ namespace cad_ui {
         void CancelDrawing() override;
         void HoverMove(const QPoint& currentPoint) override;
 
-        // 确认并结束绘制 (Confirm and finish drawing)
+        // Confirm and finish drawing
         void ConfirmDrawing();
 
-        // 强制注入起点 (用于 Sweep 锁定质心)
+        // Force-inject a start point (used by Sweep to lock the centroid)
         void InjectStartPoint(double u, double v);
 
     private:
-        std::vector<cad_sketch::SketchPointPtr> m_points; // 记录已点击的点
-        std::vector<cad_sketch::SketchElementPtr> m_currentElements; // 当前预览图元
+        std::vector<cad_sketch::SketchPointPtr> m_points;          // Clicked points so far
+        std::vector<cad_sketch::SketchElementPtr> m_currentElements; // Current preview elements
     };
 
     /**
      * @class SketchMode
-     * @brief 草图模式管理器 (Sketch Mode Manager)
-     * * 负责管理草图环境的进入、退出、视图切换，以及分发事件给当前激活的绘制工具。
+     * @brief Sketch mode manager
+     *
+     * Manages entering/exiting sketch mode, view switching, and
+     * dispatching events to the currently active drawing tool.
      */
     class SketchMode : public QObject {
         Q_OBJECT
@@ -239,11 +239,11 @@ namespace cad_ui {
         explicit SketchMode(QtOccView* viewer, QObject* parent = nullptr);
         ~SketchMode() = default;
 
-        // 草图生命周期管理
-        bool EnterSketchMode(const TopoDS_Face& face); // 进入草图模式
-        bool EnterSketchMode(const gp_Ax3& customCS);  // 依赖纯数学坐标系
-        void ExitSketchMode();                         // 退出草图模式
-        // 编辑旧草图的函数 
+        // Sketch lifecycle management
+        bool EnterSketchMode(const TopoDS_Face& face); // Enter sketch mode on a face
+        bool EnterSketchMode(const gp_Ax3& customCS);  // Enter sketch mode using a pure mathematical CS
+        void ExitSketchMode();                         // Exit sketch mode
+        // Edit an existing sketch
         bool EditSketch(const std::shared_ptr<cad_sketch::Sketch>& sketch);
         bool IsInSketchMode() const { return m_isActive; }
         bool HasActiveTool() const { return m_currentTool != nullptr; }
@@ -252,31 +252,31 @@ namespace cad_ui {
         bool CanUndo() const { return !m_undoStack.empty(); }
         bool CanRedo() const { return !m_redoStack.empty(); }
 
-        // 获取草图的保存数据 (Context Data)
+        // Access saved sketch context data
         const cad_sketch::SketchPtr& GetCurrentSketch() const { return m_currentSketch; }
         const TopoDS_Face& GetSketchFace() const { return m_sketchFace; }
 
-        // 获取草图的局部坐标系 (Coordinate System)
+        // Sketch local coordinate system
         const gp_Ax3& GetSketchCS() const { return m_sketchCS; }
         const gp_Pln& GetSketchPlane() const { return m_sketchPlane; }
         const gp_Ax3& GetSketchCoordinateSystem() const { return m_sketchCS; }
-        
-        // 临时 3D 观察控制
+
+        // Temporary 3D view control
         void StartTemporary3DView();
         void StopTemporary3DView();
         bool IsTemporary3DViewActive() const { return m_isTemporary3DView; }
 
-        // 绘图工具控制 (Tool Control)
+        // Drawing tool control
         void StartRectangleTool();
-		void StartPointTool();
+        void StartPointTool();
         void StartLineTool();
         void StartCircleTool();
-		void StartArcTool();
-		void StartCurveTool();
+        void StartArcTool();
+        void StartCurveTool();
         void StopCurrentTool();
         SketchToolBase* GetCurrentTool() const { return m_currentTool.get(); }
 
-        // 交互事件处理 (Event Handling)
+        // Event handling
         void HandleMousePress(QMouseEvent* event);
         void HandleMouseMove(QMouseEvent* event);
         void HandleMouseRelease(QMouseEvent* event);
@@ -287,91 +287,91 @@ namespace cad_ui {
         void sketchModeEntered();
         void sketchModeExited();
         void sketchElementCreated(cad_sketch::SketchElementPtr element);
-        void sketchHistoryChanged(); // 通知 UI 更新 Undo/Redo 按钮状态
+        void sketchHistoryChanged(); // Notifies UI to update Undo/Redo button state
         void statusMessageChanged(const QString& message);
         void toolChanged(const QString& toolName);
 
     private slots:
-        // 接收工具发出的信号，桥接给渲染器进行显示
+        // Receive signals from tools and bridge them to the renderer for display
         void OnPreviewUpdated(const std::vector<cad_sketch::SketchElementPtr>& elements);
         void OnElementsCreated(const std::vector<cad_sketch::SketchElementPtr>& elements);
         void OnDrawingCancelled();
         void OnSnapPointDetected(const gp_Pnt& pnt, cad_sketch::SnapType snapType);
         void OnSnapPointLost();
 
-   
-    private:
-        QtOccView* m_viewer; // 视图渲染器指针
-        bool m_isActive;     // 是否处于激活状态
 
-        // 标记鼠标是否真的移动了（区分"点击"和"拖拽"）
+    private:
+        QtOccView* m_viewer; // Pointer to the view renderer
+        bool m_isActive;     // Whether sketch mode is currently active
+
+        // Tracks whether the mouse actually moved (distinguishes "click" from "drag")
         bool m_didActuallyMove = false;
 
-        // 草图核心数据模型
-        cad_sketch::SketchPtr m_currentSketch; // 存储绘制的线段与约束
-        TopoDS_Face m_sketchFace;              // 依附的三维拓扑面 (Topological Face)
-        gp_Pln m_sketchPlane;                  // 提取出的数学平面 (Mathematical Plane)
-        gp_Ax3 m_sketchCS;                     // 局部坐标系 (Local Coordinate System, LCS)
+        // Core sketch data model
+        cad_sketch::SketchPtr m_currentSketch; // Stores drawn lines and constraints
+        TopoDS_Face m_sketchFace;              // Attached 3D topological face
+        gp_Pln m_sketchPlane;                  // Extracted mathematical plane
+        gp_Ax3 m_sketchCS;                     // Local coordinate system (LCS)
 
-		// 自动约束矩形辅助函数
+        // Helper for auto-constraining rectangles
         void AutoConstrainRectangle(const std::vector<cad_sketch::SketchElementPtr>& elements);
 
-        // 拖拽状态变量 
-        bool m_isDragging = false;          // 是否正在拖拽
-        double m_lastDragU = 0.0;           // 上一帧的 U (X) 坐标
-        double m_lastDragV = 0.0;           // 上一帧的 V (Y) 坐标
-        std::vector<cad_sketch::SketchElementPtr> m_draggedElements; // 正在被拖拽的元素
-        std::vector<cad_sketch::SketchElementPtr> m_dragStartSnapshot; // 记录拖拽前的状态(用于Undo)
+        // Drag state variables
+        bool m_isDragging = false;          // Whether a drag is in progress
+        double m_lastDragU = 0.0;           // U (X) coordinate from the previous frame
+        double m_lastDragV = 0.0;           // V (Y) coordinate from the previous frame
+        std::vector<cad_sketch::SketchElementPtr> m_draggedElements;    // Elements being dragged
+        std::vector<cad_sketch::SketchElementPtr> m_dragStartSnapshot;  // State snapshot before drag (for Undo)
 
-		// 旋转状态变量
+        // Rotation state variables
         bool m_isRotating = false;
         bool m_isFirstRotation = false;
         double m_rotCenterU = 0.0;
         double m_rotCenterV = 0.0;
         double m_lastAngle = 0.0;
 
-        //计算所选元素质心 (Centroid) 的辅助函数
+        // Helper: compute the centroid of the selected elements
         void CalculateSelectionCenter(double& outU, double& outV);
 
-        // 历史操作记录结构体 (History Operation Record)
+        // History record structure
         struct SketchHistoryStep {
             enum ActionType { ADD, REMOVE };
             ActionType type;
             std::vector<cad_sketch::SketchElementPtr> elements;
-        };       
+        };
         std::vector<SketchHistoryStep> m_undoStack;
         std::vector<SketchHistoryStep> m_redoStack;
         void RefreshSketchView();
         void DeleteSelectedElements();
 
-        // 视口状态保存 (用于退出草图时恢复原视角)
-        gp_Pnt m_savedEye;     // 摄像机位置
-        gp_Pnt m_savedAt;      // 观察目标点
-        gp_Dir m_savedUp;      // 摄像机向上的向量
-        double m_savedScale;   // 缩放比例
-        Graphic3d_Camera::Projection m_savedProjectionType; // 投影类型 (透视或正交)
+        // Viewport state saved for restoring the original view on exit
+        gp_Pnt m_savedEye;     // Camera position
+        gp_Pnt m_savedAt;      // Look-at target point
+        gp_Dir m_savedUp;      // Camera up vector
+        double m_savedScale;   // Zoom scale
+        Graphic3d_Camera::Projection m_savedProjectionType; // Projection type (perspective or orthographic)
 
-        // 用于临时存放正交草图视角的变量
+        // Variables for storing the orthographic sketch view
         gp_Pnt m_tempSketchEye;
         gp_Pnt m_tempSketchAt;
         gp_Dir m_tempSketchUp;
         Standard_Real m_tempSketchScale;
         Graphic3d_Camera::Projection m_tempSketchProj;
 
-        bool m_isTemporary3DView = false; // 标记是否正处于按住空格的状态
+        bool m_isTemporary3DView = false; // Whether Spacebar is currently held (temporary 3D view)
 
-        // 利用多态智能指针管理当前激活的工具 (Current Active Tool)
+        // Polymorphic smart pointer managing the currently active tool
         std::unique_ptr<SketchToolBase> m_currentTool;
 
-		// 捕捉管理器 (Snapping Manager)
+        // Snapping manager
         cad_sketch::SnappingManager m_snappingManager;
 
-        // 内部辅助方法 (Helper Methods)
+        // Internal helper methods
         void SetupSketchPlane(const TopoDS_Face& face);
         void SetupSketchView();
         void RestoreView();
         void CreateSketchCoordinateSystem();
-        // 坐标转换辅助函数
+        // Coordinate conversion helpers
         void GetPlaneCoordinate(const QPoint& screenPos, double& u, double& v);
         gp_Pln ExtractPlaneFromFace(const TopoDS_Face& face);
     };

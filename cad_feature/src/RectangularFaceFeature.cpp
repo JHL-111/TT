@@ -2,7 +2,6 @@
 
 namespace cad_feature {
 
-    // 默认给个初始大小 10x10，并将类型标识为基础特征
     RectangularFaceFeature::RectangularFaceFeature(const std::string& name)
         : Feature(FeatureType::Extrude, name) {
         SetParameter("width", 10.0);
@@ -36,7 +35,6 @@ namespace cad_feature {
     cad_core::ShapePtr RectangularFaceFeature::CreateShape() const {
         if (!ValidateParameters()) return nullptr;
 
-        // 直接调用我们在 ShapeFactory 里写好的静态方法
         return cad_core::ShapeFactory::CreateRectangleFace(GetWidth(), GetHeight());
     }
 

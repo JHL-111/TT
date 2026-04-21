@@ -1,16 +1,16 @@
 ﻿/**
  * @file ConstraintSolver.cpp
- * @brief Newton-Raphson 约束求解器的完整实现
+ * @brief Complete implementation of the Newton-Raphson constraint solver
  *
- * 核心算法：
- *   在每次迭代中：
- *   1. 组装误差向量 F (M×1) 和雅可比矩阵 J (M×N)
- *   2. 构造法方程 (J^T·J)·Δx = -J^T·F
- *   3. 用 Eigen 的 LDLT 分解求解 Δx
- *   4. 阻尼更新 x += damping * Δx
- *   5. 检查收敛条件 ||F|| < tolerance
+ * Core algorithm — each iteration:
+ *   1. Assemble the error vector F (M×1) and the Jacobian matrix J (M×N)
+ *   2. Form the normal equations (J^T·J)·Δx = -J^T·F
+ *   3. Solve for Δx using Eigen's LDLT decomposition
+ *   4. Damped update: x += damping * Δx
+ *   5. Check convergence: ||F|| < tolerance
  *
- * 其中 M = 方程总数, N = 变量总数（每个点 2 个：x, y）
+ * where M = total number of equations,
+ *       N = total number of variables (2 per point: x and y)
  */
 
 #include "cad_sketch/ConstraintSolver.h"
@@ -31,7 +31,7 @@ namespace cad_sketch {
     }
 
     // =====================================================================
-    // 约束管理
+    // Constraint management
     // =====================================================================
 
     void ConstraintSolver::AddConstraint(const ConstraintPtr& constraint) {
@@ -54,7 +54,7 @@ namespace cad_sketch {
     }
 
     // =====================================================================
-    // 参数设置
+    // Parameter settings
     // =====================================================================
 
     void ConstraintSolver::SetTolerance(double tolerance) { m_tolerance = tolerance; }
@@ -72,7 +72,7 @@ namespace cad_sketch {
     }
 
     // =====================================================================
-    // 主求解入口
+    // Main solve entry point
     // =====================================================================
 
     bool ConstraintSolver::Solve() {
@@ -83,10 +83,10 @@ namespace cad_sketch {
             return true;
         }
 
-        // 1. 先应用直接约束（如 RadiusConstraint）
+        // 1. Apply direct constraints first (e.g. RadiusConstraint)
         ApplyDirectConstraints();
 
-        // 2. 收集变量
+        // 2. Collect variables
         CollectVariables();
 
         int N = static_cast<int>(m_variables.size());
@@ -100,18 +100,18 @@ namespace cad_sketch {
             return true;
         }
 
-        // 3. 同步变量映射到约束
+        // 3. Sync variable map to all constraints
         SyncVariableMapToConstraints();
 
-        // ★ 关键修复：求解前保存所有点的坐标快照
+        // Key fix: save a snapshot of all point coordinates before solving
         std::vector<double> savedCoords;
         ReadVariables(savedCoords);
 
-        // 4. 迭代求解
+        // 4. Iterative solving
         bool result = IterativeSolve();
         m_lastResult.converged = result;
 
-        // ★ 关键修复：求解失败时回滚到原始坐标，防止线条消失
+        // Key fix: roll back to original coordinates on failure to prevent lines disappearing
         if (!result) {
             WriteVariables(savedCoords);
         }
@@ -120,19 +120,19 @@ namespace cad_sketch {
     }
 
     // =====================================================================
-    // 变量注册系统
+    // Variable registration system
     // =====================================================================
 
     void ConstraintSolver::CollectVariables() {
         m_variables.clear();
         m_pointToVarIndex.clear();
 
-        // 用 set 去重（同一个点可能被多个约束引用）
+        // Use a set to deduplicate (the same point may be referenced by multiple constraints)
         std::set<SketchPoint*> registeredPoints;
 
         for (const auto& constraint : m_constraints) {
             if (!constraint->IsActive()) continue;
-            if (constraint->GetEquationCount() == 0) continue; // 跳过直接约束
+            if (constraint->GetEquationCount() == 0) continue; // Skip direct constraints
 
             auto points = constraint->GetInvolvedPoints();
             for (const auto& pt : points) {
@@ -145,7 +145,7 @@ namespace cad_sketch {
                     int baseIndex = static_cast<int>(m_variables.size());
                     m_pointToVarIndex[rawPtr] = baseIndex;
 
-                    // 注册 x 和 y 两个变量
+                    // Register x and y as two separate variables
                     Variable varX;
                     varX.point = rawPtr;
                     varX.isX = true;
@@ -173,7 +173,7 @@ namespace cad_sketch {
     void ConstraintSolver::ApplyDirectConstraints() {
         for (auto& constraint : m_constraints) {
             if (!constraint->IsActive()) continue;
-            // 检查是否是 RadiusConstraint（通过 dynamic_cast）
+            // Check for RadiusConstraint via dynamic_cast
             auto radiusConstraint = std::dynamic_pointer_cast<RadiusConstraint>(constraint);
             if (radiusConstraint) {
                 radiusConstraint->ApplyDirectly();
@@ -182,22 +182,22 @@ namespace cad_sketch {
     }
 
     // =====================================================================
-    // Newton-Raphson Iterative
+    // Newton-Raphson iterative solver
     // =====================================================================
 
     bool ConstraintSolver::IterativeSolve() {
         int N = static_cast<int>(m_variables.size());   // Number of variables
-        int M = GetTotalEquationCount();                 // Number of Equations
+        int M = GetTotalEquationCount();                 // Number of equations
 
         if (N == 0 || M == 0) return true;
 
         double prevError = std::numeric_limits<double>::max();
-        int divergeCount = 0;  // Consecutive divergence counting
+        int divergeCount = 0;  // Consecutive divergence counter
 
         for (int iteration = 0; iteration < m_maxIterations; ++iteration) {
             m_lastResult.iterations = iteration + 1;
 
-            // ----- Step 1: Assemble the F vector and the J matrix  -----
+            // ----- Step 1: Assemble the F vector and the J matrix -----
             Eigen::VectorXd F(M);
             Eigen::MatrixXd J = Eigen::MatrixXd::Zero(M, N);
 
@@ -231,15 +231,15 @@ namespace cad_sketch {
             m_lastResult.finalError = error;
 
             if (error < m_tolerance) {
-                return true; 
+                return true;
             }
 
-            // Check whether the detection error is continuously increasing (diverging)
+            // Check whether the error is consistently increasing (diverging)
             if (error > prevError * 1.1) {
                 divergeCount++;
                 if (divergeCount >= 5) {
-                    // If there are 5 consecutive increases in errors, 
-                    // it is determined as a constraint conflict / divergence.
+                    // 5 consecutive increases: determined to be a constraint
+                    // conflict or divergence
                     return false;
                 }
             }
@@ -248,35 +248,34 @@ namespace cad_sketch {
             }
             prevError = error;
 
-            // ----- Step 3: solve equation (J^T·J)·Δx = -J^T·F -----
-            // The form of the mathematical equation is applicable to over-determined/under-determined systems
+            // ----- Step 3: Solve (J^T·J)·Δx = -J^T·F -----
+            // This least-squares form handles over- and under-determined systems
             Eigen::MatrixXd JtJ = J.transpose() * J;
             Eigen::VectorXd JtF = J.transpose() * F;
 
-            // Add a small regularization term to prevent the occurrence of singular matrices 
-            // (following the Levenberg-Marquardt concept)
+            // Add a small regularisation term to prevent singular matrices
+            // (Levenberg-Marquardt concept)
             double lambda = 1e-8 * JtJ.diagonal().maxCoeff();
             if (lambda < 1e-12) lambda = 1e-12;
             JtJ.diagonal().array() += lambda;
 
-            // LDLT Decomposition and compute
+            // LDLT decomposition and solve
             Eigen::VectorXd dx = JtJ.ldlt().solve(-JtF);
 
-            // check if valid
+            // Check for NaN
             if (dx.hasNaN()) {
-                return false; 
-            }
-
-            // Limit the maximum displacement of a single step
-            double maxStep = dx.lpNorm<Eigen::Infinity>();
-            if (maxStep > 1e6) {
-                // If the step size is too large, 
-                // it indicates that the system may be diverging or encountering constraint conflicts, 
-                // and the process should be terminated prematurely.
                 return false;
             }
 
-            // ----- Step 4: update variable -----
+            // Limit the maximum step size
+            double maxStep = dx.lpNorm<Eigen::Infinity>();
+            if (maxStep > 1e6) {
+                // Step size too large: the system may be diverging or there is
+                // a constraint conflict; terminate early
+                return false;
+            }
+
+            // ----- Step 4: Update variables -----
             for (int i = 0; i < N; ++i) {
                 if (m_variables[i].isX) {
                     double newVal = m_variables[i].point->GetX() + m_damping * dx(i);
@@ -289,13 +288,13 @@ namespace cad_sketch {
             }
         }
 
-        // Failed to converge even after exceeding the maximum number of iterations
+        // Failed to converge within the maximum number of iterations
         m_lastResult.finalError = CalculateSystemError();
         return false;
     }
 
     // =====================================================================
-    // auxiliary function
+    // Helper functions
     // =====================================================================
 
     double ConstraintSolver::CalculateSystemError() const {

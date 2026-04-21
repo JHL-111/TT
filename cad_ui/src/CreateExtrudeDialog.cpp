@@ -10,18 +10,22 @@ namespace cad_ui {
         setWindowTitle("Extrude");
         setMinimumWidth(280);
 
-        // 核心：设为非模态悬浮窗 (Non-modal floating window)
+        // Set as a non-modal floating panel (Non-modal floating window)
+
         setWindowFlags(windowFlags() | Qt::WindowStaysOnTopHint);
-        setAttribute(Qt::WA_DeleteOnClose); // 关闭时自动销毁
+        setAttribute(Qt::WA_DeleteOnClose); // Delete automatically when closed
+
 
         QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
-        // 状态提示文字
+        // Status label
+
         m_statusLabel = new QLabel("Please select a profile or face...", this);
         m_statusLabel->setStyleSheet("color: #0055ff; font-weight: bold;");
         mainLayout->addWidget(m_statusLabel);
 
-        // 距离输入区
+        // Distance input area
+
         QHBoxLayout* distLayout = new QHBoxLayout();
         QLabel* distLabel = new QLabel("Distance (Height):");
         m_distanceSpinBox = new QDoubleSpinBox(this);
@@ -34,7 +38,8 @@ namespace cad_ui {
         distLayout->addWidget(m_distanceSpinBox);
         mainLayout->addLayout(distLayout);
 
-        // 按钮区
+        // Button area
+
         QHBoxLayout* btnLayout = new QHBoxLayout();
         QPushButton* okBtn = new QPushButton("OK", this);
         QPushButton* cancelBtn = new QPushButton("Cancel", this);
@@ -50,7 +55,8 @@ namespace cad_ui {
         m_selectedShape = shape;
         if (shape) {
             m_statusLabel->setText("Selection received. Click OK to extrude.");
-            m_statusLabel->setStyleSheet("color: #00aa00; font-weight: bold;"); // 选中有反馈变绿
+            m_statusLabel->setStyleSheet("color: #00aa00; font-weight: bold;"); // Turn green when a valid selection is made
+
         }
         else {
             m_statusLabel->setText("Please select a profile or face...");
@@ -67,9 +73,11 @@ namespace cad_ui {
             QMessageBox::warning(this, "Warning", "Please select a face or profile first!");
             return;
         }
-        // 触发执行信号
+        // Emit the execution signal
+
         emit extrudeRequested(m_selectedShape, GetDistance());
-        accept(); // 关闭对话框
+        accept(); // Close the dialog
+
     }
 
     void CreateExtrudeDialog::closeEvent(QCloseEvent* event) {

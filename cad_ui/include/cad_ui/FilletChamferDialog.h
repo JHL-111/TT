@@ -55,7 +55,7 @@ signals:
     void clearHighlightRequested();
 
 protected:
-    // 事件过滤器声明,为了确认作用于哪个面
+    // Event filter declaration, to confirm which surface it acts on
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private:

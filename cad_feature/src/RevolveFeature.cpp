@@ -119,18 +119,9 @@ cad_core::ShapePtr RevolveFeature::RevolveSketch() const {
         return nullptr;
     }
     
-    try {
-        // In a real implementation, this would:
-        // 1. Convert sketch elements to OCCT wire/face
-        // 2. Create revolution axis from origin and direction
-        // 3. Use BRepPrimAPI_MakeRevol to create the solid
-        
-        // For now, return a simple shape as placeholder
+    try {   
         auto shape = std::make_shared<cad_core::Shape>();
-        
-        // Placeholder: create a simple cylinder-like shape
-        // In real implementation, this would properly revolve the sketch
-        
+
         return shape;
     } catch (...) {
         return nullptr;

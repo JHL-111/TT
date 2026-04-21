@@ -1,107 +1,105 @@
 ﻿/**
  * @file main.cpp
- * @brief 主程序入口 
- * 负责初始化所有必要的组件，
- * 设置应用程序属性，创建主窗口，然后把控制权交给Qt的事件循环。
- * 
+ * @brief Main program entry point
+ * Responsible for initialising all necessary components,
+ * setting application properties, creating the main window,
+ * and handing control over to Qt's event loop.
+ *
  */
 
-#include <QApplication>          // Qt应用程序的"心脏"
-#include <QMessageBox>           // 消息对话框 
-#include <QStyleFactory>         // 样式工厂 
-#include <QDir>                  // 目录操作
-#include <QStandardPaths>        // 标准路径 
-#include <QSettings>             // 设置管理
-#include <QSplashScreen>         // 启动画面 
-#include <QPixmap>               // 像素图 
-#include <QTimer>                // 定时器
+#include <QApplication>          // The "heart" of a Qt application
+#include <QMessageBox>           // Message dialog
+#include <QStyleFactory>         // Style factory
+#include <QDir>                  // Directory operations
+#include <QStandardPaths>        // Standard paths
+#include <QSettings>             // Settings manager
+#include <QSplashScreen>         // Splash screen
+#include <QPixmap>               // Pixmap
+#include <QTimer>                // Timer
 
-#include "cad_ui/MainWindow.h"   // 主窗口 
+#include "cad_ui/MainWindow.h"   // Main window
 
-#include "cad_sketch/ConstraintSolverTest.h"
 
-// QRC资源初始化函数声明 - 手动初始化静态库中的资源
+ // QRC resource initialisation function declaration - manually initialise resources in static libraries
 extern int qInitResources_resources();
 
-// OpenCASCADE的初始化相关头文件 - 让几何计算引擎苏醒
-#include <Standard_Version.hxx>      // 版本信息 - 知己知彼
-#include <Message.hxx>               // 消息系统 - OpenCASCADE的"嘴巴"
-#include <Message_PrinterOStream.hxx> // 输出流打印器 - 把消息送到控制台
+// OpenCASCADE initialisation headers
+#include <Standard_Version.hxx>      // Version info
+#include <Message.hxx>               // Messaging system
+#include <Message_PrinterOStream.hxx> // Output stream printer
 
 /**
- * 主函数 - 程序的"总指挥官"
- * @param argc 命令行参数数量
- * @param argv 命令行参数数组
- * @return 程序退出码，0表示成功，其他值表示出错了
+ * Main function
+ * @param argc Number of command-line arguments
+ * @param argv Array of command-line argument strings
+ * @return Exit code: 0 indicates success, any other value indicates an error
  */
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
-    // 创建Qt应用程序对象
+    // Create the Qt application object
     QApplication app(argc, argv);
-    
-    // 手动初始化QRC资源,确保静态库中的资源能被正确加载
-    qInitResources_resources();
-    
-    // 设置应用程序属性 
-    app.setApplicationName("JLi CAD");       
-    app.setApplicationVersion("1.0.0");        
-    app.setOrganizationName("JLiCAD");       
 
-    
-    // 初始化OpenCASCADE消息系统 - 让几何引擎能够"说话"
-    // 这样我们就能知道OpenCASCADE在干什么，出了什么问题
+    // Manually initialise QRC resources to ensure resources in static libraries are loaded correctly
+    qInitResources_resources();
+
+    // Set application properties
+    app.setApplicationName("JLi CAD");
+    app.setApplicationVersion("1.0.0");
+    app.setOrganizationName("JLiCAD");
+
+
+    // Initialise the OpenCASCADE message system
+    // This lets us know what OpenCASCADE is doing and what goes wrong
     Handle(Message_PrinterOStream) printer = new Message_PrinterOStream();
     Message::DefaultMessenger()->AddPrinter(printer);
-    
-    // 创建启动画面
+
+    // Create splash screen
     QSplashScreen* splash = nullptr;
 
-    
-    // 创建主窗口
+
+    // Create the main window
     cad_ui::MainWindow mainWindow;
-    
-    // 初始化主窗口
+
+    // Initialise the main window
     if (!mainWindow.Initialize()) {
-      
-        return -1;  
+
+        return -1;
     }
-    
-    // 加载用户设置
+
+    // Load user settings
     QSettings settings;
     if (settings.contains("geometry")) {
-        // 恢复窗口大小和位置 
+        // Restore window size and position
         mainWindow.restoreGeometry(settings.value("geometry").toByteArray());
     }
     if (settings.contains("windowState")) {
-        // 恢复窗口状态（最大化、停靠面板位置等）
+        // Restore window state (maximised, dock panel positions, etc.)
         mainWindow.restoreState(settings.value("windowState").toByteArray());
     }
-    
-    // 应用主题 
-    QString theme = settings.value("theme", "light").toString();  // 默认浅色主题
+
+    // Apply theme
+    QString theme = settings.value("theme", "light").toString();  // Default: light theme
     mainWindow.SetTheme(theme);
-    
-    //RunConstraintTests();
 
-    // 显示主窗口 
+    // Show the main window
     mainWindow.show();
-    
-    // 关闭启动画面（如果存在的话）
-    if (splash) {
-        splash->finish(&mainWindow); 
-        delete splash;          
-    }
-    
-    
-    // 运行应用程序 
-    int result = app.exec();
-    
-    // 退出前保存设置 
-    QSettings saveSettings;
-    saveSettings.setValue("geometry", mainWindow.saveGeometry());      // 保存窗口大小位置
-    saveSettings.setValue("windowState", mainWindow.saveState());      // 保存窗口状态
-  
 
-    // 返回程序退出码
+    // Close the splash screen if one exists
+    if (splash) {
+        splash->finish(&mainWindow);
+        delete splash;
+    }
+
+
+    // Run the application
+    int result = app.exec();
+
+    // Save settings before exiting
+    QSettings saveSettings;
+    saveSettings.setValue("geometry", mainWindow.saveGeometry());      // Save window size and position
+    saveSettings.setValue("windowState", mainWindow.saveState());      // Save window state
+
+
+    // Return the exit code
     return result;
 }

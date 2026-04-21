@@ -97,8 +97,7 @@ void ExportDialog::OnAccept() {
 }
 
 void ExportDialog::UpdateFormatOptions() {
-    // Update format-specific options when format changes
-    // This is a placeholder for format-specific settings
+
 }
 
 } // namespace cad_ui

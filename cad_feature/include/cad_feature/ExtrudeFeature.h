@@ -1,7 +1,7 @@
 ﻿#pragma once
 
 #include "Feature.h"
-#include "cad_core/Shape.h" 
+#include "cad_core/Shape.h"
 
 namespace cad_feature {
 
@@ -11,7 +11,7 @@ namespace cad_feature {
         ExtrudeFeature(const std::string& name);
         virtual ~ExtrudeFeature() = default;
 
-        //支持任意 Shape 作为拉伸轮廓】
+        // Supports any Shape as the extrusion profile
         void SetProfileShape(const cad_core::ShapePtr& profile);
         const cad_core::ShapePtr& GetProfileShape() const;
 
@@ -34,7 +34,7 @@ namespace cad_feature {
         std::shared_ptr<cad_core::ICommand> CreateCommand() const override;
 
     private:
-        cad_core::ShapePtr m_profileShape; // 存储作为输入的轮廓面
+        cad_core::ShapePtr m_profileShape; // Stores the input profile face
     };
 
     using ExtrudeFeaturePtr = std::shared_ptr<ExtrudeFeature>;

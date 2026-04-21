@@ -4,105 +4,105 @@
 
 namespace cad_sketch {
 
-SketchArc::SketchArc() 
-    : SketchElement(SketchElementType::Arc), m_radius(1.0), m_startAngle(0.0), m_endAngle(M_PI) {
-    m_center = std::make_shared<SketchPoint>();
-}
+    SketchArc::SketchArc()
+        : SketchElement(SketchElementType::Arc), m_radius(1.0), m_startAngle(0.0), m_endAngle(M_PI) {
+        m_center = std::make_shared<SketchPoint>();
+    }
 
-SketchArc::SketchArc(const SketchPointPtr& center, double radius, double startAngle, double endAngle)
-    : SketchElement(SketchElementType::Arc), m_center(center), m_radius(radius), 
-      m_startAngle(startAngle), m_endAngle(endAngle) {
-}
+    SketchArc::SketchArc(const SketchPointPtr& center, double radius, double startAngle, double endAngle)
+        : SketchElement(SketchElementType::Arc), m_center(center), m_radius(radius),
+        m_startAngle(startAngle), m_endAngle(endAngle) {
+    }
 
-SketchArc::SketchArc(double centerX, double centerY, double radius, double startAngle, double endAngle)
-    : SketchElement(SketchElementType::Arc), m_radius(radius), 
-      m_startAngle(startAngle), m_endAngle(endAngle) {
-    m_center = std::make_shared<SketchPoint>(centerX, centerY);
-}
+    SketchArc::SketchArc(double centerX, double centerY, double radius, double startAngle, double endAngle)
+        : SketchElement(SketchElementType::Arc), m_radius(radius),
+        m_startAngle(startAngle), m_endAngle(endAngle) {
+        m_center = std::make_shared<SketchPoint>(centerX, centerY);
+    }
 
-const SketchPointPtr& SketchArc::GetCenter() const {
-    return m_center;
-}
+    const SketchPointPtr& SketchArc::GetCenter() const {
+        return m_center;
+    }
 
-void SketchArc::SetCenter(const SketchPointPtr& center) {
-    m_center = center;
-}
+    void SketchArc::SetCenter(const SketchPointPtr& center) {
+        m_center = center;
+    }
 
-double SketchArc::GetRadius() const {
-    return m_radius;
-}
+    double SketchArc::GetRadius() const {
+        return m_radius;
+    }
 
-void SketchArc::SetRadius(double radius) {
-    m_radius = radius;
-}
+    void SketchArc::SetRadius(double radius) {
+        m_radius = radius;
+    }
 
-double SketchArc::GetStartAngle() const {
-    return m_startAngle;
-}
+    double SketchArc::GetStartAngle() const {
+        return m_startAngle;
+    }
 
-void SketchArc::SetStartAngle(double angle) {
-    m_startAngle = angle;
-}
+    void SketchArc::SetStartAngle(double angle) {
+        m_startAngle = angle;
+    }
 
-double SketchArc::GetEndAngle() const {
-    return m_endAngle;
-}
+    double SketchArc::GetEndAngle() const {
+        return m_endAngle;
+    }
 
-void SketchArc::SetEndAngle(double angle) {
-    m_endAngle = angle;
-}
+    void SketchArc::SetEndAngle(double angle) {
+        m_endAngle = angle;
+    }
 
-double SketchArc::GetSweepAngle() const {
-    double sweep = m_endAngle - m_startAngle;
-    while (sweep < 0) sweep += 2 * M_PI;
-    while (sweep > 2 * M_PI) sweep -= 2 * M_PI;
-    return sweep;
-}
+    double SketchArc::GetSweepAngle() const {
+        double sweep = m_endAngle - m_startAngle;
+        while (sweep < 0) sweep += 2 * M_PI;
+        while (sweep > 2 * M_PI) sweep -= 2 * M_PI;
+        return sweep;
+    }
 
-double SketchArc::GetLength() const {
-    return m_radius * GetSweepAngle();
-}
+    double SketchArc::GetLength() const {
+        return m_radius * GetSweepAngle();
+    }
 
-SketchPointPtr SketchArc::GetStartPoint() const {
-    if (!m_center) return nullptr;
-    
-    double x = m_center->GetX() + m_radius * std::cos(m_startAngle);
-    double y = m_center->GetY() + m_radius * std::sin(m_startAngle);
-    return std::make_shared<SketchPoint>(x, y);
-}
+    SketchPointPtr SketchArc::GetStartPoint() const {
+        if (!m_center) return nullptr;
 
-SketchPointPtr SketchArc::GetEndPoint() const {
-    if (!m_center) return nullptr;
-    
-    double x = m_center->GetX() + m_radius * std::cos(m_endAngle);
-    double y = m_center->GetY() + m_radius * std::sin(m_endAngle);
-    return std::make_shared<SketchPoint>(x, y);
-}
+        double x = m_center->GetX() + m_radius * std::cos(m_startAngle);
+        double y = m_center->GetY() + m_radius * std::sin(m_startAngle);
+        return std::make_shared<SketchPoint>(x, y);
+    }
 
-void SketchArc::Translate(double dx, double dy) {
-    m_center->Translate(dx, dy);
-    // 半径和起止角度都不变
-}
+    SketchPointPtr SketchArc::GetEndPoint() const {
+        if (!m_center) return nullptr;
 
-void SketchArc::Rotate(double cx, double cy, double angleRad) {
-    // 1. 旋转圆心
-    if (m_center) m_center->Rotate(cx, cy, angleRad);
+        double x = m_center->GetX() + m_radius * std::cos(m_endAngle);
+        double y = m_center->GetY() + m_radius * std::sin(m_endAngle);
+        return std::make_shared<SketchPoint>(x, y);
+    }
 
-    // 2. 增加起止角度 (Start and End Angles)
-    m_startAngle += angleRad;
-    m_endAngle += angleRad;
+    void SketchArc::Translate(double dx, double dy) {
+        m_center->Translate(dx, dy);
+        // Radius and start/end angles remain unchanged
+    }
 
-    // 角度归一化到 [0, 2π] 范围 (Normalize to 2 PI)
-    if (m_startAngle < 0) m_startAngle += 2 * M_PI;
-    if (m_startAngle >= 2 * M_PI) m_startAngle -= 2 * M_PI;
-    if (m_endAngle < 0) m_endAngle += 2 * M_PI;
-    if (m_endAngle >= 2 * M_PI) m_endAngle -= 2 * M_PI;
-}
+    void SketchArc::Rotate(double cx, double cy, double angleRad) {
+        // 1. Rotate the centre point
+        if (m_center) m_center->Rotate(cx, cy, angleRad);
 
-std::string SketchArc::GetDescription() const {
-    std::ostringstream oss;
-    oss << "Arc (Radius: " << m_radius << ", Sweep: " << GetSweepAngle() * 180.0 / M_PI << "°)";
-    return oss.str();
-}
+        // 2. Offset the start and end angles
+        m_startAngle += angleRad;
+        m_endAngle += angleRad;
+
+        // Normalise angles to [0, 2π]
+        if (m_startAngle < 0)          m_startAngle += 2 * M_PI;
+        if (m_startAngle >= 2 * M_PI)  m_startAngle -= 2 * M_PI;
+        if (m_endAngle < 0)            m_endAngle += 2 * M_PI;
+        if (m_endAngle >= 2 * M_PI)    m_endAngle -= 2 * M_PI;
+    }
+
+    std::string SketchArc::GetDescription() const {
+        std::ostringstream oss;
+        oss << "Arc (Radius: " << m_radius << ", Sweep: " << GetSweepAngle() * 180.0 / M_PI << "°)";
+        return oss.str();
+    }
 
 } // namespace cad_sketch

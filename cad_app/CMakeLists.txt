@@ -1,19 +1,19 @@
 set(TARGET_NAME cad_app)
 
-# 源文件
+# Source files
 set(SOURCES
     src/main.cpp
 )
 
-# 创建可执行文件
+# Create executable
 add_executable(${TARGET_NAME} ${SOURCES})
 
-# 包含目录
+# Include directories
 target_include_directories(${TARGET_NAME} PRIVATE
     ${OpenCASCADE_INCLUDE_DIR}
 )
 
-# 链接库
+# Link libraries
 target_link_libraries(${TARGET_NAME}
     cad_core
     cad_sketch
@@ -25,7 +25,7 @@ target_link_libraries(${TARGET_NAME}
     Qt5::Gui
 )
 
-# 设置可执行文件属性
+# Set executable properties
 set_target_properties(${TARGET_NAME} PROPERTIES
     WIN32_EXECUTABLE TRUE
     OUTPUT_NAME "JLiCAD"

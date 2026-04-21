@@ -17,7 +17,7 @@ namespace cad_ui {
         explicit CreateLoftDialog(QtOccView* viewer, QWidget* parent = nullptr);
         ~CreateLoftDialog() = default;
 
-        // 接收从 MainWindow 传来的选中实体
+        // Receives a selected solid from MainWindow
         void SetSelectedShape(cad_core::ShapePtr shape);
 
     signals:

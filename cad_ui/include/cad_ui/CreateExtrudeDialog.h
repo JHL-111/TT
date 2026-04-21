@@ -11,13 +11,13 @@ namespace cad_ui {
         explicit CreateExtrudeDialog(QWidget* parent = nullptr);
         double GetDistance() const;
 
-        // 供外部将选中的形状传入对话框
+        // Pass the externally selected shape to the dialog
         void SetSelectedShape(const cad_core::ShapePtr& shape);
 
     signals:
-        // 点击 OK 时发射信号，交由 MainWindow 执行真正拉伸
+        // Emitted when OK is clicked; MainWindow executes the extrude operation
         void extrudeRequested(cad_core::ShapePtr baseShape, double distance);
-        void dialogClosed(); // 对话框关闭时通知外部清理临时面
+        void dialogClosed(); // Notifies external code to clean up temporary state when the dialog closes
 
     protected:
         void closeEvent(QCloseEvent* event) override;

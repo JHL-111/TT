@@ -29,27 +29,29 @@ namespace cad_ui {
         // Convert 2D screen coordinates to a ray in 3D space
         m_view->ConvertWithProj(screenPoint.x(), screenPoint.y(), X, Y, Z, dX, dY, dZ);
 
-        gp_Pnt rayOrigin(X, Y, Z); 
-        gp_Dir rayDir(dX, dY, dZ);  
-        gp_Lin ray(rayOrigin, rayDir); 
+        gp_Pnt rayOrigin(X, Y, Z);
+        gp_Dir rayDir(dX, dY, dZ);
+        gp_Lin ray(rayOrigin, rayDir);
 
         // Calculate the analytical intersection point of the ray and the sketch plane 
         IntAna_IntConicQuad intersection(ray, m_sketchPlane, Precision::Angular(), Precision::Confusion());
         if (intersection.IsDone() && intersection.NbPoints() > 0) {
-            return intersection.Point(1); 
+            return intersection.Point(1);
         }
-        return gp_Pnt(0, 0, 0); 
+        return gp_Pnt(0, 0, 0);
     }
 
 
 
-    // 1. 三参数函数（直接调用四参数版本，丢弃类型即可，这样就不需要改画图代码了）
+    // 1. Three-parameter overload: call the four-parameter version and ignore the snap type
+
     bool SketchToolBase::GetSnappedCoordinate(const QPoint& screenPoint, Standard_Real& u, Standard_Real& v) {
         cad_sketch::SnapType dummyType;
         return GetSnappedCoordinate(screenPoint, u, v, dummyType);
     }
 
-    // 2. 四参数的吸附函数，能把捕捉类型也抓出来
+    // 2. Four-parameter snap function that also returns the snap type
+
     bool SketchToolBase::GetSnappedCoordinate(const QPoint& screenPoint, Standard_Real& u, Standard_Real& v, cad_sketch::SnapType& outSnapType) {
         gp_Pnt p3d = ScreenToSketchPlane(screenPoint);
         ElSLib::Parameters(m_sketchPlane, p3d, u, v);
@@ -61,7 +63,7 @@ namespace cad_ui {
             if (snapRes.found) {
                 u = snapRes.snapPoint.X();
                 v = snapRes.snapPoint.Y();
-                outSnapType = snapRes.type; 
+                outSnapType = snapRes.type;
                 return true;
             }
         }
@@ -70,15 +72,18 @@ namespace cad_ui {
 
     void SketchToolBase::HoverMove(const QPoint& currentPoint) {
         Standard_Real u, v;
-        cad_sketch::SnapType snapType; // 准备一个变量来接收类型
+        cad_sketch::SnapType snapType; // Prepare a variable to receive the snap type
 
-        // 调用吸附函数
+
+        // Call the snap function
+
         if (GetSnappedCoordinate(currentPoint, u, v, snapType)) {
             gp_Pnt p3d = m_sketchPlane.Location().Translated(
                 gp_Vec(m_sketchPlane.XAxis().Direction()) * u +
                 gp_Vec(m_sketchPlane.YAxis().Direction()) * v
             );
-            // 发送信号时，把坐标和类型一起打包发送
+            // Emit both the snapped point and snap type together
+
             emit snapPointDetected(p3d, snapType);
         }
         else {
@@ -87,7 +92,8 @@ namespace cad_ui {
     }
 
     // =============================================================================
-    // SketchRectangleTool Implementation (矩形工具实现)
+    // SketchRectangleTool Implementation (Rectangle tool implementation)
+
     // =============================================================================
     SketchRectangleTool::SketchRectangleTool(QObject* parent) : SketchToolBase(parent) {}
 
@@ -95,7 +101,8 @@ namespace cad_ui {
         m_isDrawing = true;
         m_startPoint = startPoint;
         m_currentPoint = startPoint;
-        m_currentElements.clear(); // 清空上一笔的数据
+        m_currentElements.clear(); // Clear the data from the previous draw operation
+
     }
 
     void SketchRectangleTool::UpdateDrawing(const QPoint& currentPoint) {
@@ -112,9 +119,11 @@ namespace cad_ui {
 
     void SketchRectangleTool::FinishDrawing(const QPoint& endPoint) {
         if (!m_isDrawing) return;
-        UpdateDrawing(endPoint); // 最后更新一次位置
+        UpdateDrawing(endPoint); // Perform one final position update
+
         m_isDrawing = false;
-        emit elementsCreated(m_currentElements); // 提交最终形状
+        emit elementsCreated(m_currentElements); // Submit the final shape
+
     }
 
     void SketchRectangleTool::CancelDrawing() {
@@ -127,7 +136,8 @@ namespace cad_ui {
     std::vector<cad_sketch::SketchElementPtr> SketchRectangleTool::CreateRectangleLines(Standard_Real u1, Standard_Real v1, Standard_Real u2, Standard_Real v2) {
         std::vector<cad_sketch::SketchElementPtr> elements;
 
-        // 面积过小保护
+        // Guard against rectangles with too small an area
+
         if (Abs(u1 - u2) < Precision::PConfusion() || Abs(v1 - v2) < Precision::PConfusion()) return elements;
 
         auto pt1 = std::make_shared<cad_sketch::SketchPoint>(u1, v1);
@@ -144,13 +154,15 @@ namespace cad_ui {
     }
 
     // =============================================================================
-    // SketchPointTool Implementation (点工具实现)
+    // SketchPointTool Implementation (Point tool implementation)
+
     // =============================================================================
     SketchPointTool::SketchPointTool(QObject* parent) : SketchToolBase(parent) {}
 
     void SketchPointTool::StartDrawing(const QPoint& startPoint) {
         Standard_Real u, v;
-        // 获取带吸附的 2D 坐标
+        // Get the snapped 2D coordinates
+
         GetSnappedCoordinate(startPoint, u, v);
 
         auto pt = std::make_shared<cad_sketch::SketchPoint>(u, v);
@@ -158,14 +170,16 @@ namespace cad_ui {
         m_currentElements.clear();
         m_currentElements.push_back(pt);
 
-        // 单击即完成绘制，直接发送创建信号
+        // A single click completes the point and emits the creation signal
+
         emit elementsCreated(m_currentElements);
 
         m_currentElements.clear();
         m_isDrawing = false;
     }
 
-    // 因为点不需要拖拽预览，所以 Update 和 Finish 留空即可
+    // Points do not need drag preview, so Update and Finish remain empty
+
     void SketchPointTool::UpdateDrawing(const QPoint& currentPoint) { Q_UNUSED(currentPoint); }
     void SketchPointTool::FinishDrawing(const QPoint& endPoint) { Q_UNUSED(endPoint); }
 
@@ -176,7 +190,7 @@ namespace cad_ui {
     }
 
     // =============================================================================
-    // SketchLineTool Implementation (直线工具实现)
+    // Comment translated to English
     // =============================================================================
     SketchLineTool::SketchLineTool(QObject* parent) : SketchToolBase(parent) {}
 
@@ -191,11 +205,13 @@ namespace cad_ui {
 
         Standard_Real u1, v1, u2, v2;
 
-        // 分别获取起点和终点的“吸附后”坐标
+        // Get the snapped coordinates of the start and end points
+
         GetSnappedCoordinate(m_startPoint, u1, v1);
         GetSnappedCoordinate(currentPoint, u2, v2);
 
-        // 安全检查：防止生成长度为 0 的线
+        // Safety check: avoid creating a zero-length line
+
         double dx = u2 - u1;
         double dy = v2 - v1;
         if (std::sqrt(dx * dx + dy * dy) < Precision::Confusion()) {
@@ -225,9 +241,10 @@ namespace cad_ui {
     }
 
 
-// =============================================================================
-// SketchCircleTool Implementation (圆工具实现)
-// =============================================================================
+    // =============================================================================
+    // SketchCircleTool Implementation (Circle tool implementation)
+
+    // =============================================================================
     SketchCircleTool::SketchCircleTool(QObject* parent) : SketchToolBase(parent) {}
 
     void SketchCircleTool::StartDrawing(const QPoint& startPoint) {
@@ -240,21 +257,25 @@ namespace cad_ui {
         if (!m_isDrawing) return;
 
         Standard_Real u1, v1, u2, v2;
-        // 获取圆心和当前鼠标所在点的吸附坐标
+        // Get the snapped center point and current mouse point
+
         GetSnappedCoordinate(m_centerPoint, u1, v1);
         GetSnappedCoordinate(currentPoint, u2, v2);
 
-        // 计算半径 (Radius)
+        // Compute the radius
+
         double dx = u2 - u1;
         double dy = v2 - v1;
         double radius = std::sqrt(dx * dx + dy * dy);
 
-        // 安全检查：半径不能为 0
+        // Safety check: the radius must be greater than zero
+
         if (radius < Precision::Confusion()) {
             return;
         }
 
-        // 构建圆的数据模型
+        // Construct the circle data model
+
         auto center = std::make_shared<cad_sketch::SketchPoint>(u1, v1);
         auto circle = std::make_shared<cad_sketch::SketchCircle>(center, radius);
 
@@ -276,26 +297,30 @@ namespace cad_ui {
         emit drawingCancelled();
     }
 
-// =============================================================================
-// SketchArcTool Implementation (圆弧工具实现)
-// =============================================================================
+    // =============================================================================
+    // SketchArcTool Implementation (Arc tool implementation)
+
+    // =============================================================================
     SketchArcTool::SketchArcTool(QObject* parent) : SketchToolBase(parent), m_state(Init) {}
 
     void SketchArcTool::StartDrawing(const QPoint& startPoint) {
         if (m_state == Init) {
-            // 第一次点击：设置圆心 (Set Center)
+            // First click: set the center
+
             m_isDrawing = true;
             m_centerPoint = startPoint;
             m_state = CenterSet;
             m_currentElements.clear();
         }
         else if (m_state == StartSet) {
-            // 第三次交互（点击）：确认终点角并结束 (Confirm End Angle and Finish)
+            // Third interaction: confirm the end angle and finish
+
             m_isDrawing = true;
             UpdateDrawing(startPoint);
-            emit elementsCreated(m_currentElements); // 提交最终图元
+            emit elementsCreated(m_currentElements); // Comment translated to English
 
-            // 重置状态准备下一次绘制
+            // Reset the state for the next drawing operation
+
             m_state = Init;
             m_isDrawing = false;
             m_currentElements.clear();
@@ -307,7 +332,8 @@ namespace cad_ui {
         GetSnappedCoordinate(m_centerPoint, u1, v1);
 
         if (m_state == CenterSet) {
-            // 阶段一：正在拖拽确认半径，使用完整圆进行预览 (Previewing radius with a circle)
+            // Phase 1: preview the radius using a full circle while dragging
+
             GetSnappedCoordinate(currentPoint, u2, v2);
             double radius = std::hypot(u2 - u1, v2 - v1);
 
@@ -321,17 +347,20 @@ namespace cad_ui {
             emit previewUpdated(m_currentElements);
         }
         else if (m_state == StartSet) {
-            // 阶段二：半径已定，正在确认终止角，实时绘制圆弧预览 (Previewing arc based on angles)
+            // Phase 2: preview the arc in real time while confirming the end angle
+
             Standard_Real uStart, vStart;
             GetSnappedCoordinate(m_startPoint, uStart, vStart);
             double radius = std::hypot(uStart - u1, vStart - v1);
 
             GetSnappedCoordinate(currentPoint, u2, v2);
-            // 计算起止点的角度 (Calculate start and end angles)
+            // Calculate the start and end angles
+
             double startAngle = std::atan2(vStart - v1, uStart - u1);
             double endAngle = std::atan2(v2 - v1, u2 - u1);
 
-            // 将角度归一化到 [0, 2π] 范围 (Normalize angles)
+            // Normalize angles into the range [0, 2π]
+
             if (startAngle < 0) startAngle += 2 * M_PI;
             if (endAngle < 0) endAngle += 2 * M_PI;
 
@@ -346,25 +375,30 @@ namespace cad_ui {
 
     void SketchArcTool::FinishDrawing(const QPoint& endPoint) {
         if (m_state == CenterSet) {
-            // 用户完成第一次拖拽并松开鼠标，记录起点 (Record Start Point)
+            // After the first drag completes, record the start point
+
             m_startPoint = endPoint;
 
             Standard_Real u1, v1, u2, v2;
             GetSnappedCoordinate(m_centerPoint, u1, v1);
             GetSnappedCoordinate(m_startPoint, u2, v2);
 
-            // 安全检查：半径不能过小
+            // Safety check: the radius must not be too small
+
             if (std::hypot(u2 - u1, v2 - v1) > Precision::Confusion()) {
-                m_state = StartSet; // 推进状态机
+                m_state = StartSet; // Advance the state machine
+
             }
             else {
                 CancelDrawing();
                 return;
             }
-            m_isDrawing = false; // 结束拖拽状态，进入悬停检测状态
+            m_isDrawing = false; // Leave drag mode and enter hover-detection mode
+
         }
         else if (m_state == StartSet) {
-            // 如果用户在最后阶段是以拖拽结束的
+            // If the user finishes the last stage by dragging
+
             UpdateDrawing(endPoint);
             emit elementsCreated(m_currentElements);
             m_state = Init;
@@ -381,18 +415,21 @@ namespace cad_ui {
     }
 
     void SketchArcTool::HoverMove(const QPoint& currentPoint) {
-        // 调用基类方法保持吸附检测 (Keep snapping detection from base class)
+        // Call the base implementation to keep snap detection active
+
         SketchToolBase::HoverMove(currentPoint);
 
-        // 悬停鼠标要更新圆弧预览
+        // Update the arc preview while hovering
+
         if (m_state == CenterSet || m_state == StartSet) {
             UpdateDrawing(currentPoint);
         }
     }
 
-// =============================================================================
-// SketchCurveTool Implementation (曲线工具实现)
-// =============================================================================
+    // =============================================================================
+    // SketchCurveTool Implementation (Curve tool implementation)
+
+    // =============================================================================
     SketchCurveTool::SketchCurveTool(QObject* parent) : SketchToolBase(parent) {}
 
     void SketchCurveTool::StartDrawing(const QPoint& startPoint) {
@@ -400,7 +437,8 @@ namespace cad_ui {
         Standard_Real u, v;
         GetSnappedCoordinate(startPoint, u, v);
 
-        // 防止在同一个位置重复点击 (Prevent duplicate points)
+        // Prevent duplicate clicks at the same position
+
         if (!m_points.empty()) {
             auto lastPt = m_points.back();
             if (std::hypot(lastPt->GetX() - u, lastPt->GetY() - v) < Precision::Confusion()) {
@@ -408,7 +446,8 @@ namespace cad_ui {
             }
         }
 
-        // 每次点击加入一个新控制点 (Add a new control point)
+        // Add a new control point on each click
+
         m_points.push_back(std::make_shared<cad_sketch::SketchPoint>(u, v));
     }
 
@@ -418,12 +457,14 @@ namespace cad_ui {
         Standard_Real u, v;
         GetSnappedCoordinate(currentPoint, u, v);
 
-        // 构造动态预览曲线 (Dynamic Preview Curve)
+        // Build the dynamic preview curve
+
         auto previewCurve = std::make_shared<cad_sketch::SketchCurve>();
         for (const auto& pt : m_points) {
             previewCurve->AddControlPoint(pt);
         }
-        // 加入当前鼠标位置作为临时终点
+        // Use the current mouse position as a temporary endpoint
+
         previewCurve->AddControlPoint(std::make_shared<cad_sketch::SketchPoint>(u, v));
 
         m_currentElements.clear();
@@ -432,8 +473,10 @@ namespace cad_ui {
     }
 
     void SketchCurveTool::FinishDrawing(const QPoint& endPoint) {
-        // 曲线的结束不由鼠标松开(Release)决定，而是由确认方法(ConfirmDrawing)决定
-        // 所以这里留空
+        // Curve completion is controlled by ConfirmDrawing(), not mouse release
+
+        // Leave this empty intentionally
+
         Q_UNUSED(endPoint);
     }
 
@@ -445,12 +488,15 @@ namespace cad_ui {
     }
 
     void SketchCurveTool::HoverMove(const QPoint& currentPoint) {
-        SketchToolBase::HoverMove(currentPoint); // 保持捕捉提示
-        UpdateDrawing(currentPoint);             // 移动时更新曲线拖拽预览
+        SketchToolBase::HoverMove(currentPoint); // Keep the snapping indicator active
+
+        UpdateDrawing(currentPoint);             // Update the curve preview while moving
+
     }
 
     void SketchCurveTool::ConfirmDrawing() {
-        // 需要至少2个点才能成线
+        // At least two points are required to form a curve
+
         if (!m_isDrawing || m_points.size() < 2) {
             CancelDrawing();
             return;
@@ -459,17 +505,20 @@ namespace cad_ui {
         auto finalCurve = std::make_shared<cad_sketch::SketchCurve>();
         m_currentElements.clear();
 
-        // 将所有控制点也加入草图图元列表
-        // 这样这些点就会在屏幕上渲染为独立的顶点，并且能被鼠标左键选中并拖拽
+        // Also add all control points to the sketch element list
+
+        // This makes the points render as independent vertices that can be selected and dragged
+
         for (const auto& pt : m_points) {
             finalCurve->AddControlPoint(pt);
             m_currentElements.push_back(pt);
         }
 
-        // 最后把整条曲线加进去
+        // Finally add the whole curve
+
         m_currentElements.push_back(finalCurve);
 
-        emit elementsCreated(m_currentElements); // 提交所有图元
+        emit elementsCreated(m_currentElements); // Comment translated to English
 
         m_isDrawing = false;
         m_points.clear();
@@ -478,12 +527,14 @@ namespace cad_ui {
 
     void SketchCurveTool::InjectStartPoint(double u, double v) {
         m_isDrawing = true;
-        // 不管鼠标在哪，强行把 (u, v) 作为曲线的第 0 个控制点塞进去
+        // Force (u, v) into the first control point regardless of mouse position
+
         m_points.push_back(std::make_shared<cad_sketch::SketchPoint>(u, v));
     }
 
     // =============================================================================
-    // SketchMode Implementation (草图模式主控逻辑)
+    // SketchMode Implementation (Main control logic of sketch mode)
+
     // =============================================================================
 
     SketchMode::SketchMode(QtOccView* viewer, QObject* parent)
@@ -491,11 +542,13 @@ namespace cad_ui {
     }
 
     bool SketchMode::EnterSketchMode(const TopoDS_Face& face) {
-        if (m_isActive) ExitSketchMode(); // 防止重复进入
+        if (m_isActive) ExitSketchMode(); // Prevent repeated entry
+
         if (face.IsNull() || !m_viewer) return false;
 
         try {
-            // 1. 备份当前 3D 视口状态
+            // 1. Back up the current 3D viewport state
+
             if (!m_viewer->GetView().IsNull()) {
                 Handle(Graphic3d_Camera) camera = m_viewer->GetView()->Camera();
                 if (!camera.IsNull()) {
@@ -507,26 +560,31 @@ namespace cad_ui {
                 }
             }
 
-            // 2. 初始化草图平面和坐标系
+            // 2. Initialize the sketch plane and coordinate system
+
             m_sketchFace = face;
             SetupSketchPlane(face);
             m_isActive = true;
             m_undoStack.clear();
             m_redoStack.clear();
 
-            // 3. 如果是全新进入，则实例化并记录基准面
+            // 3. If this is a fresh entry, instantiate and record the base face
+
             if (!m_currentSketch) {
                 m_currentSketch = std::make_shared<cad_sketch::Sketch>("Sketch_001");
 
-                // 把刚刚计算出的面和坐标系存入 Sketch 中
+                // Store the computed face and coordinate system in the Sketch object
+
                 m_currentSketch->SetBaseFace(m_sketchFace);
                 m_currentSketch->SetBaseCS(m_sketchCS);
             }
 
-            // 4. 将摄像机切换到正交的草图视角
+            // 4. Switch the camera to the orthographic sketch view
+
             SetupSketchView();
 
-            // 重新进入时，立刻刷新视口，显示已存在的草图元素
+            // When re-entering, refresh immediately to show existing sketch elements
+
             RefreshSketchView();
 
             if (m_viewer) m_viewer->HighlightSketchFace(face);
@@ -537,13 +595,15 @@ namespace cad_ui {
         catch (...) { return false; }
     }
 
-    // 基于数学坐标系进入草图模式
+    // Enter sketch mode using a mathematical coordinate system
+
     bool SketchMode::EnterSketchMode(const gp_Ax3& customCS) {
         if (m_isActive) ExitSketchMode();
         if (!m_viewer) return false;
 
         try {
-            // 1. 备份当前 3D 视口状态
+            // 1. Back up the current 3D viewport state
+
             if (!m_viewer->GetView().IsNull()) {
                 Handle(Graphic3d_Camera) camera = m_viewer->GetView()->Camera();
                 if (!camera.IsNull()) {
@@ -555,8 +615,10 @@ namespace cad_ui {
                 }
             }
 
-            // 2. 初始化纯数学草图平面（不依赖 TopoDS_Face）
-            m_sketchFace.Nullify(); // 置空物理面
+            // 2. Initialize a purely mathematical sketch plane independent of TopoDS_Face
+
+            m_sketchFace.Nullify(); // Clear the physical face reference
+
             m_sketchCS = customCS;
             Handle(Geom_Plane) plane = new Geom_Plane(m_sketchCS);
             m_sketchPlane = plane->Pln();
@@ -565,15 +627,19 @@ namespace cad_ui {
             m_undoStack.clear();
             m_redoStack.clear();
 
-            // 3. 实例化并记录基准面
+            // 3. Instantiate and record the base plane
+
             if (!m_currentSketch) {
-                // 可以给个特殊的名字标识这是Sweep路径草图
+                // Optionally give it a special name to mark it as a sweep-path sketch
+
                 m_currentSketch = std::make_shared<cad_sketch::Sketch>("SweepPath_001");
                 m_currentSketch->SetBaseCS(m_sketchCS);
-                // 注意：没有 SetBaseFace，因为它是虚拟平面
+                // Note: there is no SetBaseFace because this is a virtual plane
+
             }
 
-            // 4. 将摄像机切换到正交的草图视角
+            // 4. Switch the camera to the orthographic sketch view
+
             SetupSketchView();
             RefreshSketchView();
 
@@ -589,7 +655,8 @@ namespace cad_ui {
         if (!sketch || !m_viewer) return false;
 
         try {
-            // 1. 备份当前 3D 视口状态 (Camera Backup)
+            // 1. Back up the current 3D viewport state (Camera Backup)
+
             if (!m_viewer->GetView().IsNull()) {
                 Handle(Graphic3d_Camera) camera = m_viewer->GetView()->Camera();
                 if (!camera.IsNull()) {
@@ -601,14 +668,17 @@ namespace cad_ui {
                 }
             }
 
-            // 2. 注入要编辑的旧草图 (Dependency Injection)
+            // 2. Inject the existing sketch to be edited
+
             m_currentSketch = sketch;
 
-            // 3. 从草图中恢复基准面和局部坐标系 (Restore Context)
+            // 3. Restore the base plane and local coordinate system from the sketch
+
             m_sketchFace = sketch->GetBaseFace();
             m_sketchCS = sketch->GetBaseCS();
 
-            // 重新构造用于吸附和射线检测的数学平面
+            // Rebuild the mathematical plane used for snapping and ray tests
+
             Handle(Geom_Plane) plane = new Geom_Plane(m_sketchCS);
             m_sketchPlane = plane->Pln();
 
@@ -616,10 +686,12 @@ namespace cad_ui {
             m_undoStack.clear();
             m_redoStack.clear();
 
-            // 4. 将摄像机切换到正交的草图视角
+            // 4. Switch the camera to the orthographic sketch view
+
             SetupSketchView();
 
-            // 5. 立刻刷新视口，在屏幕上渲染出这个草图本来就有的线条
+            // 5. Refresh immediately to render the sketch lines already stored in this sketch
+
             RefreshSketchView();
 
             if (m_viewer) m_viewer->HighlightSketchFace(m_sketchFace);
@@ -636,10 +708,12 @@ namespace cad_ui {
 
         StopCurrentTool();
 
-        // 恢复摄像机视角 
+        // Restore the camera view
+
         RestoreView();
 
-        // 清理并数据
+        // Clear internal data
+
         m_isActive = false;
         m_viewer->ClearSketchFaceHighlight();
         m_currentSketch.reset();
@@ -649,15 +723,18 @@ namespace cad_ui {
 
     void SketchMode::StartRectangleTool() {
         if (!m_isActive) return;
-        StopCurrentTool(); // 切换工具前先停止当前工具
+        StopCurrentTool(); // Stop the current tool before switching
 
-        // 实例化工具并注入上下文 (Instantiation and Dependency Injection)
+
+        // Instantiate the tool and inject the context
+
         m_currentTool = std::make_unique<SketchRectangleTool>(this);
         m_currentTool->SetSketchPlane(m_sketchPlane);
         m_currentTool->SetView(m_viewer->GetView());
         m_currentTool->SetSnappingContext(&m_snappingManager, &(m_currentSketch->GetElements()));
 
-        // 绑定信号槽 (Signal and Slot Connections)
+        // Connect signals and slots
+
         connect(m_currentTool.get(), &SketchToolBase::previewUpdated, this, &SketchMode::OnPreviewUpdated);
         connect(m_currentTool.get(), &SketchToolBase::elementsCreated, this, &SketchMode::OnElementsCreated);
         connect(m_currentTool.get(), &SketchToolBase::drawingCancelled, this, &SketchMode::OnDrawingCancelled);
@@ -704,7 +781,7 @@ namespace cad_ui {
         connect(m_currentTool.get(), &SketchToolBase::drawingCancelled, this, &SketchMode::OnDrawingCancelled);
         connect(m_currentTool.get(), &SketchToolBase::snapPointDetected, this, &SketchMode::OnSnapPointDetected);
         connect(m_currentTool.get(), &SketchToolBase::snapPointLost, this, &SketchMode::OnSnapPointLost);
-        
+
         emit statusMessageChanged("Started line tool");
         emit toolChanged("Line");
     }
@@ -717,7 +794,8 @@ namespace cad_ui {
         m_currentTool->SetSketchPlane(m_sketchPlane);
         m_currentTool->SetView(m_viewer->GetView());
 
-        // 捕捉上下文，让画圆也能吸附
+        // Inject the snapping context so circles can also snap
+
         if (m_currentSketch) {
             m_currentTool->SetSnappingContext(&m_snappingManager, &(m_currentSketch->GetElements()));
         }
@@ -734,13 +812,15 @@ namespace cad_ui {
 
     void SketchMode::StartArcTool() {
         if (!m_isActive) return;
-        StopCurrentTool(); // 切换工具前先停止当前工具
+        StopCurrentTool(); // Stop the current tool before switching
+
 
         m_currentTool = std::make_unique<SketchArcTool>(this);
         m_currentTool->SetSketchPlane(m_sketchPlane);
         m_currentTool->SetView(m_viewer->GetView());
 
-        // 注入捕捉上下文 (Dependency Injection for Snapping Context)
+        // Inject the snapping context
+
         if (m_currentSketch) {
             m_currentTool->SetSnappingContext(&m_snappingManager, &(m_currentSketch->GetElements()));
         }
@@ -787,64 +867,80 @@ namespace cad_ui {
             m_currentTool.reset();
         }
 
-        // 发送信号，通知 UI 没有任何工具在运行
+        // Emit a signal to notify the UI that no tool is running
+
         emit toolChanged("None");
     }
 
-    // 以下三个函数将鼠标事件从 View 委托 (Delegate) 给当前激活的工具
+    // The following three functions delegate view mouse events to the active tool
+
     void SketchMode::HandleMousePress(QMouseEvent* event) {
-        // 如果正在临时 3D 观察中，直接放弃处理，把控制权还给 3D 视图旋转
+        // If temporary 3D navigation is active, skip handling and give control back to the 3D view
+
         if (m_isTemporary3DView) return;
 
         if (!m_isActive) return;
 
-        // 1. 如果当前有被激活的绘图工具
+        // 1. If a drawing tool is currently active
+
         if (m_currentTool) {
             if (event->button() == Qt::LeftButton) {
-                // 左键：开始绘制或添加控制点
+                // Left button: start drawing or add a control point
+
                 m_currentTool->StartDrawing(event->pos());
             }
             else if (event->button() == Qt::RightButton) {
-                // 右键：针对多次点击的工具（如曲线）进行确认，或其他工具取消
+                // Right button: confirm multi-click tools such as curves, or cancel other tools
+
                 auto curveTool = dynamic_cast<SketchCurveTool*>(m_currentTool.get());
                 if (curveTool) {
-                    curveTool->ConfirmDrawing(); // 确认并生成曲线
+                    curveTool->ConfirmDrawing(); // Confirm and generate the curve
+
                 }
                 else {
-                    m_currentTool->CancelDrawing(); // 其他单次点击工具如果按右键则取消
+                    m_currentTool->CancelDrawing(); // Cancel other single-click tools on right-click
+
                 }
             }
         }
-        // 2. 如果当前没有激活绘图工具，并且按下了左键（进入选择或修改模式）
+        // 2. If no drawing tool is active and the left button is pressed, enter selection or edit mode
+
         else if (!m_currentTool && event->button() == Qt::LeftButton) {
             auto selected = m_viewer->GetSelectedSketchElements();
             if (!selected.empty()) {
 
-                // 只保留属于当前活跃草图 (m_currentSketch) 的图元
+                // Keep only elements that belong to the active sketch
+
                 std::vector<cad_sketch::SketchElementPtr> validElements;
                 if (m_currentSketch) {
                     const auto& currentElements = m_currentSketch->GetElements();
                     for (const auto& elem : selected) {
-                        // 如果选中的图元在当前草图列表中，才是合法可拖拽的
+                        // Only selected elements contained in the current sketch are draggable
+
                         if (std::find(currentElements.begin(), currentElements.end(), elem) != currentElements.end()) {
                             validElements.push_back(elem);
                         }
                     }
                 }
 
-                // 如果过滤后还有合法的图元，才允许进入拖拽或旋转模式
-                if (!validElements.empty()) {
-                    m_draggedElements = validElements; // 改为使用过滤后的有效图元
+                // Enter drag or rotate mode only if valid elements remain after filtering
 
-                    // 按下 Ctrl 键，进入旋转模式 
+                if (!validElements.empty()) {
+                    m_draggedElements = validElements; // Use the filtered valid elements instead
+
+
+                    // Hold Ctrl to enter rotation mode
+
                     if (event->modifiers() & Qt::ControlModifier) {
                         m_isRotating = true;
                         m_didActuallyMove = false;
-                        m_isFirstRotation = true; // 标记这是旋转的第一帧
+                        m_isFirstRotation = true; // Mark this as the first rotation frame
+
                         GetPlaneCoordinate(event->pos(), m_rotCenterU, m_rotCenterV);
                         m_lastAngle = 0.0;
                     }
-                    // 否则进入平移模式 
+                    // Otherwise enter translation mode
+
                     else {
                         m_isDragging = true;
                         m_didActuallyMove = false;
@@ -856,7 +952,8 @@ namespace cad_ui {
     }
 
     void SketchMode::HandleMouseMove(QMouseEvent* event) {
-        // 如果正在临时 3D 观察中，直接放弃处理，把控制权还给 3D 视图旋转
+        // If temporary 3D navigation is active, skip handling and give control back to the 3D view
+
         if (m_isTemporary3DView) return;
 
         if (!m_isActive) return;
@@ -868,22 +965,26 @@ namespace cad_ui {
             }
         }
         else {
-            // 旋转逻辑 
+            // Rotation logic
+
             if (m_isRotating && !m_draggedElements.empty()) {
                 double currentU = 0.0, currentV = 0.0;
                 GetPlaneCoordinate(event->pos(), currentU, currentV);
 
-                // 计算当前鼠标角度
+                // Compute the current mouse angle
+
                 double currentAngle = std::atan2(currentV - m_rotCenterV, currentU - m_rotCenterU);
 
-                // 如果是刚按下鼠标的第一帧拖拽，只记录初始角度，不发生旋转
+                // On the first drag frame, record the initial angle without rotating
+
                 if (m_isFirstRotation) {
                     m_lastAngle = currentAngle;
                     m_isFirstRotation = false;
                     return;
                 }
 
-                // 计算角度差值
+                // Compute the angle delta
+
                 double deltaAngle = currentAngle - m_lastAngle;
 
                 for (auto& elem : m_draggedElements) {
@@ -893,7 +994,8 @@ namespace cad_ui {
 
                 m_lastAngle = currentAngle;
             }
-            // 平移逻辑
+            // Translation logic
+
             else if (m_isDragging && !m_draggedElements.empty()) {
                 double currentU = 0.0, currentV = 0.0;
                 GetPlaneCoordinate(event->pos(), currentU, currentV);
@@ -901,8 +1003,10 @@ namespace cad_ui {
                 double dx = currentU - m_lastDragU;
                 double dy = currentV - m_lastDragV;
 
-                if (std::abs(dx) > 1e-6 || std::abs(dy) > 1e-6) {   // 死区判断
-                    m_didActuallyMove = true;   //确认发生了真实移动
+                if (std::abs(dx) > 1e-6 || std::abs(dy) > 1e-6) {   // Dead-zone test
+
+                    m_didActuallyMove = true;   //Confirm that an actual movement occurred
+
                     for (auto& elem : m_draggedElements) {
                         elem->Translate(dx, dy);
                         m_viewer->UpdateSketchElementVisuals(elem);
@@ -915,18 +1019,21 @@ namespace cad_ui {
     }
 
 
-    void SketchMode::HandleMouseRelease(QMouseEvent * event) {
-        // 如果正在临时 3D 观察中，直接放弃处理，把控制权还给 3D 视图旋转
+    void SketchMode::HandleMouseRelease(QMouseEvent* event) {
+        // If temporary 3D navigation is active, skip handling and give control back to the 3D view
+
         if (m_isTemporary3DView) return;
 
         if (!m_isActive) return;
 
-        // 如果当前有激活的绘图工具，交由它完成绘制
+        // If a drawing tool is active, let it finish the drawing
+
         if (m_currentTool && event->button() == Qt::LeftButton && m_currentTool->IsDrawing()) {
             m_currentTool->FinishDrawing(event->pos());
         }
 
-        // 结束平移拖拽
+        // Finish translation dragging
+
         else if (!m_currentTool && event->button() == Qt::LeftButton) {
             if (m_isDragging || m_isRotating) {
                 bool needRebuild = m_didActuallyMove;
@@ -935,7 +1042,8 @@ namespace cad_ui {
                 m_didActuallyMove = false;
                 m_draggedElements.clear();
 
-                if (m_currentSketch && needRebuild) {   //只有真正移动了才重建
+                if (m_currentSketch && needRebuild) {   //Rebuild only if an actual movement occurred
+
                     if (!m_currentSketch->GetConstraints().empty()) {
                         m_currentSketch->SolveConstraints();
                         m_viewer->ClearSketchObjects();
@@ -949,13 +1057,14 @@ namespace cad_ui {
                 emit sketchHistoryChanged();
             }
         }
-        
+
     }
 
     void SketchMode::HandleKeyPress(QKeyEvent* event) {
         if (!m_isActive) return;
 
-        // 回车键确认曲线
+        // Press Enter to confirm the curve
+
         if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
             if (m_currentTool) {
                 auto curveTool = dynamic_cast<SketchCurveTool*>(m_currentTool.get());
@@ -966,22 +1075,26 @@ namespace cad_ui {
             return;
         }
 
-        // 拦截 Delete 键或退格键 Backspace
+        // Intercept Delete and Backspace
+
         if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
-            // 如果当前没有在画图（不在拖拽中），就执行删除操作
+            // Execute deletion only when not drawing or dragging
+
             if (!m_currentTool || !m_currentTool->IsDrawing()) {
                 DeleteSelectedElements();
             }
             return;
         }
 
-        // Esc 键逻辑
+        // Esc key handling
+
         if (event->key() == Qt::Key_Escape) {
             if (m_currentTool && m_currentTool->IsDrawing()) {
                 m_currentTool->CancelDrawing();
             }
             else {
-                ExitSketchMode(); // 没在画图时按 Esc 则退出草图模式
+                ExitSketchMode(); // Press Esc to exit sketch mode when no drawing is in progress
+
             }
         }
     }
@@ -1001,11 +1114,13 @@ namespace cad_ui {
                 m_redoStack.clear();
                 emit sketchHistoryChanged();
 
-                // ---- 新增：矩形自动约束 ----
+                // ---- New: automatic constraints for rectangles ----
+
                 if (auto* rectTool = dynamic_cast<SketchRectangleTool*>(m_currentTool.get())) {
                     AutoConstrainRectangle(elements);
                 }
-                // ---- 新增结束 ----
+                // ---- End of new rectangle-constraint logic ----
+
 
                 m_currentSketch->UpdateProfiles(m_sketchCS);
                 m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());
@@ -1038,27 +1153,33 @@ namespace cad_ui {
     }
 
     void SketchMode::SetupSketchPlane(const TopoDS_Face& face) {
-        // 提取拓扑面对应的几何曲面 (Geometric Surface)
+        // Extract the geometric surface from the topological face
+
         Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
         Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
 
         if (!plane.IsNull()) {
-            m_sketchPlane = plane->Pln(); // 获取基础数学平面
+            m_sketchPlane = plane->Pln(); // Get the underlying mathematical plane
 
-            // 计算面的 UV 边界域 (UV Bounds)
+
+            // Compute the UV bounds of the face
+
             Standard_Real uMin, uMax, vMin, vMax;
             BRepTools::UVBounds(face, uMin, uMax, vMin, vMax);
             Standard_Real uMid = (uMin + uMax) / 2.0;
             Standard_Real vMid = (vMin + vMax) / 2.0;
 
-            // 计算面中心的法向量 (Normal Vector)
+            // Compute the normal at the face center
+
             GeomLProp_SLProps props(surface, uMid, vMid, 1, Precision::Confusion());
             gp_Dir normal = props.Normal();
 
-            // 修正拓扑朝向：确保法向量指向实体外部
+            // Correct the topological orientation so the normal points outward
+
             if (face.Orientation() == TopAbs_REVERSED) normal.Reverse();
 
-            // 基于正确的外法线重新构建局部坐标系 (Local Coordinate System)
+            // Rebuild the local coordinate system from the corrected outward normal
+
             gp_Ax3 correctCS(m_sketchPlane.Location(), normal, m_sketchPlane.XAxis().Direction());
             m_sketchPlane.SetPosition(correctCS);
             m_sketchCS = m_sketchPlane.Position();
@@ -1070,25 +1191,32 @@ namespace cad_ui {
         Handle(V3d_View) view = m_viewer->GetView();
         Handle(Graphic3d_Camera) camera = view->Camera();
 
-        // 计算摄像机位置：位于平面法线正上方 100 单位处
+        // Place the camera 100 units above the plane along its normal
+
         gp_Pnt planeOrigin = m_sketchPlane.Location();
         gp_Dir planeNormal = m_sketchPlane.Axis().Direction();
         gp_Pnt eyePosition = planeOrigin.XYZ() + planeNormal.XYZ() * 100.0;
-        gp_Dir yDir = m_sketchCS.YDirection(); // 使得 Y 轴向上
+        gp_Dir yDir = m_sketchCS.YDirection(); // Make the Y axis point upward
+
 
         camera->SetEye(eyePosition);
         camera->SetCenter(planeOrigin);
         camera->SetUp(yDir);
-        camera->OrthogonalizeUp(); // 强制使 Up 向量与视线方向垂直
+        camera->OrthogonalizeUp(); // Force the Up vector to stay orthogonal to the view direction
 
-        // 切换为正交投影 (Orthographic Projection)，避免近大远小的透视影响绘图
+
+        // Switch to orthographic projection to avoid perspective distortion while sketching
+
         camera->SetProjectionType(Graphic3d_Camera::Projection_Orthographic);
 
-        view->FitAll(); // 自动缩放适应屏幕
-        view->ZFitAll(); // 调整 Z 深度剪裁平面 (Z Clipping Planes)
+        view->FitAll(); // Fit the view to the screen automatically
+
+        view->ZFitAll(); // Adjust the Z clipping planes
+
     }
 
-	// 进入临时 3D 视角
+    // Enter temporary 3D view mode
+
     void SketchMode::StartTemporary3DView() {
         if (!m_isActive || m_isTemporary3DView || !m_viewer) return;
         if (m_viewer->GetView().IsNull()) return;
@@ -1100,13 +1228,16 @@ namespace cad_ui {
         if (!m_isActive || !m_isTemporary3DView || !m_viewer) return;
         if (m_viewer->GetView().IsNull()) return;
 
-        // 不恢复备份参数了，直接重新初始化一次草图正交视角
+        // Do not restore the backup camera; reinitialize the orthographic sketch view directly
+
         SetupSketchView();
 
-        // 强制立刻重绘底层的 OpenGL 屏幕缓冲区 
+        // Force an immediate redraw of the underlying OpenGL buffer
+
         m_viewer->GetView()->Redraw();
 
-        // 通知 Qt 框架刷新视图控件 
+        // Notify Qt to refresh the view widget
+
         m_viewer->update();
 
         m_isTemporary3DView = false;
@@ -1118,7 +1249,8 @@ namespace cad_ui {
         Handle(V3d_View) view = m_viewer->GetView();
         Handle(Graphic3d_Camera) camera = view->Camera();
 
-        // 恢复摄像机备份参数
+        // Restore the backed-up camera parameters
+
         camera->SetProjectionType(m_savedProjectionType);
         camera->SetEye(m_savedEye);
         camera->SetCenter(m_savedAt);
@@ -1127,7 +1259,7 @@ namespace cad_ui {
         camera->SetScale(m_savedScale);
 
         view->AutoZFit();
-        view->Redraw(); // 触发重绘
+        view->Redraw(); // Comment translated to English
     }
 
     void SketchMode::CreateSketchCoordinateSystem() {
@@ -1135,18 +1267,21 @@ namespace cad_ui {
     }
 
     gp_Pln SketchMode::ExtractPlaneFromFace(const TopoDS_Face& face) {
-        if (face.IsNull()) return gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)); // 默认 XY 平面
+        if (face.IsNull()) return gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)); // Default to the XY plane
+
         Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
         Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
         if (!plane.IsNull()) return plane->Pln();
         return gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1));
     }
 
-    // 一个不带吸附的坐标获取函数，专门用于平移计算差值
+    // A coordinate query function without snapping, used specifically for translation deltas
+
     void SketchMode::GetPlaneCoordinate(const QPoint& screenPos, double& u, double& v) {
         if (!m_viewer || m_viewer->GetView().IsNull()) return;
 
-        // 1. 使用 ConvertWithProj 获取 3D 空间点 (X, Y, Z) 和视角投影方向 (Vx, Vy, Vz)
+        // 1. Use ConvertWithProj to get the 3D point and projection direction
+
         Standard_Real X, Y, Z;
         Standard_Real Vx, Vy, Vz;
         m_viewer->GetView()->ConvertWithProj(screenPos.x(), screenPos.y(), X, Y, Z, Vx, Vy, Vz);
@@ -1154,23 +1289,29 @@ namespace cad_ui {
         gp_Pnt p1(X, Y, Z);
         gp_Vec dir(Vx, Vy, Vz);
 
-        // 防止方向向量为零导致崩溃
+        // Prevent crashes caused by a zero direction vector
+
         if (dir.SquareMagnitude() < Precision::Confusion()) {
             return;
         }
 
-        // 2. 构造一条射线 (Ray)
+        // 2. Construct a ray
+
         gp_Lin ray(p1, dir);
 
-        // 3. 构造草图所在的平面 (Plane)
+        // 3. Construct the sketch plane
+
         gp_Pln pln(m_sketchCS);
 
-        // 4. 计算射线与平面的交点 (Intersection)
+        // 4. Compute the ray-plane intersection
+
         Standard_Real u_param, v_param;
         IntAna_IntConicQuad intersection(ray, pln, Precision::Angular(), Precision::Confusion());
         if (intersection.IsDone() && intersection.NbPoints() > 0) {
-            gp_Pnt pt = intersection.Point(1); // 获取 3D 交点
-            ElSLib::Parameters(pln, pt, u_param, v_param); // 将 3D 交点转换为平面的 2D (U, V) 坐标
+            gp_Pnt pt = intersection.Point(1); // Get the 3D intersection point
+
+            ElSLib::Parameters(pln, pt, u_param, v_param); // Convert the 3D intersection point to 2D (U, V) coordinates on the plane
+
             u = u_param;
             v = v_param;
         }
@@ -1193,12 +1334,15 @@ namespace cad_ui {
             }
         }
 
-        if (validElements.empty()) return; // 如果没有当前草图的元素，拒绝删除
+        if (validElements.empty()) return; // Reject deletion if there are no elements from the current sketch
 
-        // 1. 从屏幕上擦除合法的元素
+
+        // 1. Erase valid elements from the screen
+
         m_viewer->RemoveSketchElements(validElements);
 
-        // 2. 从底层数据中删除
+        // 2. Remove them from the underlying data
+
         if (m_currentSketch) {
             for (auto& elem : validElements) {
                 m_currentSketch->RemoveElement(elem);
@@ -1207,7 +1351,8 @@ namespace cad_ui {
             m_viewer->RenderSketchProfiles(m_currentSketch->GetProfiles());
         }
 
-        // 3. 记录撤销操作 (仅记录合法删除的元素)
+        // 3. Record the undo step (only for valid deleted elements)
+
         m_undoStack.push_back({ SketchHistoryStep::REMOVE, validElements });
         m_redoStack.clear();
 
@@ -1219,7 +1364,8 @@ namespace cad_ui {
         if (!m_viewer) return;
 
         if (m_currentSketch) {
-            m_viewer->RemoveSketch(m_currentSketch); // 精准擦除当前草图的旧图元
+            m_viewer->RemoveSketch(m_currentSketch); // Precisely erase the old graphics of the current sketch
+
 
             m_viewer->AddSketchElements(m_currentSketch->GetElements(), m_sketchCS);
             m_currentSketch->UpdateProfiles(m_sketchCS);
@@ -1228,25 +1374,31 @@ namespace cad_ui {
     }
 
     void SketchMode::AutoConstrainRectangle(const std::vector<cad_sketch::SketchElementPtr>& elements) {
-        // 矩形必须恰好 4 条线
+        // A rectangle must consist of exactly four lines
+
         if (elements.size() != 4) return;
 
         std::vector<cad_sketch::SketchLinePtr> lines;
         for (const auto& elem : elements) {
             auto line = std::dynamic_pointer_cast<cad_sketch::SketchLine>(elem);
-            if (!line) return;  // 不全是线段，不是矩形
+            if (!line) return;  // If not all elements are lines, it is not a rectangle
+
             lines.push_back(line);
         }
 
-        // lines[0]=底, lines[1]=右, lines[2]=顶, lines[3]=左
-        // 水平约束：底和顶
+        // lines[0]=bottom, lines[1]=right, lines[2]=top, lines[3]=left
+
+        // Horizontal constraints: bottom and top
+
         m_currentSketch->AddConstraint(std::make_shared<cad_sketch::HorizontalConstraint>(lines[0]));
         m_currentSketch->AddConstraint(std::make_shared<cad_sketch::HorizontalConstraint>(lines[2]));
-        // 竖直约束：右和左
+        // Vertical constraints: right and left
+
         m_currentSketch->AddConstraint(std::make_shared<cad_sketch::VerticalConstraint>(lines[1]));
         m_currentSketch->AddConstraint(std::make_shared<cad_sketch::VerticalConstraint>(lines[3]));
 
-        // 四角重合约束（确保求解器知道角点相连）
+        // Coincidence constraints at the four corners to make adjacency explicit to the solver
+
         m_currentSketch->AddConstraint(std::make_shared<cad_sketch::CoincidentConstraint>(
             lines[0]->GetEndPoint(), lines[1]->GetStartPoint()));
         m_currentSketch->AddConstraint(std::make_shared<cad_sketch::CoincidentConstraint>(
@@ -1262,19 +1414,23 @@ namespace cad_ui {
 
         auto step = m_undoStack.back();
         m_undoStack.pop_back();
-        m_redoStack.push_back(step); // 压入重做栈
+        m_redoStack.push_back(step); // Push onto the redo stack
+
 
         if (m_currentSketch) {
             if (step.type == SketchHistoryStep::ADD) {
-                // 撤销“添加” = 删除它
+                // Undo add = remove it
+
                 for (auto& elem : step.elements) m_currentSketch->RemoveElement(elem);
             }
             else if (step.type == SketchHistoryStep::REMOVE) {
-                // 撤销“删除” = 加回它
+                // Undo delete = restore it
+
                 for (auto& elem : step.elements) m_currentSketch->AddElement(elem);
             }
         }
-        RefreshSketchView(); // 刷新屏幕显示
+        RefreshSketchView(); // Refresh the screen display
+
         emit sketchHistoryChanged();
     }
 
@@ -1283,19 +1439,23 @@ namespace cad_ui {
 
         auto step = m_redoStack.back();
         m_redoStack.pop_back();
-        m_undoStack.push_back(step); // 压回撤销栈
+        m_undoStack.push_back(step); // Push back onto the undo stack
+
 
         if (m_currentSketch) {
             if (step.type == SketchHistoryStep::ADD) {
-                // 重做“添加” = 重新加上去
+                // Redo add = add it again
+
                 for (auto& elem : step.elements) m_currentSketch->AddElement(elem);
             }
             else if (step.type == SketchHistoryStep::REMOVE) {
-                // 重做“删除” = 再次删掉它
+                // Redo delete = remove it again
+
                 for (auto& elem : step.elements) m_currentSketch->RemoveElement(elem);
             }
         }
-        RefreshSketchView(); // 刷新屏幕显示
+        RefreshSketchView(); // Refresh the screen display
+
         emit sketchHistoryChanged();
     }
 

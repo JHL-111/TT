@@ -4,61 +4,61 @@
 
 namespace cad_sketch {
 
-SketchCircle::SketchCircle() : SketchElement(SketchElementType::Circle), m_radius(1.0) {
-    m_center = std::make_shared<SketchPoint>();
-}
+    SketchCircle::SketchCircle() : SketchElement(SketchElementType::Circle), m_radius(1.0) {
+        m_center = std::make_shared<SketchPoint>();
+    }
 
-SketchCircle::SketchCircle(const SketchPointPtr& center, double radius)
-    : SketchElement(SketchElementType::Circle), m_center(center), m_radius(radius) {
-}
+    SketchCircle::SketchCircle(const SketchPointPtr& center, double radius)
+        : SketchElement(SketchElementType::Circle), m_center(center), m_radius(radius) {
+    }
 
-SketchCircle::SketchCircle(double centerX, double centerY, double radius)
-    : SketchElement(SketchElementType::Circle), m_radius(radius) {
-    m_center = std::make_shared<SketchPoint>(centerX, centerY);
-}
+    SketchCircle::SketchCircle(double centerX, double centerY, double radius)
+        : SketchElement(SketchElementType::Circle), m_radius(radius) {
+        m_center = std::make_shared<SketchPoint>(centerX, centerY);
+    }
 
-const SketchPointPtr& SketchCircle::GetCenter() const {
-    return m_center;
-}
+    const SketchPointPtr& SketchCircle::GetCenter() const {
+        return m_center;
+    }
 
-void SketchCircle::SetCenter(const SketchPointPtr& center) {
-    m_center = center;
-}
+    void SketchCircle::SetCenter(const SketchPointPtr& center) {
+        m_center = center;
+    }
 
-double SketchCircle::GetRadius() const {
-    return m_radius;
-}
+    double SketchCircle::GetRadius() const {
+        return m_radius;
+    }
 
-void SketchCircle::SetRadius(double radius) {
-    m_radius = radius;
-}
+    void SketchCircle::SetRadius(double radius) {
+        m_radius = radius;
+    }
 
-double SketchCircle::GetDiameter() const {
-    return 2.0 * m_radius;
-}
+    double SketchCircle::GetDiameter() const {
+        return 2.0 * m_radius;
+    }
 
-double SketchCircle::GetCircumference() const {
-    return 2.0 * M_PI * m_radius;
-}
+    double SketchCircle::GetCircumference() const {
+        return 2.0 * M_PI * m_radius;
+    }
 
-double SketchCircle::GetArea() const {
-    return M_PI * m_radius * m_radius;
-}
+    double SketchCircle::GetArea() const {
+        return M_PI * m_radius * m_radius;
+    }
 
-void SketchCircle::Translate(double dx, double dy) {
-    m_center->Translate(dx, dy);
-    // 半径不变
-}
+    void SketchCircle::Translate(double dx, double dy) {
+        m_center->Translate(dx, dy);
+        // Radius remains unchanged
+    }
 
-void SketchCircle::Rotate(double cx, double cy, double angleRad) {
-    // 圆的半径不变，只需要旋转圆心 (Center Point)
-    if (m_center) m_center->Rotate(cx, cy, angleRad);
-}
+    void SketchCircle::Rotate(double cx, double cy, double angleRad) {
+        // Only the centre point needs to be rotated; radius is invariant
+        if (m_center) m_center->Rotate(cx, cy, angleRad);
+    }
 
-std::string SketchCircle::GetDescription() const {
-    std::ostringstream oss;
-    oss << "Circle (Radius: " << m_radius << ")";
-    return oss.str();
-}
+    std::string SketchCircle::GetDescription() const {
+        std::ostringstream oss;
+        oss << "Circle (Radius: " << m_radius << ")";
+        return oss.str();
+    }
 
 } // namespace cad_sketch

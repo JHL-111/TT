@@ -20,7 +20,8 @@ namespace cad_ui {
     void CreateSweepDialog::SetupUI() {
         QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
-        // 1. 顶部操作提示 (Instruction)
+        // 1. Top instruction area
+
         m_instructionLabel = new QLabel(tr("Operation steps:\n"
             "1. Click on the screen to select a profile.\n"
             "2. Rotate and confirm the direction of the path plane.\n"
@@ -30,14 +31,17 @@ namespace cad_ui {
         mainLayout->addWidget(m_instructionLabel);
 
         m_btnCreatePath = new QPushButton(tr("1. Draw Path"), this);
-        m_btnCreatePath->setCheckable(true); // 让它可以像开关一样被按下和弹起
-        // 用 CSS 给按下的状态加个醒目的绿色背景
+        m_btnCreatePath->setCheckable(true);
+
+        // Use CSS to add a green background to the pressed state
+
         m_btnCreatePath->setStyleSheet("QPushButton:checked { background-color: #d4edda; border: 2px solid #28a745; font-weight: bold; color: #155724; }");
         mainLayout->addWidget(m_btnCreatePath);
 
         connect(m_btnCreatePath, &QPushButton::toggled, this, &CreateSweepDialog::OnCreatePathToggled);
 
-        // 2. 参数表单 (Parameter Form)
+        // 2. Parameter form
+
         QFormLayout* formLayout = new QFormLayout();
 
         m_twistSpinner = new QDoubleSpinBox(this);
@@ -57,7 +61,8 @@ namespace cad_ui {
 
         mainLayout->addLayout(formLayout);
 
-        // 3. 底部按钮 (Buttons)
+        // 3. Bottom buttons
+
         QHBoxLayout* btnLayout = new QHBoxLayout();
         m_btnApply = new QPushButton(tr("Apply"), this);
         m_btnApply->setDefault(true);
@@ -68,7 +73,8 @@ namespace cad_ui {
         btnLayout->addWidget(m_btnApply);
         mainLayout->addLayout(btnLayout);
 
-        // 绑定信号槽
+        // Connect signals and slots
+
         connect(m_btnApply, &QPushButton::clicked, this, &CreateSweepDialog::OnApplyClicked);
         connect(m_btnCancel, &QPushButton::clicked, this, &CreateSweepDialog::OnCancelClicked);
     }
@@ -81,7 +87,8 @@ namespace cad_ui {
             m_btnCreatePath->setText(tr("1. Draw Path"));
         }
 
-        // 通知底层视图层切换工具
+        // Notify the viewer layer to switch tools
+
         if (m_view) {
             m_view->ToggleSweepPathTool(checked);
         }
@@ -90,7 +97,8 @@ namespace cad_ui {
     void CreateSweepDialog::OnApplyClicked() {
         if (!m_view) return;
 
-        // 从视图层获取选中的截面和组装好的路径
+        // Get the selected profile and assembled path from the viewer layer
+
         auto profile = m_view->GetSweepProfileShape();
         auto path = m_view->GetSweepPathShape();
 
@@ -103,28 +111,35 @@ namespace cad_ui {
         double scale = m_scaleSpinner->value();
         bool keepOri = m_keepOrientationCheck->isChecked();
 
-        // 向主窗口发送生成请求
+        // Send the generation request to the main window
+
         emit sweepRequested(profile, path, twist, scale, keepOri);
-        accept(); // 关闭面板
+        accept(); // Close the panel
+
     }
 
     void CreateSweepDialog::reject() {
-        // 1. 如果路径绘制按钮仍处于被按下状态，将其恢复
-        // setChecked(false) 会自动触发 toggled 信号，从而安全地调用 
+        // 1. Reset the path-drawing button if it is still pressed
+
+        // setChecked(false) automatically triggers the toggled signal, allowing safe cleanup
+
         if (m_btnCreatePath->isChecked()) {
             m_btnCreatePath->setChecked(false);
         }
 
-        // 2. 取消底层视图层的扫掠交互
+        // 2. Cancel sweep interaction in the viewer layer
+
         if (m_view) {
             m_view->CancelSweepInteraction();
         }
 
-        // 3. 调用父类的 reject 方法真正关闭对话框 
+        // 3. Call the base reject() to close the dialog
+
         QDialog::reject();
     }
 
-    // 让取消按钮直接复用 reject 的统一清理逻辑
+    // Let the cancel button reuse the unified cleanup logic in reject()
+
     void CreateSweepDialog::OnCancelClicked() {
         reject();
     }

@@ -1,6 +1,6 @@
 set(TARGET_NAME cad_feature)
 
-# 头文件
+# Header files
 set(HEADERS
     include/cad_feature/Feature.h
     include/cad_feature/BooleanFeature.h
@@ -15,7 +15,7 @@ set(HEADERS
     include/cad_feature/LivePreview.h
 )
 
-# 源文件
+# Source files
 set(SOURCES
     src/Feature.cpp
     src/BooleanFeature.cpp
@@ -30,16 +30,16 @@ set(SOURCES
     src/LivePreview.cpp
 )
 
-# 创建静态库
+# Create static library
 add_library(${TARGET_NAME} STATIC ${HEADERS} ${SOURCES})
 
-# 包含目录
+# Include directories
 target_include_directories(${TARGET_NAME} PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${OpenCASCADE_INCLUDE_DIR}
 )
 
-# 链接库
+# Link libraries
 target_link_libraries(${TARGET_NAME} 
     cad_core
     cad_sketch

@@ -8,20 +8,20 @@ namespace cad_sketch {
 
     class SketchProfile {
     public:
-        // 构造函数只做声明
+        // Constructor takes a face only
         SketchProfile(const TopoDS_Face& face);
         ~SketchProfile() = default;
 
-        // 获取底层的 OCC 面 (Face)
+        // Get the underlying OCC Face
         TopoDS_Face GetFace() const;
 
-        // 预留接口：添加边界元素 (Boundary Elements)
+        // Reserved interface: add boundary elements
         void AddBoundaryElement(const SketchElementPtr& element);
         std::vector<SketchElementPtr> GetBoundaryElements() const;
 
     private:
-        TopoDS_Face m_face; // 闭合轮廓生成的平面
-        std::vector<SketchElementPtr> m_boundaryElements; // 构成该轮廓的草图元素集合
+        TopoDS_Face m_face;                                   // Planar face formed by the closed contour
+        std::vector<SketchElementPtr> m_boundaryElements;     // Sketch elements that make up this profile
     };
 
     using SketchProfilePtr = std::shared_ptr<SketchProfile>;

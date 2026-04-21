@@ -13,37 +13,37 @@
 
 namespace cad_ui {
 
-class PropertyPanel : public QWidget {
-    Q_OBJECT
+    class PropertyPanel : public QWidget {
+        Q_OBJECT
 
-public:
-    explicit PropertyPanel(QWidget* parent = nullptr);
-    ~PropertyPanel() = default;
+    public:
+        explicit PropertyPanel(QWidget* parent = nullptr);
+        ~PropertyPanel() = default;
 
-    void SetShape(const cad_core::ShapePtr& shape);
-    void SetFeature(const cad_feature::FeaturePtr& feature);
-    void ClearPanel();
+        void SetShape(const cad_core::ShapePtr& shape);
+        void SetFeature(const cad_feature::FeaturePtr& feature);
+        void ClearPanel();
 
-signals:
-    // 当属性面板里的任何参数被修改时触发
-    void FeatureParameterChanged(const cad_feature::FeaturePtr& feature);
+    signals:
+        // Emitted whenever any parameter in the property panel is modified
+        void FeatureParameterChanged(const cad_feature::FeaturePtr& feature);
 
-private:
-    QVBoxLayout* m_mainLayout;
-    QScrollArea* m_scrollArea;
-    QWidget* m_contentWidget;
-    QVBoxLayout* m_contentLayout;
-    
-    cad_core::ShapePtr m_currentShape;
-    cad_feature::FeaturePtr m_currentFeature;
-    
-    void CreateShapeProperties();
-    void CreateFeatureProperties();
-    void ClearProperties();
-    
-    void AddProperty(const QString& name, const QString& value);
-    void AddProperty(const QString& name, double value);
-    void AddGroupBox(const QString& title);
-};
+    private:
+        QVBoxLayout* m_mainLayout;
+        QScrollArea* m_scrollArea;
+        QWidget* m_contentWidget;
+        QVBoxLayout* m_contentLayout;
+
+        cad_core::ShapePtr m_currentShape;
+        cad_feature::FeaturePtr m_currentFeature;
+
+        void CreateShapeProperties();
+        void CreateFeatureProperties();
+        void ClearProperties();
+
+        void AddProperty(const QString& name, const QString& value);
+        void AddProperty(const QString& name, double value);
+        void AddGroupBox(const QString& title);
+    };
 
 } // namespace cad_ui

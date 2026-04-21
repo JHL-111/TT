@@ -12,17 +12,17 @@ namespace cad_feature {
         LoftFeature(const std::string& name);
         virtual ~LoftFeature() = default;
 
-        // 截面操作 
+        // Section operations
         void AddSection(const cad_core::ShapePtr& section);
         void ClearSections();
         const std::vector<cad_core::ShapePtr>& GetSections() const;
         int GetSectionCount() const;
 
-        // 放样参数 
+        // Loft parameters
         void SetSolid(bool solid);
         bool GetSolid() const;
 
-        // 继承自 Feature 的接口
+        // Inherited from Feature
         cad_core::ShapePtr CreateShape() const override;
         bool ValidateParameters() const override;
         std::shared_ptr<cad_core::ICommand> CreateCommand() const override;

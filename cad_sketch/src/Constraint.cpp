@@ -45,7 +45,7 @@ namespace cad_sketch {
         if (it != m_variableMap.end()) {
             return it->second;
         }
-        return -1; // 未注册
+        return -1; 
     }
 
 } // namespace cad_sketch

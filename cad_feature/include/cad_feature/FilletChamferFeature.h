@@ -7,10 +7,10 @@
 
 namespace cad_feature {
 
-    // 定义操作类型枚举 (Operation Type)
+    // Operation type enum
     enum class FCType {
-        Fillet, // 圆角
-        Chamfer // 倒角
+        Fillet, // Fillet (round edge)
+        Chamfer // Chamfer (cut edge)
     };
 
     class FilletChamferFeature : public Feature {
@@ -18,29 +18,29 @@ namespace cad_feature {
         FilletChamferFeature(const std::string& name);
         virtual ~FilletChamferFeature() = default;
 
-        // 设置操作类型
+        // Set/get operation type
         void SetOperationType(FCType type);
         FCType GetOperationType() const;
 
-        // 设置被操作的基础实体 (Base Shape)
+        // Set/get the base solid shape (Base Shape)
         void SetBaseShape(const cad_core::ShapePtr& baseShape);
         const cad_core::ShapePtr& GetBaseShape() const;
 
-        // 设置选中的边 (Selected Edges)
+        // Set/get the selected edges (Selected Edges)
         void SetEdges(const std::vector<TopoDS_Edge>& edges);
         const std::vector<TopoDS_Edge>& GetEdges() const;
 
-        // 设置圆角/倒角参数 (Parameters)
-        void SetRadius(double radius);       // 用于 Fillet
+        // Set/get fillet/chamfer parameters
+        void SetRadius(double radius);       // Radius for Fillet
         double GetRadius() const;
 
-        void SetDistance1(double distance1); // 用于 Chamfer
+        void SetDistance1(double distance1); // Distance 1 for Chamfer
         double GetDistance1() const;
 
-        void SetDistance2(double distance2); // 用于 Chamfer
+        void SetDistance2(double distance2); // Distance 2 for Chamfer
         double GetDistance2() const;
 
-        // 覆盖基类的虚函数
+        // Override base class virtual functions
         cad_core::ShapePtr CreateShape() const override;
         bool ValidateParameters() const override;
         std::shared_ptr<cad_core::ICommand> CreateCommand() const override;
@@ -53,4 +53,4 @@ namespace cad_feature {
 
     using FilletChamferFeaturePtr = std::shared_ptr<FilletChamferFeature>;
 
-} // namespace cad_feature#pragma once
+} // namespace cad_feature
