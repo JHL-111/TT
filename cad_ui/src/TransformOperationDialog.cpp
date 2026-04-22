@@ -726,7 +726,7 @@ namespace cad_ui {
                 m_translateY->value(),
                 m_translateZ->value()
             );
-            return std::make_shared<cad_core::TranslateCommand>(m_selectedObjects, translation);
+            return std::make_shared<cad_core::TranslateCommand>(m_selectedObjects, translation, m_ocaf);
         }
 
         case 1: { // Rotation
@@ -748,7 +748,7 @@ namespace cad_ui {
 
             }
 
-            return std::make_shared<cad_core::RotateCommand>(m_selectedObjects, axisPoint, axisDirection, angle);
+            return std::make_shared<cad_core::RotateCommand>(m_selectedObjects, axisPoint, axisDirection, angle, m_ocaf);
         }
 
         case 2: { // Scaling
@@ -760,11 +760,11 @@ namespace cad_ui {
             );
 
             if (m_uniformScaleCheckBox->isChecked()) {
-                return std::make_shared<cad_core::ScaleCommand>(m_selectedObjects, center, m_scaleFactorUniform->value());
+                return std::make_shared<cad_core::ScaleCommand>(m_selectedObjects, center, m_scaleFactorUniform->value(), m_ocaf);
             }
             else {
                 return std::make_shared<cad_core::ScaleCommand>(m_selectedObjects, center,
-                    m_scaleFactorX->value(), m_scaleFactorY->value(), m_scaleFactorZ->value());
+                    m_scaleFactorX->value(), m_scaleFactorY->value(), m_scaleFactorZ->value(), m_ocaf);
             }
         }
 

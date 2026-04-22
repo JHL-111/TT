@@ -7,11 +7,13 @@
 
 
 namespace cad_core {
+    
+class OCAFManager;
 
 class CreateBoxCommand : public ICommand {
 public:
-    CreateBoxCommand(const Point& corner1, const Point& corner2);
-    CreateBoxCommand(double width, double height, double depth);
+    CreateBoxCommand(const Point& corner1, const Point& corner2, OCAFManager* ocaf);
+    CreateBoxCommand(double width, double height, double depth, OCAFManager* ocaf);
     virtual ~CreateBoxCommand() = default;
 
     bool Execute() override;
@@ -28,6 +30,7 @@ private:
     bool m_useCorners;
     ShapePtr m_createdShape;
     bool m_executed;
+    OCAFManager* m_ocaf;
 };
 
 } // namespace cad_core

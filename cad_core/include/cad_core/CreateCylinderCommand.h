@@ -6,10 +6,12 @@
 
 namespace cad_core {
 
+class OCAFManager;
+
 class CreateCylinderCommand : public ICommand {
 public:
-    CreateCylinderCommand(const Point& center, double radius, double height);
-    CreateCylinderCommand(double radius, double height);
+    CreateCylinderCommand(const Point& center, double radius, double height, OCAFManager* ocaf);
+    CreateCylinderCommand(double radius, double height, OCAFManager* ocaf);
     virtual ~CreateCylinderCommand() = default;
 
     bool Execute() override;
@@ -26,6 +28,7 @@ private:
     bool m_useCenter;
     ShapePtr m_createdShape;
     bool m_executed;
+    OCAFManager* m_ocaf;
 };
 
 } // namespace cad_core

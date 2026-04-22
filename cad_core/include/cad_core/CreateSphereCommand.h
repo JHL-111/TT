@@ -6,10 +6,12 @@
 
 namespace cad_core {
 
+class OCAFManager;
+
 class CreateSphereCommand : public ICommand {
 public:
-    CreateSphereCommand(const Point& center, double radius);
-    CreateSphereCommand(double radius);
+    CreateSphereCommand(const Point& center, double radius, OCAFManager* ocaf);
+    CreateSphereCommand(double radius, OCAFManager* ocaf);
     virtual ~CreateSphereCommand() = default;
 
     bool Execute() override;
@@ -25,6 +27,7 @@ private:
     bool m_useCenter;
     ShapePtr m_createdShape;
     bool m_executed;
+    OCAFManager* m_ocaf;
 };
 
 } // namespace cad_core

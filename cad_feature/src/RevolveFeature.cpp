@@ -107,7 +107,7 @@ bool RevolveFeature::ValidateParameters() const {
 
 std::shared_ptr<cad_core::ICommand> RevolveFeature::CreateCommand() const {
     // For now, return a simple cylinder command as placeholder
-    return std::make_shared<cad_core::CreateCylinderCommand>(5.0, 10.0);
+    return std::make_shared<cad_core::CreateCylinderCommand>(5.0, 10.0, nullptr);
 }
 
 bool RevolveFeature::IsSketchValid() const {

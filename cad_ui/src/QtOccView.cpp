@@ -2236,6 +2236,13 @@ namespace cad_ui {
                 }
             }
 
+            // 6. If dragging a circle, the center point should update too 
+            else if (auto dragCircle = std::dynamic_pointer_cast<cad_sketch::SketchCircle>(elem)) {
+                if (pair.second == dragCircle->GetCenter()) {
+                    shouldUpdate = true;
+                }
+            }
+
             // Unify redraw execution
             if (shouldUpdate) {
                 Handle(AIS_Shape) aisShape = Handle(AIS_Shape)::DownCast(pair.first);

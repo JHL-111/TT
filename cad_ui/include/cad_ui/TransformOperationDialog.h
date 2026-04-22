@@ -21,6 +21,8 @@
 
 namespace cad_ui {
 
+    class OCAFManager;
+
     /**
      * @class TransformOperationDialog
      * @brief Transform operation dialog supporting translation, rotation, and scaling
@@ -37,6 +39,8 @@ namespace cad_ui {
 
         // Get the current transform command (for execution)
         std::shared_ptr<cad_core::TransformCommand> getCurrentTransformCommand() const;
+
+        void SetOCAFManager(cad_core::OCAFManager* ocaf) { m_ocaf = ocaf; }
 
     public slots:
         void onObjectSelectionClicked();
@@ -69,6 +73,7 @@ namespace cad_ui {
         void updatePreview();
         void updateSelectionDisplay();
         void resetAllParameters();
+        cad_core::OCAFManager* m_ocaf = nullptr;
 
         // UI components
         QVBoxLayout* m_mainLayout;

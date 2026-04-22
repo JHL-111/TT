@@ -10,6 +10,7 @@
 #include <gp_GTrsf.hxx>
 #include <gp_Mat.hxx>
 #include <gp_XYZ.hxx>
+#include "cad_core/OCAFManager.h"
 
 namespace cad_core {
 
@@ -17,20 +18,22 @@ namespace cad_core {
     // TransformCommand base class implementation
     // =============================================================================
 
-    TransformCommand::TransformCommand(const std::vector<ShapePtr>& shapes, TransformationType type)
-        : m_originalShapes(shapes), m_type(type), m_executed(false) {
+    TransformCommand::TransformCommand(const std::vector<ShapePtr>& shapes,
+        TransformationType type, OCAFManager* ocaf)
+        : m_originalShapes(shapes), m_type(type), m_executed(false), m_ocaf(ocaf) {
     }
+
 
     bool TransformCommand::Execute() {
         if (m_executed) {
             return true;
         }
 
+        m_ocaf->StartTransaction(GetTypeName());
+
         try {
-            // Build the transformation matrix
             gp_Trsf transformation = CreateTransformation();
 
-            // Apply the transformation to each shape
             m_transformedShapes.clear();
             m_transformedShapes.reserve(m_originalShapes.size());
 
@@ -39,22 +42,24 @@ namespace cad_core {
                     continue;
                 }
 
-                // Apply the transformation
                 BRepBuilderAPI_Transform transformer(shape->GetOCCTShape(), transformation);
 
                 if (!transformer.IsDone()) {
+                    m_ocaf->AbortTransaction();
                     return false;
                 }
 
-                // Store the transformed shape
                 auto transformedShape = std::make_shared<Shape>(transformer.Shape());
+                m_ocaf->ReplaceShape(shape, transformedShape);
                 m_transformedShapes.push_back(transformedShape);
             }
 
+            m_ocaf->CommitTransaction();
             m_executed = true;
             return true;
         }
         catch (const std::exception& e) {
+            m_ocaf->AbortTransaction();
             return false;
         }
     }
@@ -64,7 +69,7 @@ namespace cad_core {
             return false;
         }
 
-        // Simply mark as not executed; actual OCAF operations are handled by MainWindow
+        m_ocaf->Undo();
         m_executed = false;
         return true;
     }
@@ -74,7 +79,9 @@ namespace cad_core {
             return true;
         }
 
-        return Execute();
+        m_ocaf->Redo();
+        m_executed = true;
+        return true;
     }
 
     const char* TransformCommand::GetName() const {
@@ -116,12 +123,14 @@ namespace cad_core {
     // TranslateCommand implementation
     // =============================================================================
 
-    TranslateCommand::TranslateCommand(const std::vector<ShapePtr>& shapes, const Point& translation)
-        : TransformCommand(shapes, TransformationType::Translate), m_translation(translation) {
+    TranslateCommand::TranslateCommand(const std::vector<ShapePtr>& shapes,
+        const Point& translation, OCAFManager* ocaf)
+        : TransformCommand(shapes, TransformationType::Translate, ocaf), m_translation(translation) {
     }
 
-    TranslateCommand::TranslateCommand(const std::vector<ShapePtr>& shapes, double dx, double dy, double dz)
-        : TransformCommand(shapes, TransformationType::Translate), m_translation(dx, dy, dz) {
+    TranslateCommand::TranslateCommand(const std::vector<ShapePtr>& shapes,
+        double dx, double dy, double dz, OCAFManager* ocaf)
+        : TransformCommand(shapes, TransformationType::Translate, ocaf), m_translation(dx, dy, dz) {
     }
 
     void TranslateCommand::SetTransformParameters() {
@@ -153,8 +162,8 @@ namespace cad_core {
 
     RotateCommand::RotateCommand(const std::vector<ShapePtr>& shapes,
         const Point& axisPoint, const Point& axisDirection,
-        double angleRadians)
-        : TransformCommand(shapes, TransformationType::Rotate),
+        double angleRadians, OCAFManager* ocaf)
+        : TransformCommand(shapes, TransformationType::Rotate, ocaf),
         m_axisPoint(axisPoint), m_axisDirection(axisDirection), m_angleRadians(angleRadians) {
     }
 
@@ -198,15 +207,15 @@ namespace cad_core {
     // =============================================================================
 
     ScaleCommand::ScaleCommand(const std::vector<ShapePtr>& shapes,
-        const Point& centerPoint, double scaleFactor)
-        : TransformCommand(shapes, TransformationType::Scale),
+        const Point& centerPoint, double scaleFactor, OCAFManager* ocaf)
+        : TransformCommand(shapes, TransformationType::Scale, ocaf),
         m_centerPoint(centerPoint), m_scaleX(scaleFactor), m_scaleY(scaleFactor),
         m_scaleZ(scaleFactor), m_isUniform(true) {
     }
 
     ScaleCommand::ScaleCommand(const std::vector<ShapePtr>& shapes,
-        const Point& centerPoint, double scaleX, double scaleY, double scaleZ)
-        : TransformCommand(shapes, TransformationType::Scale),
+        const Point& centerPoint, double scaleX, double scaleY, double scaleZ, OCAFManager* ocaf)
+        : TransformCommand(shapes, TransformationType::Scale, ocaf),
         m_centerPoint(centerPoint), m_scaleX(scaleX), m_scaleY(scaleY),
         m_scaleZ(scaleZ), m_isUniform(false) {
     }
@@ -236,52 +245,54 @@ namespace cad_core {
             return true;
         }
 
+        m_ocaf->StartTransaction("scale");
+
         try {
             m_transformedShapes.clear();
             m_transformedShapes.reserve(m_originalShapes.size());
 
             if (m_isUniform) {
-                // [Uniform scale] - use the standard transformation path
                 gp_Trsf transformation = CreateTransformation();
                 for (const auto& shape : m_originalShapes) {
                     if (!shape || !shape->IsValid()) continue;
                     BRepBuilderAPI_Transform transformer(shape->GetOCCTShape(), transformation);
                     if (transformer.IsDone()) {
-                        m_transformedShapes.push_back(std::make_shared<Shape>(transformer.Shape()));
+                        auto newShape = std::make_shared<Shape>(transformer.Shape());
+                        m_ocaf->ReplaceShape(shape, newShape);
+                        m_transformedShapes.push_back(newShape);
                     }
                 }
             }
             else {
-                // [Non-uniform scale] - use the generalised transformation path (gp_GTrsf)
                 gp_GTrsf gTrsf;
 
-                // 1. Set the scale matrix (diagonal matrix)
                 gp_Mat mat(m_scaleX, 0.0, 0.0,
                     0.0, m_scaleY, 0.0,
                     0.0, 0.0, m_scaleZ);
                 gTrsf.SetVectorialPart(mat);
 
-                // 2. Handle the scale centre offset
-                // Transform formula: P' = Center + Mat * (P - Center) = Mat * P + (Center - Mat * Center)
                 gp_XYZ center(m_centerPoint.X(), m_centerPoint.Y(), m_centerPoint.Z());
                 gp_XYZ transPart = center - (mat * center);
                 gTrsf.SetTranslationPart(transPart);
 
-                // 3. Apply the generalised transformation (converts geometry to NURBS)
                 for (const auto& shape : m_originalShapes) {
                     if (!shape || !shape->IsValid()) continue;
 
                     BRepBuilderAPI_GTransform transformer(shape->GetOCCTShape(), gTrsf, Standard_True);
                     if (transformer.IsDone()) {
-                        m_transformedShapes.push_back(std::make_shared<Shape>(transformer.Shape()));
+                        auto newShape = std::make_shared<Shape>(transformer.Shape());
+                        m_ocaf->ReplaceShape(shape, newShape);
+                        m_transformedShapes.push_back(newShape);
                     }
                 }
             }
 
+            m_ocaf->CommitTransaction();
             m_executed = true;
             return true;
         }
         catch (const std::exception& e) {
+            m_ocaf->AbortTransaction();
             return false;
         }
     }

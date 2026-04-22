@@ -1195,8 +1195,8 @@ namespace cad_ui {
 
     void MainWindow::UpdateActions() {
         bool hasDocument = !m_currentFileName.isEmpty();
-        bool canUndo = m_ocafManager->CanUndo();
-        bool canRedo = m_ocafManager->CanRedo();
+        bool canUndo = false;
+        bool canRedo = false;
 
         // If sketch mode is active, read the sketch history first
 
@@ -1206,9 +1206,9 @@ namespace cad_ui {
         }
         // Read OCAF 3D history only when not in sketch mode
 
-        else if (m_ocafManager) {
-            canUndo = m_ocafManager->CanUndo();
-            canRedo = m_ocafManager->CanRedo();
+        else {
+            canUndo = m_commandManager->CanUndo();
+            canRedo = m_commandManager->CanRedo();
         }
 
         m_saveAction->setEnabled(hasDocument && m_documentModified);
@@ -1388,47 +1388,33 @@ namespace cad_ui {
     }
 
     void MainWindow::OnUndo() {
-        qDebug() << "=== OnUndo TRIGGERED ===";
-        qDebug() << "OnUndo called - checking undo availability:" << m_ocafManager->CanUndo();
-        // Intercept: if sketch mode is active, undo only sketch operations
-
         if (m_viewer && m_viewer->IsInSketchMode()) {
             m_viewer->UndoSketch();
             return;
         }
-        if (m_ocafManager->Undo()) {
-            qDebug() << "Undo operation successful, refreshing UI";
-            // Refresh UI from OCAF document state
+        if (m_commandManager->Undo()) {
             RefreshUIFromOCAF();
             SetDocumentModified(true);
             UpdateActions();
             statusBar()->showMessage("Undo completed", 2000);
         }
         else {
-            qDebug() << "Undo operation failed - available undos:" << m_ocafManager->CanUndo();
             statusBar()->showMessage("Cannot undo", 2000);
         }
     }
 
     void MainWindow::OnRedo() {
-        qDebug() << "=== OnRedo TRIGGERED ===";
-        qDebug() << "OnRedo called - checking redo availability:" << m_ocafManager->CanRedo();
-        // Intercept: if sketch mode is active, redo only sketch operations
-
         if (m_viewer && m_viewer->IsInSketchMode()) {
             m_viewer->RedoSketch();
             return;
         }
-        if (m_ocafManager->Redo()) {
-            qDebug() << "Redo operation successful, refreshing UI";
-            // Refresh UI from OCAF document state
+        if (m_commandManager->Redo()) {
             RefreshUIFromOCAF();
             SetDocumentModified(true);
             UpdateActions();
             statusBar()->showMessage("Redo completed", 2000);
         }
         else {
-            qDebug() << "Redo operation failed - available redos:" << m_ocafManager->CanRedo();
             statusBar()->showMessage("Cannot redo", 2000);
         }
     }
@@ -1562,30 +1548,17 @@ namespace cad_ui {
             double height = dialog.GetHeight();
             double depth = dialog.GetDepth();
 
-            // Start OCAF transaction
-            m_ocafManager->StartTransaction("Create Box");
+            auto cmd = std::make_shared<cad_core::CreateBoxCommand>(
+                width, height, depth, m_ocafManager.get());
 
-            // Create the shape using ShapeFactory
-            auto shape = cad_core::ShapeFactory::CreateBox(width, height, depth);
-            if (shape) {
-                // Add shape to OCAF document
-                if (m_ocafManager->AddShape(shape, "Box")) {
-                    // Display the shape
-                    m_viewer->DisplayShape(shape);
-                    m_documentTree->AddShape(shape);
-
-                    // Commit the transaction
-                    m_ocafManager->CommitTransaction();
-                    SetDocumentModified(true);
-                    UpdateActions();
-                }
-                else {
-                    m_ocafManager->AbortTransaction();
-                    QMessageBox::warning(this, "Error", "Failed to add box to document.");
-                }
+            if (m_commandManager->ExecuteCommand(cmd)) {
+                auto shape = cmd->GetCreatedShape();
+                m_viewer->DisplayShape(shape);
+                m_documentTree->AddShape(shape);
+                SetDocumentModified(true);
+                UpdateActions();
             }
             else {
-                m_ocafManager->AbortTransaction();
                 QMessageBox::warning(this, "Error", "Failed to create box. Check parameters.");
             }
         }
@@ -1597,30 +1570,17 @@ namespace cad_ui {
             double radius = dialog.GetRadius();
             double height = dialog.GetHeight();
 
-            // Start OCAF transaction
-            m_ocafManager->StartTransaction("Create Cylinder");
+            auto cmd = std::make_shared<cad_core::CreateCylinderCommand>(
+                radius, height, m_ocafManager.get());
 
-            // Create the shape using ShapeFactory
-            auto shape = cad_core::ShapeFactory::CreateCylinder(radius, height);
-            if (shape) {
-                // Add shape to OCAF document
-                if (m_ocafManager->AddShape(shape, "Cylinder")) {
-                    // Display the shape
-                    m_viewer->DisplayShape(shape);
-                    m_documentTree->AddShape(shape);
-
-                    // Commit the transaction
-                    m_ocafManager->CommitTransaction();
-                    SetDocumentModified(true);
-                    UpdateActions();
-                }
-                else {
-                    m_ocafManager->AbortTransaction();
-                    QMessageBox::warning(this, "Error", "Failed to add cylinder to document.");
-                }
+            if (m_commandManager->ExecuteCommand(cmd)) {
+                auto shape = cmd->GetCreatedShape();
+                m_viewer->DisplayShape(shape);
+                m_documentTree->AddShape(shape);
+                SetDocumentModified(true);
+                UpdateActions();
             }
             else {
-                m_ocafManager->AbortTransaction();
                 QMessageBox::warning(this, "Error", "Failed to create cylinder. Check parameters.");
             }
         }
@@ -1631,30 +1591,17 @@ namespace cad_ui {
         if (dialog.exec() == QDialog::Accepted) {
             double radius = dialog.GetRadius();
 
-            // Start OCAF transaction
-            m_ocafManager->StartTransaction("Create Sphere");
+            auto cmd = std::make_shared<cad_core::CreateSphereCommand>(
+                radius, m_ocafManager.get());
 
-            // Create the shape using ShapeFactory
-            auto shape = cad_core::ShapeFactory::CreateSphere(radius);
-            if (shape) {
-                // Add shape to OCAF document
-                if (m_ocafManager->AddShape(shape, "Sphere")) {
-                    // Display the shape
-                    m_viewer->DisplayShape(shape);
-                    m_documentTree->AddShape(shape);
-
-                    // Commit the transaction
-                    m_ocafManager->CommitTransaction();
-                    SetDocumentModified(true);
-                    UpdateActions();
-                }
-                else {
-                    m_ocafManager->AbortTransaction();
-                    QMessageBox::warning(this, "Error", "Failed to add sphere to document.");
-                }
+            if (m_commandManager->ExecuteCommand(cmd)) {
+                auto shape = cmd->GetCreatedShape();
+                m_viewer->DisplayShape(shape);
+                m_documentTree->AddShape(shape);
+                SetDocumentModified(true);
+                UpdateActions();
             }
             else {
-                m_ocafManager->AbortTransaction();
                 QMessageBox::warning(this, "Error", "Failed to create sphere. Check parameters.");
             }
         }
@@ -2752,6 +2699,7 @@ namespace cad_ui {
         }
 
         m_currentTransformDialog = new TransformOperationDialog(this);
+        m_currentTransformDialog->SetOCAFManager(m_ocafManager.get());
 
         // Connect dialog signals
         connect(m_currentTransformDialog, &TransformOperationDialog::selectionModeChanged,
@@ -2773,58 +2721,27 @@ namespace cad_ui {
         }
 
         try {
-            // Reset any preview first
             if (m_previewActive) {
                 OnTransformResetRequested();
             }
 
-            // Execute the transform command to get transformed shapes
-            if (command->Execute()) {
-                // Get original and transformed shapes
-                auto originalShapes = m_currentTransformDialog->getSelectedObjects();
-                auto transformedShapes = command->GetTransformedShapes();
-
-                // Start OCAF transaction
-                m_ocafManager->StartTransaction("Transform Objects");
-
-                // Replace shapes in OCAF document
-                for (size_t i = 0; i < originalShapes.size() && i < transformedShapes.size(); ++i) {
-                    if (m_ocafManager->ReplaceShape(originalShapes[i], transformedShapes[i])) {
-                        // Update display
-                        m_viewer->RemoveShape(originalShapes[i]);
-                        m_viewer->DisplayShape(transformedShapes[i]);
-
-                        // Update document tree
-                        m_documentTree->RemoveShape(originalShapes[i]);
-                        m_documentTree->AddShape(transformedShapes[i]);
-                    }
-                    else {
-                        m_ocafManager->AbortTransaction();
-                        QMessageBox::warning(this, "Error", "Unable to update shape");
-                        return;
-                    }
-                }
-
-                // Commit transaction
-                m_ocafManager->CommitTransaction();
-
-                // Update display and mark as modified
+       
+            if (m_commandManager->ExecuteCommand(command)) {
                 RefreshUIFromOCAF();
                 SetDocumentModified(true);
-
-                // Update status bar
-                statusBar()->showMessage(QString("Transformation operation completed: %1").arg(command->GetName()), 0.5);
+                UpdateActions();
+                statusBar()->showMessage(
+                    QString("Transformation operation completed: %1").arg(command->GetName()), 2000);
             }
             else {
                 QMessageBox::warning(this, "Error", "Transformation operation execution failed");
             }
         }
         catch (const std::exception& e) {
-            m_ocafManager->AbortTransaction();
-            QMessageBox::warning(this, "Error", QString("Transformation operation failed: %1").arg(e.what()));
+            QMessageBox::warning(this, "Error",
+                QString("Transformation operation failed: %1").arg(e.what()));
         }
 
-        // Clean up dialog
         if (m_currentTransformDialog) {
             m_currentTransformDialog->deleteLater();
             m_currentTransformDialog = nullptr;

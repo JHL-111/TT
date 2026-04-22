@@ -10,6 +10,8 @@
 
 namespace cad_core {
 
+    class OCAFManager;
+
     /**
      * @enum TransformationType
      * @brief Types of transform operation
@@ -26,7 +28,7 @@ namespace cad_core {
      */
     class TransformCommand : public ICommand {
     public:
-        TransformCommand(const std::vector<ShapePtr>& shapes, TransformationType type);
+        TransformCommand(const std::vector<ShapePtr>& shapes, TransformationType type, OCAFManager* ocaf);
         virtual ~TransformCommand() = default;
 
         bool Execute() override;
@@ -47,6 +49,7 @@ namespace cad_core {
         std::vector<ShapePtr> m_originalShapes;
         std::vector<ShapePtr> m_transformedShapes;
         TransformationType m_type;
+        OCAFManager* m_ocaf;
         bool m_executed;
     };
 
@@ -57,9 +60,9 @@ namespace cad_core {
     class TranslateCommand : public TransformCommand {
     public:
         TranslateCommand(const std::vector<ShapePtr>& shapes,
-            const Point& translation);
+            const Point& translation, OCAFManager* ocaf);
         TranslateCommand(const std::vector<ShapePtr>& shapes,
-            double dx, double dy, double dz);
+            double dx, double dy, double dz, OCAFManager* ocaf);
 
         void SetTransformParameters() override;
         void SetTranslation(const Point& translation);
@@ -81,7 +84,7 @@ namespace cad_core {
     public:
         RotateCommand(const std::vector<ShapePtr>& shapes,
             const Point& axisPoint, const Point& axisDirection,
-            double angleRadians);
+            double angleRadians, OCAFManager* ocaf);
 
         void SetTransformParameters() override;
         void SetRotationAxis(const Point& axisPoint, const Point& axisDirection);
@@ -105,9 +108,9 @@ namespace cad_core {
     class ScaleCommand : public TransformCommand {
     public:
         ScaleCommand(const std::vector<ShapePtr>& shapes,
-            const Point& centerPoint, double scaleFactor);
+            const Point& centerPoint, double scaleFactor, OCAFManager* ocaf);
         ScaleCommand(const std::vector<ShapePtr>& shapes,
-            const Point& centerPoint, double scaleX, double scaleY, double scaleZ);
+            const Point& centerPoint, double scaleX, double scaleY, double scaleZ, OCAFManager* ocaf);
 
         void SetTransformParameters() override;
         void SetScaleCenter(const Point& centerPoint);
