@@ -33,7 +33,7 @@ namespace cad_ui {
         m_angleSpinBox->setRange(0.1, 360.0);
         m_angleSpinBox->setValue(360.0);
         m_angleSpinBox->setDecimals(1);
-        m_angleSpinBox->setSuffix(" бу");
+        m_angleSpinBox->setSuffix(u8" бу");
         angleLayout->addWidget(m_angleSpinBox);
         mainLayout->addLayout(angleLayout);
 
@@ -65,13 +65,13 @@ namespace cad_ui {
         QHBoxLayout* dirLayout = new QHBoxLayout(dirGroup);
 
         dirLayout->addWidget(new QLabel("X:"));
-        m_axDirX = makeCoordSpin(0.0);
+        m_axDirX = makeCoordSpin(1.0);
         dirLayout->addWidget(m_axDirX);
         dirLayout->addWidget(new QLabel("Y:"));
         m_axDirY = makeCoordSpin(0.0);
         dirLayout->addWidget(m_axDirY);
         dirLayout->addWidget(new QLabel("Z:"));
-        m_axDirZ = makeCoordSpin(1.0);  
+        m_axDirZ = makeCoordSpin(0.0);  
         dirLayout->addWidget(m_axDirZ);
         mainLayout->addWidget(dirGroup);
 
@@ -83,8 +83,31 @@ namespace cad_ui {
         btnLayout->addWidget(cancelBtn);
         mainLayout->addLayout(btnLayout);
 
+		// set up revolve preview trigger
+        auto triggerPreview = [this](double /*val*/) {
+            if (m_selectedShape) {
+                double dx = m_axDirX->value(), dy = m_axDirY->value(), dz = m_axDirZ->value();
+                if (std::abs(dx) > 1e-10 || std::abs(dy) > 1e-10 || std::abs(dz) > 1e-10) {
+                    double angleRad = m_angleSpinBox->value() * M_PI / 180.0;
+                    emit previewRequested(m_selectedShape, angleRad,
+                        m_axOriginX->value(), m_axOriginY->value(), m_axOriginZ->value(),
+                        dx, dy, dz);
+                }
+            }
+            };
+
+		// connect value changes to trigger preview
+        connect(m_angleSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, triggerPreview);
+        connect(m_axOriginX, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, triggerPreview);
+        connect(m_axOriginY, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, triggerPreview);
+        connect(m_axOriginZ, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, triggerPreview);
+        connect(m_axDirX, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, triggerPreview);
+        connect(m_axDirY, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, triggerPreview);
+        connect(m_axDirZ, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, triggerPreview);
+
         connect(okBtn, &QPushButton::clicked, this, &CreateRevolveDialog::OnOkClicked);
         connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+
     }
 
     void CreateRevolveDialog::SetSelectedShape(const cad_core::ShapePtr& shape) {
@@ -92,6 +115,11 @@ namespace cad_ui {
         if (shape) {
             m_statusLabel->setText("Selection received. Click OK to revolve.");
             m_statusLabel->setStyleSheet("color: #00aa00; font-weight: bold;");
+
+            double angleRad = m_angleSpinBox->value() * M_PI / 180.0;
+            emit previewRequested(m_selectedShape, angleRad,
+                m_axOriginX->value(), m_axOriginY->value(), m_axOriginZ->value(),
+                m_axDirX->value(), m_axDirY->value(), m_axDirZ->value());
         }
         else {
             m_statusLabel->setText("Please select a profile or face...");

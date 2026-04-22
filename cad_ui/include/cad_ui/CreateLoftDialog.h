@@ -22,6 +22,7 @@ namespace cad_ui {
 
     signals:
         void loftRequested(const std::vector<cad_core::ShapePtr>& sections, bool isSolid);
+        void previewRequested(const std::vector<cad_core::ShapePtr>& sections, bool isSolid);
 
     private slots:
         void OnConfirm();

@@ -49,6 +49,13 @@ namespace cad_ui {
 
         connect(okBtn, &QPushButton::clicked, this, &CreateExtrudeDialog::OnOkClicked);
         connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+        // Trigger preview on value change
+        connect(m_distanceSpinBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, [this]() {
+                if (m_selectedShape) {
+                    emit previewRequested(m_selectedShape, m_distanceSpinBox->value());
+                }
+            });
     }
 
     void CreateExtrudeDialog::SetSelectedShape(const cad_core::ShapePtr& shape) {
@@ -62,6 +69,7 @@ namespace cad_ui {
             m_statusLabel->setText("Please select a profile or face...");
             m_statusLabel->setStyleSheet("color: #0055ff; font-weight: bold;");
         }
+        emit previewRequested(m_selectedShape, m_distanceSpinBox->value());
     }
 
     double CreateExtrudeDialog::GetDistance() const {
@@ -84,5 +92,7 @@ namespace cad_ui {
         emit dialogClosed();
         QDialog::closeEvent(event);
     }
+
+    
 
 } // namespace cad_ui

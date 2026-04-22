@@ -18,6 +18,7 @@ namespace cad_ui {
         // Emitted when OK is clicked; MainWindow executes the extrude operation
         void extrudeRequested(cad_core::ShapePtr baseShape, double distance);
         void dialogClosed(); // Notifies external code to clean up temporary state when the dialog closes
+        void previewRequested(cad_core::ShapePtr baseShape, double distance); 
 
     protected:
         void closeEvent(QCloseEvent* event) override;

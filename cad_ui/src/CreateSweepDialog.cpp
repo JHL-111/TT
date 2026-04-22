@@ -77,6 +77,26 @@ namespace cad_ui {
 
         connect(m_btnApply, &QPushButton::clicked, this, &CreateSweepDialog::OnApplyClicked);
         connect(m_btnCancel, &QPushButton::clicked, this, &CreateSweepDialog::OnCancelClicked);
+
+		// 1. bind UI controls to trigger preview updates when parameters change
+        connect(m_twistSpinner, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &CreateSweepDialog::TryPreview);
+        connect(m_scaleSpinner, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &CreateSweepDialog::TryPreview);
+        connect(m_keepOrientationCheck, &QCheckBox::toggled, this, &CreateSweepDialog::TryPreview);
+
+		// 2. make the viewer layer notify us when the sketch history changes
+        connect(m_view, &QtOccView::SketchHistoryChanged, this, &CreateSweepDialog::TryPreview);
+        connect(m_view, &QtOccView::SketchToolChanged, this, [this](const QString& toolName) {
+            if (toolName == "None") {
+                TryPreview();
+
+                if (m_btnCreatePath->isChecked()) {
+                    m_btnCreatePath->blockSignals(true);
+                    m_btnCreatePath->setChecked(false);
+                    m_btnCreatePath->setText(tr("1. Draw Path"));
+                    m_btnCreatePath->blockSignals(false);
+                }
+            }
+        });
     }
 
     void CreateSweepDialog::OnCreatePathToggled(bool checked) {
@@ -85,9 +105,8 @@ namespace cad_ui {
         }
         else {
             m_btnCreatePath->setText(tr("1. Draw Path"));
+            TryPreview(); 
         }
-
-        // Notify the viewer layer to switch tools
 
         if (m_view) {
             m_view->ToggleSweepPathTool(checked);
@@ -138,10 +157,20 @@ namespace cad_ui {
         QDialog::reject();
     }
 
-    // Let the cancel button reuse the unified cleanup logic in reject()
 
     void CreateSweepDialog::OnCancelClicked() {
         reject();
+    }
+
+    void CreateSweepDialog::TryPreview() {
+        if (!m_view) return;
+        auto profile = m_view->GetSweepProfileShape();
+        auto path = m_view->GetSweepPathShape();
+
+		// only trigger preview if both profile and path are available
+        if (profile && path) {
+            emit previewRequested(profile, path, m_twistSpinner->value(), m_scaleSpinner->value(), m_keepOrientationCheck->isChecked());
+        }
     }
 
 } // namespace cad_ui

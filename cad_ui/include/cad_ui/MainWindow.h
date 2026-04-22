@@ -62,7 +62,7 @@ namespace cad_ui {
         void ZoomOut();
         void SetViewMode(const QString& mode);
         void SetProjectionMode(bool orthographic);
-
+		
         // Feature operations
         void CreateExtrude();
         void CreateRevolve();
@@ -80,6 +80,7 @@ namespace cad_ui {
 
     public slots:
         void OnFeatureParameterChanged(const cad_feature::FeaturePtr& feature);
+        void ClearPreview(); // Clears any temporary preview shapes from the view
 
     protected:
         void closeEvent(QCloseEvent* event) override;
@@ -183,6 +184,10 @@ namespace cad_ui {
             double axOriginX, double axOriginY, double axOriginZ,
             double axDirX, double axDirY, double axDirZ);
         void OnRevolveDialogClosed();
+        void OnExtrudePreviewRequested(cad_core::ShapePtr baseShape, double distance);
+        void OnRevolvePreviewRequested(cad_core::ShapePtr baseShape, double angle, double axOriginX, double axOriginY, double axOriginZ, double axDirX, double axDirY, double axDirZ);
+        void OnSweepPreviewRequested(cad_core::ShapePtr profile, cad_core::ShapePtr path, double twist, double scale, bool keepOrientation);
+        void OnLoftPreviewRequested(const std::vector<cad_core::ShapePtr>& sections, bool isSolid);
 
         // Selection mode combo box
         void OnSelectionModeComboChanged(int index);

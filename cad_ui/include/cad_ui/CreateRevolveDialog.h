@@ -18,6 +18,11 @@ namespace cad_ui {
             double axDirX, double axDirY, double axDirZ);
         void dialogClosed();
 
+        // Revolve preview signal
+        void previewRequested(cad_core::ShapePtr baseShape, double angle,
+            double axOriginX, double axOriginY, double axOriginZ,
+            double axDirX, double axDirY, double axDirZ);
+
     protected:
         void closeEvent(QCloseEvent* event) override;
 

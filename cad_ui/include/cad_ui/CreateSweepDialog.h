@@ -22,11 +22,13 @@ namespace cad_ui {
     signals:
         void sweepCreated(std::shared_ptr<cad_feature::Feature> feature);
         void sweepRequested(cad_core::ShapePtr profile, cad_core::ShapePtr path, double twist, double scale, bool keepOri);
+        void previewRequested(cad_core::ShapePtr profile, cad_core::ShapePtr path, double twist, double scale, bool keepOri);
 
     private slots:
         void OnApplyClicked();
         void OnCancelClicked();
         void OnCreatePathToggled(bool checked);
+        void TryPreview();
 
     protected:
         // Override reject() to handle dialog close events cleanly

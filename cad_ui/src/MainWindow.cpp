@@ -1217,25 +1217,23 @@ namespace cad_ui {
     }
 
     void MainWindow::UpdateActions() {
-        bool hasDocument = !m_currentFileName.isEmpty();
         bool canUndo = false;
         bool canRedo = false;
 
         // If sketch mode is active, read the sketch history first
-
         if (m_viewer && m_viewer->IsInSketchMode()) {
             canUndo = m_viewer->CanUndoSketch();
             canRedo = m_viewer->CanRedoSketch();
         }
         // Read OCAF 3D history only when not in sketch mode
-
         else {
             canUndo = m_commandManager->CanUndo();
             canRedo = m_commandManager->CanRedo();
         }
 
-        m_saveAction->setEnabled(hasDocument && m_documentModified);
-        m_saveAsAction->setEnabled(hasDocument);
+        m_saveAction->setEnabled(m_documentModified);
+        m_saveAsAction->setEnabled(true); 
+
         m_undoAction->setEnabled(canUndo);
         m_redoAction->setEnabled(canRedo);
 
@@ -1378,29 +1376,80 @@ namespace cad_ui {
 
     // Slot implementations
     void MainWindow::OnNewDocument() {
-        NewDocumentTab();
+        if (!SaveChanges()) return; 
+
+		// 1. clear current UI
+        m_viewer->ClearShapes();
+        m_documentTree->Clear();
+
+		// 2. reset OCAF Document and internal managers
+        m_featureManager = std::make_unique<cad_feature::FeatureManager>();
+        m_commandManager = std::make_unique<cad_core::CommandManager>();
+
+        // 3. New OCAF Document
+        m_ocafManager->NewDocument();
+
+		// 4. reset
+        m_currentFileName.clear();
+        SetDocumentModified(false);
+        m_viewer->FitAll();
+        m_viewer->RedrawAll();
+
+        statusBar()->showMessage("New document created", 2000);
     }
 
     void MainWindow::OnOpenDocument() {
-        // Placeholder implementation
-        QMessageBox::information(this, "Open Document", "Open document functionality not implemented yet");
+        if (!SaveChanges()) return; 
+
+        QString fileName = QFileDialog::getOpenFileName(this, tr("Open Document"), "", tr("CAD Files (*.cad)"));
+        if (fileName.isEmpty()) return;
+
+		// call the underlying OCAF manager to open the document. 
+        if (m_ocafManager->OpenDocument(fileName.toStdString())) {
+            m_currentFileName = fileName;
+            SetDocumentModified(false);
+
+            RefreshUIFromOCAF();
+
+            UpdateWindowTitle();
+            statusBar()->showMessage(tr("Document loaded."), 2000);
+        }
+        else {
+            QMessageBox::critical(this, tr("Error"), tr("Could not open file."));
+        }
     }
 
     bool MainWindow::OnSaveDocument() {
         if (m_currentFileName.isEmpty()) {
             return OnSaveDocumentAs();
         }
-        // Placeholder implementation
-        SetDocumentModified(false);
-        return true;
+
+		// call the underlying OCAF manager to save the documen
+        if (m_ocafManager->SaveDocument(m_currentFileName.toStdString())) {
+            SetDocumentModified(false);
+            statusBar()->showMessage(tr("Document saved."), 2000);
+            return true;
+        }
+        else {
+            QMessageBox::critical(this, tr("Error"), tr("Failed to save document."));
+            return false;
+        }
     }
 
     bool MainWindow::OnSaveDocumentAs() {
-        // Placeholder implementation
-        QString fileName = QFileDialog::getSaveFileName(this, "Save Document", "", "CAD Files (*.cad)");
-        if (!fileName.isEmpty()) {
+        QString fileName = QFileDialog::getSaveFileName(this, tr("Save Document"), "", tr("CAD Files (*.cad)"));
+        if (fileName.isEmpty()) return false;
+
+		// make sure the file name has the correct extension
+        if (!fileName.endsWith(".cad", Qt::CaseInsensitive)) {
+            fileName += ".cad";
+        }
+
+        if (m_ocafManager->SaveDocument(fileName.toStdString())) {
             m_currentFileName = fileName;
             SetDocumentModified(false);
+            UpdateWindowTitle();
+            statusBar()->showMessage(tr("Document saved as %1").arg(fileName), 2000);
             return true;
         }
         return false;
@@ -1648,6 +1697,8 @@ namespace cad_ui {
         m_currentExtrudeDialog = new CreateExtrudeDialog(this);
         connect(m_currentExtrudeDialog, &CreateExtrudeDialog::extrudeRequested,
             this, &MainWindow::OnExtrudeRequested);
+        connect(m_currentExtrudeDialog, &CreateExtrudeDialog::previewRequested, this, &MainWindow::OnExtrudePreviewRequested);
+        connect(m_currentExtrudeDialog, &QDialog::rejected, this, &MainWindow::ClearPreview);
         connect(m_currentExtrudeDialog, &QDialog::finished,
             this, &MainWindow::OnExtrudeDialogClosed);
 
@@ -1661,6 +1712,7 @@ namespace cad_ui {
     }
 
     void MainWindow::OnExtrudeRequested(cad_core::ShapePtr baseShape, double distance) {
+        ClearPreview();
         if (!baseShape) return;
 
         m_ocafManager->StartTransaction("Create Extrude Feature");
@@ -1750,6 +1802,28 @@ namespace cad_ui {
         }
     }
 
+    // Process extrude preview logic
+    void MainWindow::OnExtrudePreviewRequested(cad_core::ShapePtr baseShape, double distance) {
+        ClearPreview(); // 先清理旧的
+        if (!baseShape) return;
+
+        try {
+            auto previewFeature = std::make_shared<cad_feature::ExtrudeFeature>("Preview");
+            previewFeature->SetProfileShape(baseShape);
+            previewFeature->SetDistance(distance);
+
+            auto resultShape = previewFeature->CreateShape();
+            if (resultShape) {
+                m_previewShapes.push_back(resultShape);
+                m_previewActive = true;
+                m_viewer->DisplayShape(resultShape);
+                m_viewer->SetShapeTransparency(resultShape, 0.5); 
+                m_viewer->update();
+            }
+        }
+        catch (...) {}
+    }
+
     void MainWindow::OnExtrudeDialogClosed() {
         m_currentExtrudeDialog = nullptr;
 
@@ -1759,6 +1833,8 @@ namespace cad_ui {
     }
 
     void MainWindow::OnSweepRequested(cad_core::ShapePtr profileShape, cad_core::ShapePtr pathShape, double twistAngle, double scaleFactor, bool keepOrientation) {
+        ClearPreview();
+        
         if (!profileShape || !pathShape) return;
 
         // Start an OCAF history transaction
@@ -1827,7 +1903,30 @@ namespace cad_ui {
         }
     }
 
-    
+	// process sweep preview logic
+    void MainWindow::OnSweepPreviewRequested(cad_core::ShapePtr profile, cad_core::ShapePtr path, double twist, double scale, bool keepOrientation) {
+        ClearPreview();
+        if (!profile || !path) return;
+
+        try {
+            auto previewFeature = std::make_shared<cad_feature::SweepFeature>("Preview");
+            previewFeature->SetProfileShape(profile);
+            previewFeature->SetPathShape(path);
+            previewFeature->SetTwistAngle(twist);
+            previewFeature->SetScaleFactor(scale);
+            previewFeature->SetKeepOriginalOrientation(keepOrientation);
+
+            auto resultShape = previewFeature->CreateShape();
+            if (resultShape) {
+                m_previewShapes.push_back(resultShape);
+                m_previewActive = true;
+                m_viewer->DisplayShape(resultShape);
+                m_viewer->SetShapeTransparency(resultShape, 0.5);
+                m_viewer->update();
+            }
+        }
+        catch (...) {}
+    }
 
 
     void MainWindow::OnDarkTheme() {
@@ -2031,14 +2130,10 @@ namespace cad_ui {
 
         connect(m_currentRevolveDialog, &CreateRevolveDialog::revolveRequested,
             this, &MainWindow::OnRevolveRequested);
-        connect(m_currentRevolveDialog, &CreateRevolveDialog::dialogClosed,
+        connect(m_currentRevolveDialog, &QDialog::finished,
             this, &MainWindow::OnRevolveDialogClosed);
-
-		// if there is a currently selected shape in the viewer, pass it to the revolve dialog for pre-selection
-        auto selectedShape = m_viewer->GetCurrentSelectedShape();
-        if (selectedShape) {
-            m_currentRevolveDialog->SetSelectedShape(selectedShape);
-        }
+        connect(m_currentRevolveDialog, &CreateRevolveDialog::previewRequested, this, &MainWindow::OnRevolvePreviewRequested);
+        connect(m_currentRevolveDialog, &QDialog::rejected, this, &MainWindow::ClearPreview);
 
         m_currentRevolveDialog->show();
     }
@@ -2047,6 +2142,7 @@ namespace cad_ui {
         double axOriginX, double axOriginY, double axOriginZ,
         double axDirX, double axDirY, double axDirZ)
     {
+        ClearPreview();
         if (!baseShape) return;
 
         m_ocafManager->StartTransaction("Create Revolve Feature");
@@ -2109,6 +2205,32 @@ namespace cad_ui {
         }
     }
 
+    void MainWindow::OnRevolvePreviewRequested(cad_core::ShapePtr baseShape, double angle,
+        double axOriginX, double axOriginY, double axOriginZ,
+        double axDirX, double axDirY, double axDirZ)
+    {
+        ClearPreview();
+        if (!baseShape) return;
+
+        try {
+            auto previewFeature = std::make_shared<cad_feature::RevolveFeature>("Preview");
+            previewFeature->SetProfileShape(baseShape);
+            previewFeature->SetAngle(angle);
+            previewFeature->SetAxisOrigin(axOriginX, axOriginY, axOriginZ);
+            previewFeature->SetAxis(axDirX, axDirY, axDirZ);
+
+            auto resultShape = previewFeature->CreateShape();
+            if (resultShape) {
+                m_previewShapes.push_back(resultShape);
+                m_previewActive = true;
+                m_viewer->DisplayShape(resultShape);
+                m_viewer->SetShapeTransparency(resultShape, 0.5);
+                m_viewer->update();
+            }
+        }
+        catch (...) {}
+    }
+
     void MainWindow::OnRevolveDialogClosed() {
         m_currentRevolveDialog = nullptr;
     }
@@ -2121,6 +2243,9 @@ namespace cad_ui {
 
         connect(sweepDialog, &cad_ui::CreateSweepDialog::sweepRequested,
             this, &MainWindow::OnSweepRequested);
+        connect(sweepDialog, &cad_ui::CreateSweepDialog::previewRequested,
+            this, &MainWindow::OnSweepPreviewRequested);
+        connect(sweepDialog, &QDialog::rejected, this, &MainWindow::ClearPreview);
 
         sweepDialog->show();
         statusBar()->showMessage("Sweep feature activated. Follow the instructions on the panel.");
@@ -2140,10 +2265,13 @@ namespace cad_ui {
 
         connect(m_currentLoftDialog, &CreateLoftDialog::loftRequested,
             this, &MainWindow::OnLoftRequested);
+        connect(m_currentLoftDialog, &CreateLoftDialog::previewRequested,
+            this, &MainWindow::OnLoftPreviewRequested);
 
         // When the dialog closes, restore the default selection mode and reset the pointer
 
         connect(m_currentLoftDialog, &QDialog::finished, this, [this]() {
+            ClearPreview();
             m_currentLoftDialog = nullptr;
             m_viewer->SetSelectionMode(0); // Restore Shape selection mode
 
@@ -2155,6 +2283,7 @@ namespace cad_ui {
     }
 
     void MainWindow::OnLoftRequested(const std::vector<cad_core::ShapePtr>& sections, bool isSolid) {
+		ClearPreview();
         if (sections.size() < 2) return;
 
         // Start history tracking to support undo
@@ -2242,6 +2371,30 @@ namespace cad_ui {
             m_ocafManager->AbortTransaction();
             QMessageBox::warning(this, "Loft Error", e.what());
         }
+    }
+
+	// loft preview logic
+    void MainWindow::OnLoftPreviewRequested(const std::vector<cad_core::ShapePtr>& sections, bool isSolid) {
+        ClearPreview();
+		if (sections.size() < 2) return; // if less than 2 sections, loft cannot be generated, so skip preview
+
+        try {
+            auto previewFeature = std::make_shared<cad_feature::LoftFeature>("Preview");
+            previewFeature->SetSolid(isSolid);
+            for (const auto& sec : sections) {
+                previewFeature->AddSection(sec);
+            }
+
+            auto resultShape = previewFeature->CreateShape();
+            if (resultShape) {
+                m_previewShapes.push_back(resultShape);
+                m_previewActive = true;
+                m_viewer->DisplayShape(resultShape);
+                m_viewer->SetShapeTransparency(resultShape, 0.5);
+                m_viewer->update();
+            }
+        }
+        catch (...) {}
     }
 
     void MainWindow::OnShowGrid() {
@@ -2429,21 +2582,7 @@ namespace cad_ui {
         }
     }
 
-    void MainWindow::NewDocumentTab() {
-        QString tabName = QString("Document %1").arg(m_tabWidget->count() + 1);
-        QtOccView* newViewer = new QtOccView(this);
-        newViewer->setObjectName("viewer3D");
-        newViewer->InitViewer();
-
-        int tabIndex = m_tabWidget->addTab(newViewer, tabName);
-        m_tabWidget->setCurrentIndex(tabIndex);
-
-        // Connect viewer signals for new tab
-        connect(newViewer, &QtOccView::ShapeSelected, this, &MainWindow::OnShapeSelected);
-        connect(newViewer, &QtOccView::ViewChanged, this, &MainWindow::OnViewChanged);
-        connect(newViewer, &QtOccView::SketchHistoryChanged, this, &MainWindow::UpdateActions);
-        connect(newViewer, &QtOccView::SketchToolChanged, this, &MainWindow::OnSketchToolChanged);
-
+    void MainWindow::NewDocumentTab() {    
 
     }
 
@@ -2585,6 +2724,9 @@ namespace cad_ui {
         }
         if (m_currentLoftDialog) {
             m_currentLoftDialog->SetSelectedShape(shape);
+        }
+        if (m_currentRevolveDialog) {
+            m_currentRevolveDialog->SetSelectedShape(shape);
         }
         if (m_currentBooleanDialog) {
             m_currentBooleanDialog->onObjectSelected(shape);
@@ -3679,6 +3821,21 @@ namespace cad_ui {
             c = std::make_shared<cad_sketch::RadiusConstraint>(sel.arcs[0], targetRadius);
         }
         ApplyConstraintAndRefresh(c);
+    }
+
+    void MainWindow::ClearPreview() {
+        if (!m_previewActive) return;
+
+		// remove preview shapes from the viewer
+        for (const auto& shape : m_previewShapes) {
+            if (shape) {
+                m_viewer->RemoveShape(shape);
+            }
+        }
+
+        m_previewShapes.clear();
+        m_previewActive = false;
+        m_viewer->update();
     }
 
 } // namespace cad_ui

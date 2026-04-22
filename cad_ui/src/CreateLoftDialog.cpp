@@ -55,6 +55,7 @@ namespace cad_ui {
 
         if (m_selectedSections.size() >= 2) {
             m_confirmBtn->setEnabled(true);
+            emit previewRequested(m_selectedSections, true);
         }
     }
 
@@ -63,6 +64,7 @@ namespace cad_ui {
         m_sectionList->clear();
         m_confirmBtn->setEnabled(false);
         if (m_viewer) m_viewer->ClearSelection();
+        emit previewRequested(m_selectedSections, true);
     }
 
     void CreateLoftDialog::OnConfirm() {
