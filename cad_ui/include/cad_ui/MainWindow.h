@@ -35,6 +35,7 @@
 #include "cad_feature/FeatureManager.h"
 #include "cad_ui/CreateLoftDialog.h"
 #include "cad_sketch/ConcreteConstraints.h"
+#include "CreateRevolveDialog.h"
 
 namespace cad_ui {
 
@@ -178,6 +179,10 @@ namespace cad_ui {
         void OnExtrudeDialogClosed();
         void OnSweepRequested(cad_core::ShapePtr profileShape, cad_core::ShapePtr pathShape, double twistAngle, double scaleFactor, bool keepOrientation);
         void OnLoftRequested(const std::vector<cad_core::ShapePtr>& sections, bool isSolid);
+        void OnRevolveRequested(cad_core::ShapePtr baseShape, double angle,
+            double axOriginX, double axOriginY, double axOriginZ,
+            double axDirX, double axDirY, double axDirZ);
+        void OnRevolveDialogClosed();
 
         // Selection mode combo box
         void OnSelectionModeComboChanged(int index);
@@ -263,6 +268,7 @@ namespace cad_ui {
 
         CreateExtrudeDialog* m_currentExtrudeDialog = nullptr;
         CreateLoftDialog* m_currentLoftDialog = nullptr;
+        CreateRevolveDialog* m_currentRevolveDialog = nullptr;
 
         // Actions
         QAction* m_newAction;

@@ -110,15 +110,7 @@ namespace cad_core {
         return shape;
     }
 
-    ShapePtr BooleanOperations::SimplifyShape(const ShapePtr& shape) {
-        if (!shape || shape->GetOCCTShape().IsNull()) {
-            return nullptr;
-        }
-
-        // Shape simplification logic can be added here
-        // Currently returns the original shape
-        return shape;
-    }
+ 
 
     ShapePtr BooleanOperations::PerformUnion(const ShapePtr& shape1, const ShapePtr& shape2) {
         if (!ValidateInputs(shape1, shape2)) {

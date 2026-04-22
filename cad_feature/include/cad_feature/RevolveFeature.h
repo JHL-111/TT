@@ -14,7 +14,11 @@ public:
     // Sketch operations
     void SetSketch(const cad_sketch::SketchPtr& sketch);
     const cad_sketch::SketchPtr& GetSketch() const;
-    
+
+    // Direct profile shape 
+    void SetProfileShape(const cad_core::ShapePtr& profile);
+    const cad_core::ShapePtr& GetProfileShape() const;
+
     // Revolve parameters
     void SetAngle(double angle);
     double GetAngle() const;
@@ -35,7 +39,7 @@ public:
 
 private:
     cad_sketch::SketchPtr m_sketch;
-    
+    cad_core::ShapePtr m_profileShape;
     bool IsSketchValid() const;
     cad_core::ShapePtr RevolveSketch() const;
 };

@@ -19,6 +19,8 @@
 #include "cad_ui/CreateSweepDialog.h"
 #include "cad_feature/SweepFeature.h"
 #include "cad_feature/LoftFeature.h"
+#include "cad_feature/RevolveFeature.h"
+#include "cad_core/OCAFTransactionCommand.h"
 
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -246,6 +248,10 @@ namespace cad_ui {
         m_createExtrudeAction->setText("Extrude");
         m_createExtrudeAction->setStatusTip("Create an extrude feature");
 
+        m_createRevolveAction = new QAction("", this);
+        m_createRevolveAction->setText("Revolve");
+        m_createRevolveAction->setStatusTip("Create a revolve feature");
+
         m_createSweepAction = new QAction("", this);
         m_createSweepAction->setText("Sweep");
         m_createSweepAction->setStatusTip("Create a sweep feature");
@@ -429,6 +435,7 @@ namespace cad_ui {
         createMenu->addAction(m_createExtrudeAction);
         createMenu->addAction(m_createSweepAction);
         createMenu->addAction(m_createLoftAction);
+        createMenu->addAction(m_createRevolveAction);
 
         // Boolean menu
         QMenu* booleanMenu = menuBar()->addMenu("&Boolean");
@@ -696,6 +703,21 @@ namespace cad_ui {
         sweepLayout->setSpacing(1);
         sweepLayout->setContentsMargins(0, 0, 0, 0);
         featuresButtonsLayout->addLayout(sweepLayout);
+
+        QVBoxLayout* revolveLayout = new QVBoxLayout();
+        QToolButton* revolveBtn = new QToolButton();
+        revolveBtn->setDefaultAction(m_createRevolveAction);
+        revolveBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        revolveBtn->setIconSize(QSize(30, 30));
+        revolveBtn->setFixedSize(30, 30);
+        QLabel* revolveLabel = new QLabel("revolve");
+        revolveLabel->setAlignment(Qt::AlignCenter);
+        revolveLabel->setStyleSheet("font-size: 9px; color: #333; margin-top: 2px;");
+        revolveLayout->addWidget(revolveBtn);
+        revolveLayout->addWidget(revolveLabel);
+        revolveLayout->setSpacing(1);
+        revolveLayout->setContentsMargins(0, 0, 0, 0);
+        featuresButtonsLayout->addLayout(revolveLayout);
 
         QVBoxLayout* loftLayout = new QVBoxLayout();
         QToolButton* loftBtn = new QToolButton();
@@ -1121,6 +1143,7 @@ namespace cad_ui {
         connect(m_createCylinderAction, &QAction::triggered, this, &MainWindow::OnCreateCylinder);
         connect(m_createSphereAction, &QAction::triggered, this, &MainWindow::OnCreateSphere);
         connect(m_createExtrudeAction, &QAction::triggered, this, &MainWindow::OnCreateExtrude);
+        connect(m_createRevolveAction, &QAction::triggered, this, &MainWindow::OnCreateRevolve);
         connect(m_createSweepAction, &QAction::triggered, this, &MainWindow::OnCreateSweep);
         connect(m_createLoftAction, &QAction::triggered, this, &MainWindow::OnCreateLoft);
 
@@ -1523,6 +1546,9 @@ namespace cad_ui {
                     m_documentTree->AddShape(resultShape);
 
                     m_ocafManager->CommitTransaction();
+                    m_commandManager->ExecuteCommand(std::make_shared<cad_core::OCAFTransactionCommand>(m_ocafManager.get(), "Create Planar Face"));
+          
+                    SetDocumentModified(true);
                     SetDocumentModified(true);
                     UpdateActions();
                     statusBar()->showMessage("Planar face feature created.");
@@ -1703,6 +1729,10 @@ namespace cad_ui {
                     m_viewer->ClearSelection();
 
                     m_ocafManager->CommitTransaction();
+
+                    m_commandManager->ExecuteCommand(
+                        std::make_shared<cad_core::OCAFTransactionCommand>(m_ocafManager.get(), "Create Extrude Feature"));
+
                     SetDocumentModified(true);
                     UpdateActions();
                 }
@@ -1775,6 +1805,8 @@ namespace cad_ui {
                     m_viewer->ClearSelection();
 
                     m_ocafManager->CommitTransaction();
+                    m_commandManager->ExecuteCommand(
+                        std::make_shared<cad_core::OCAFTransactionCommand>(m_ocafManager.get(), "Create Sweep Feature"));
                     SetDocumentModified(true);
                     UpdateActions();
                     statusBar()->showMessage("Sweep completed successfully");
@@ -1794,6 +1826,8 @@ namespace cad_ui {
             QMessageBox::warning(this, "Sweep Error", e.what());
         }
     }
+
+    
 
 
     void MainWindow::OnDarkTheme() {
@@ -1860,6 +1894,8 @@ namespace cad_ui {
                 // Commit the history transaction
 
                 m_ocafManager->CommitTransaction();
+                m_commandManager->ExecuteCommand(
+                    std::make_shared<cad_core::OCAFTransactionCommand>(m_ocafManager.get(), "Delete Shape"));
                 SetDocumentModified(true);
                 UpdateActions();
 
@@ -1926,6 +1962,8 @@ namespace cad_ui {
             }
 
             m_ocafManager->CommitTransaction();
+            m_commandManager->ExecuteCommand(
+                std::make_shared<cad_core::OCAFTransactionCommand>(m_ocafManager.get(), "Delete Feature"));
             SetDocumentModified(true);
             UpdateActions();
 
@@ -1984,7 +2022,95 @@ namespace cad_ui {
     }
 
     void MainWindow::OnCreateRevolve() {
-        QMessageBox::information(this, "Create Revolve", "Revolve feature creation not implemented yet");
+        if (m_currentRevolveDialog) {
+            m_currentRevolveDialog->activateWindow();
+            return;
+        }
+
+        m_currentRevolveDialog = new CreateRevolveDialog(this);
+
+        connect(m_currentRevolveDialog, &CreateRevolveDialog::revolveRequested,
+            this, &MainWindow::OnRevolveRequested);
+        connect(m_currentRevolveDialog, &CreateRevolveDialog::dialogClosed,
+            this, &MainWindow::OnRevolveDialogClosed);
+
+		// if there is a currently selected shape in the viewer, pass it to the revolve dialog for pre-selection
+        auto selectedShape = m_viewer->GetCurrentSelectedShape();
+        if (selectedShape) {
+            m_currentRevolveDialog->SetSelectedShape(selectedShape);
+        }
+
+        m_currentRevolveDialog->show();
+    }
+
+    void MainWindow::OnRevolveRequested(cad_core::ShapePtr baseShape, double angle,
+        double axOriginX, double axOriginY, double axOriginZ,
+        double axDirX, double axDirY, double axDirZ)
+    {
+        if (!baseShape) return;
+
+        m_ocafManager->StartTransaction("Create Revolve Feature");
+
+        try {
+            std::string featureName = "Revolve_" + std::to_string(m_featureManager->GetFeatureCount() + 1);
+            auto revolveFeature = std::make_shared<cad_feature::RevolveFeature>(featureName);
+
+            revolveFeature->SetProfileShape(baseShape);
+            revolveFeature->SetAngle(angle);
+            revolveFeature->SetAxisOrigin(axOriginX, axOriginY, axOriginZ);
+            revolveFeature->SetAxis(axDirX, axDirY, axDirZ);
+
+            auto resultShape = revolveFeature->CreateShape();
+
+            if (resultShape) {
+                revolveFeature->SetResultShape(resultShape);
+
+                if (m_ocafManager->AddShape(resultShape, featureName)) {
+                    m_featureManager->AddFeature(revolveFeature);
+                    m_documentTree->AddFeature(revolveFeature);
+                    m_documentTree->AddShape(resultShape);
+                    m_viewer->DisplayShape(resultShape);
+
+					// hide the original profile face and its sketch
+                    std::shared_ptr<cad_sketch::Sketch> targetSketch = nullptr;
+                    for (const auto& sketch : m_documentTree->GetAllSketches()) {
+                        for (const auto& profile : sketch->GetProfiles()) {
+                            if (profile->GetFace().IsSame(baseShape->GetOCCTShape())) {
+                                targetSketch = sketch;
+                                break;
+                            }
+                        }
+                        if (targetSketch) break;
+                    }
+                    if (targetSketch) {
+                        m_viewer->SetSketchVisibility(targetSketch, false);
+                        m_documentTree->SetSketchUIHidden(targetSketch, true);
+                    }
+
+                    m_viewer->ClearSelection();
+
+                    m_ocafManager->CommitTransaction();
+                    m_commandManager->ExecuteCommand(
+                        std::make_shared<cad_core::OCAFTransactionCommand>(m_ocafManager.get(), "Create Revolve Feature"));
+                    SetDocumentModified(true);
+                    UpdateActions();
+                }
+                else {
+                    throw std::runtime_error("Failed to add shape to document.");
+                }
+            }
+            else {
+                throw std::runtime_error("Revolve feature failed to generate shape.");
+            }
+        }
+        catch (const std::exception& e) {
+            m_ocafManager->AbortTransaction();
+            QMessageBox::warning(this, "Revolve Error", e.what());
+        }
+    }
+
+    void MainWindow::OnRevolveDialogClosed() {
+        m_currentRevolveDialog = nullptr;
     }
 
     void MainWindow::OnCreateSweep() {
@@ -2097,6 +2223,8 @@ namespace cad_ui {
                     m_viewer->ClearSelection();
 
                     m_ocafManager->CommitTransaction();
+                    m_commandManager->ExecuteCommand(
+                        std::make_shared<cad_core::OCAFTransactionCommand>(m_ocafManager.get(), "Create Loft Feature"));
                     SetDocumentModified(true);
                     UpdateActions();
 
@@ -2558,6 +2686,8 @@ namespace cad_ui {
                     hideAbsorbedShapes(tools);
 
                     m_ocafManager->CommitTransaction();
+                    m_commandManager->ExecuteCommand(
+                        std::make_shared<cad_core::OCAFTransactionCommand>(m_ocafManager.get(), operationName.toStdString()));
                     SetDocumentModified(true);
                     UpdateActions();
                     statusBar()->showMessage(operationName + " completed successfully");
@@ -2662,6 +2792,8 @@ namespace cad_ui {
 
             if (anySuccess) {
                 m_ocafManager->CommitTransaction();
+                m_commandManager->ExecuteCommand(
+                    std::make_shared<cad_core::OCAFTransactionCommand>(m_ocafManager.get(), operationName.toStdString()));
                 SetDocumentModified(true);
                 UpdateActions();
                 statusBar()->showMessage(operationName + " completed successfully");
@@ -2839,6 +2971,8 @@ namespace cad_ui {
                     m_documentTree->AddShape(newShape);
 
                     m_ocafManager->CommitTransaction();
+                    m_commandManager->ExecuteCommand(
+                        std::make_shared<cad_core::OCAFTransactionCommand>(m_ocafManager.get(), "Modify Feature Parameter"));
                     SetDocumentModified(true);
 
                     // Refresh the screen so the resize takes effect immediately

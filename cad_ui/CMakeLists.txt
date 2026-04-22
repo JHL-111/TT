@@ -20,6 +20,7 @@ set(HEADERS
     include/cad_ui/FaceSelectionDialog.h
     include/cad_ui/CreateSweepDialog.h
     include/cad_ui/CreateLoftDialog.h
+    include/cad_ui/CreateRevolveDialog.h
 
 )
 
@@ -43,6 +44,7 @@ set(SOURCES
     src/FaceSelectionDialog.cpp
     src/CreateSweepDialog.cpp
     src/CreateLoftDialog.cpp
+    src/CreateRevolveDialog.cpp
 )
 
 # Resource files

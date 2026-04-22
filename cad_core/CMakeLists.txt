@@ -16,6 +16,7 @@ set(HEADERS
     include/cad_core/SelectionManager.h
     include/cad_core/BooleanOperations.h
     include/cad_core/FilletChamferOperations.h
+    include/cad_core/OCAFTransactionCommand.h
 )
 
 # Source files
@@ -33,6 +34,7 @@ set(SOURCES
     src/SelectionManager.cpp
     src/BooleanOperations.cpp
     src/FilletChamferOperations.cpp
+    src/OCAFTransactionCommand.cpp
 )
 
 # Create static library
