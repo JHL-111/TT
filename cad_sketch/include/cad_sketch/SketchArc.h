@@ -28,16 +28,21 @@ public:
     double GetSweepAngle() const;
     double GetLength() const;
     
-    SketchPointPtr GetStartPoint() const;
-    SketchPointPtr GetEndPoint() const;
+    const SketchPointPtr& GetStartPoint() const;
+    const SketchPointPtr& GetEndPoint() const;
     
     std::string GetDescription() const override;
 
+    
 private:
     SketchPointPtr m_center;
+    SketchPointPtr m_startPoint; 
+    SketchPointPtr m_endPoint;
     double m_radius;
     double m_startAngle;
     double m_endAngle;
+
+    void UpdateEndpoints();
 };
 
 using SketchArcPtr = std::shared_ptr<SketchArc>;
