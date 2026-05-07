@@ -2110,6 +2110,28 @@ namespace cad_ui {
             if (startPt) removePointByCoord(startPt->GetX(), startPt->GetY());
             if (endPt) removePointByCoord(endPt->GetX(), endPt->GetY());
         }
+
+        // 3. Clean up the closed-profile AIS objects
+        cad_sketch::Sketch* sketchKey = sketch.get();
+        auto cacheIt = s_sketchProfileCache.find(sketchKey);
+        if (cacheIt != s_sketchProfileCache.end()) {
+            for (auto& aisProfile : cacheIt->second) {
+                if (aisProfile.IsNull()) continue;
+
+                m_context->Remove(aisProfile, Standard_False);
+
+                auto vecIt = std::find(m_sketchProfileObjects.begin(),
+                    m_sketchProfileObjects.end(), aisProfile);
+                if (vecIt != m_sketchProfileObjects.end()) {
+                    m_sketchProfileObjects.erase(vecIt);
+                }
+
+                m_sketchProfileMap.erase(aisProfile);
+            }
+            s_sketchProfileCache.erase(cacheIt);
+        }
+
+        m_view->Redraw();
     }
 
     // Erase specified sketch elements from the screen

@@ -579,10 +579,16 @@ namespace cad_sketch {
                 [&](int a, int b) { return halfEdgeAngle(a) < halfEdgeAngle(b); });
         }
 
-        // 4e. Link the next pointers.
-        // Half-edge h goes from A→B. On arriving at B, find h's twin (B→A) in B's
-        // outgoing list; the entry immediately before the twin in counter-clockwise
-        // order is the next half-edge in that face loop.
+        // 4e. Link the next pointers (left-turn rule for face loop traversal).
+        // Half-edge h goes from A→B. On arriving at B, the next half-edge in the
+        // same face loop is the one that makes the smallest left turn from h's
+        // arrival direction. Algorithmically: find h's twin (B→A) in B's CCW-sorted
+        // outgoing list; the entry immediately preceding the twin in CCW order is
+        // the next half-edge. This rule traces each interior face counter-clockwise,
+        // which produces a positive signed area when the resulting polygon is
+        // evaluated by the shoelace formula in step 5. The unbounded outer face,
+        // traced in clockwise direction, yields a negative signed area and is
+        // discarded.
         for (int hi = 0; hi < (int)halfEdges.size(); ++hi) {
             HalfEdge& he = halfEdges[hi];
             int arriveVtx = he.endVtx;
@@ -663,10 +669,69 @@ namespace cad_sketch {
             candidates.push_back(std::move(fc));
         }
 
-        // ── 5b. Remove outer boundary faces ──
-        // If a face contains the centroid of another face, it is an outer boundary
-        // (it covers the other face) and should be discarded.
-        // Uses the ray-casting algorithm for 2D point-in-polygon testing.
+        // ── 5b. Add closed edges (circles) as polygon candidates ──
+        // To allow closed circles to participate in nested-hierarchy detection,
+        // each closed edge is sampled into a 32-point polygon and added to the
+        // candidate list, alongside the polygons formed by half-edge loops.
+        struct ClosedEdgeRef {
+            int edgeIdx;        // index in edgeVec
+            int candidateIdx;   // index into candidates after insertion
+        };
+        std::vector<ClosedEdgeRef> closedEdgeRefs;
+
+        for (int ci : circleEdgeIndices) {
+            TopoDS_Edge& edge = edgeVec[ci];
+            Standard_Real first, last;
+            Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+            if (curve.IsNull()) continue;
+
+            const int NSAMPLES = 32;
+            FaceCandidate fc;
+            fc.signedArea = 0.0;
+            fc.cx = 0.0;
+            fc.cy = 0.0;
+
+            std::vector<std::pair<double, double>> samples;
+            samples.reserve(NSAMPLES);
+            for (int k = 0; k < NSAMPLES; ++k) {
+                double t = first + (last - first) * (double)k / (double)NSAMPLES;
+                gp_Pnt pt = curve->Value(t);
+                gp_Vec v(cs.Location(), pt);
+                double x = v.Dot(gp_Vec(cs.XDirection()));
+                double y = v.Dot(gp_Vec(cs.YDirection()));
+                samples.push_back({ x, y });
+            }
+            // Compute signed area of sampled polygon
+            for (int k = 0; k < NSAMPLES; ++k) {
+                int kn = (k + 1) % NSAMPLES;
+                fc.signedArea += (samples[k].first * samples[kn].second
+                    - samples[kn].first * samples[k].second);
+                fc.cx += samples[k].first;
+                fc.cy += samples[k].second;
+            }
+            fc.signedArea *= 0.5;
+            fc.cx /= (double)NSAMPLES;
+            fc.cy /= (double)NSAMPLES;
+
+            // Skip degenerate or absurdly large samples
+            double absArea = std::abs(fc.signedArea);
+            if (absArea < Precision::Confusion() || absArea > 1e10) continue;
+
+            fc.poly2D = samples;
+            // Note: for closed circles, signed area sign depends on parametric
+            // direction; we keep both orientations and let the hierarchy logic
+            // treat them uniformly via the absolute polygon shape.
+            // Mark this candidate as a closed edge by leaving loopHEs empty.
+
+            int candIdx = (int)candidates.size();
+            closedEdgeRefs.push_back({ ci, candIdx });
+            candidates.push_back(std::move(fc));
+        }
+
+        // ── 5c. Build containment relation using all-vertices test ──
+        // candidate i contains candidate j  ⇔
+        //   every vertex of j's polygon lies strictly inside i's polygon
+        // (more robust than centroid testing on concave shapes)
         auto pointInPolygon = [](double px, double py,
             const std::vector<std::pair<double, double>>& poly) -> bool {
                 int n = (int)poly.size();
@@ -682,77 +747,151 @@ namespace cad_sketch {
                 return inside;
             };
 
-        std::vector<bool> isRedundant(candidates.size(), false);
-        for (int i = 0; i < (int)candidates.size(); ++i) {
-            if (isRedundant[i]) continue;
-            int containedCount = 0;
-            for (int j = 0; j < (int)candidates.size(); ++j) {
-                if (i == j || isRedundant[j]) continue;
-                if (pointInPolygon(candidates[j].cx, candidates[j].cy, candidates[i].poly2D)) {
-                    containedCount++;
+        auto polygonContains = [&](int i, int j) -> bool {
+            if (i == j) return false;
+            const auto& outer = candidates[i].poly2D;
+            const auto& inner = candidates[j].poly2D;
+            if (outer.size() < 3 || inner.size() < 3) return false;
+            // Quick reject by area: a smaller polygon cannot contain a larger one
+            if (std::abs(candidates[i].signedArea) <=
+                std::abs(candidates[j].signedArea)) return false;
+            for (const auto& vtx : inner) {
+                if (!pointInPolygon(vtx.first, vtx.second, outer)) return false;
+            }
+            return true;
+            };
+
+        int nCand = (int)candidates.size();
+        // parents[i] = list of candidates that contain i
+        std::vector<std::vector<int>> parents(nCand);
+        for (int i = 0; i < nCand; ++i) {
+            for (int j = 0; j < nCand; ++j) {
+                if (polygonContains(j, i)) {
+                    parents[i].push_back(j);
                 }
             }
-            // If face i contains at least one other face's centroid, it is an outer boundary
-            if (containedCount > 0) {
-                isRedundant[i] = true;
-            }
         }
 
-        // ── 5c. Build actual faces from non-redundant candidates ──
-        gp_Pln sketchPlane(cs);
+        // ── 5d. Resolve direct (immediate) parent for each candidate ──
+        // i's direct parent = the candidate in parents[i] with the smallest area
+        // (i.e. the most tightly enclosing one). Equivalently, the one not
+        // contained by any other parent.
+        std::vector<int> directParent(nCand, -1);
+        for (int i = 0; i < nCand; ++i) {
+            int best = -1;
+            double bestArea = std::numeric_limits<double>::max();
+            for (int p : parents[i]) {
+                double a = std::abs(candidates[p].signedArea);
+                if (a < bestArea) { bestArea = a; best = p; }
+            }
+            directParent[i] = best;
+        }
 
-        for (int i = 0; i < (int)candidates.size(); ++i) {
-            if (isRedundant[i]) continue;
+        // ── 5e. Compute nesting depth via parent chain ──
+        std::vector<int> depth(nCand, 0);
+        for (int i = 0; i < nCand; ++i) {
+            int d = 0;
+            int cur = directParent[i];
+            int safety = 0;
+            while (cur != -1 && safety++ < nCand) {
+                d++;
+                cur = directParent[cur];
+            }
+            depth[i] = d;
+        }
 
+        // ── 5f. Build faces grouped by even-odd rule ──
+        // Even depth (0, 2, 4...) = outer wire of a new face
+        // Odd  depth (1, 3, 5...) = hole inside its direct parent face
+        // Each odd-depth candidate is attached as a hole to its direct parent.
+
+        // Helper: build a TopoDS_Wire from a candidate.
+        // For half-edge candidates: walk loopHEs.
+        // For closed-edge candidates (loopHEs empty): use the original closed edge.
+        auto buildWire = [&](int candIdx, bool reverse) -> TopoDS_Wire {
             BRepBuilderAPI_MakeWire wireMaker;
-            for (int heIdx : candidates[i].loopHEs) {
-                HalfEdge& he = halfEdges[heIdx];
-                TopoDS_Edge edge = edgeVec[he.edgeIdx];
-                if (!he.forward) edge.Reverse();
+            const FaceCandidate& fc = candidates[candIdx];
+
+            if (!fc.loopHEs.empty()) {
+                // Half-edge derived loop
+                if (!reverse) {
+                    for (int heIdx : fc.loopHEs) {
+                        const HalfEdge& he = halfEdges[heIdx];
+                        TopoDS_Edge edge = edgeVec[he.edgeIdx];
+                        if (!he.forward) edge.Reverse();
+                        wireMaker.Add(edge);
+                    }
+                }
+                else {
+                    // Build in reverse order with each edge flipped
+                    for (auto it = fc.loopHEs.rbegin(); it != fc.loopHEs.rend(); ++it) {
+                        const HalfEdge& he = halfEdges[*it];
+                        TopoDS_Edge edge = edgeVec[he.edgeIdx];
+                        if (he.forward) edge.Reverse();
+                        wireMaker.Add(edge);
+                    }
+                }
+            }
+            else {
+                // Closed edge (circle) candidate
+                int realEdgeIdx = -1;
+                for (const auto& cer : closedEdgeRefs) {
+                    if (cer.candidateIdx == candIdx) { realEdgeIdx = cer.edgeIdx; break; }
+                }
+                if (realEdgeIdx < 0) return TopoDS_Wire();
+                TopoDS_Edge edge = edgeVec[realEdgeIdx];
+                if (reverse) edge.Reverse();
                 wireMaker.Add(edge);
             }
-            if (!wireMaker.IsDone()) continue;
 
-            TopoDS_Wire wire = wireMaker.Wire();
+            if (!wireMaker.IsDone()) return TopoDS_Wire();
+            return wireMaker.Wire();
+            };
 
-            BRepBuilderAPI_MakeFace faceMaker(sketchPlane, wire, Standard_True);
-            if (faceMaker.IsDone()) {
-                TopoDS_Face face = faceMaker.Face();
+        gp_Pln sketchPlane(cs);
 
-                GProp_GProps props;
-                BRepGProp::SurfaceProperties(face, props);
-                double area = props.Mass();
-                if (area < Precision::Confusion() || area > 1e10) continue;
-
-                m_profiles.push_back(std::make_shared<SketchProfile>(face));
+        // Group children by their direct parent for hole attachment
+        std::vector<std::vector<int>> childrenOf(nCand);
+        for (int i = 0; i < nCand; ++i) {
+            if (directParent[i] >= 0 && (depth[i] % 2 == 1)) {
+                childrenOf[directParent[i]].push_back(i);
             }
         }
 
-        // ── 6. Handle closed edges (circles, etc.) ──
-        for (int ci : circleEdgeIndices) {
-            TopoDS_Edge& edge = edgeVec[ci];
-            BRepBuilderAPI_MakeWire wireMaker;
-            wireMaker.Add(edge);
-            if (!wireMaker.IsDone()) continue;
+        // For every even-depth candidate, build a face with its odd-depth
+        // direct children as holes.
+        for (int i = 0; i < nCand; ++i) {
+            if (depth[i] % 2 != 0) continue; // only even depths become outer faces
 
-            TopoDS_Wire wire = wireMaker.Wire();
-            BRepBuilderAPI_MakeFace faceMaker(sketchPlane, wire, Standard_True);
-            if (faceMaker.IsDone()) {
-                TopoDS_Face face = faceMaker.Face();
+            TopoDS_Wire outerWire = buildWire(i, false);
+            if (outerWire.IsNull()) continue;
 
-                GProp_GProps props;
-                BRepGProp::SurfaceProperties(face, props);
-                double area = props.Mass();
-                if (area < Precision::Confusion() || area > 1e10) continue;
+            BRepBuilderAPI_MakeFace faceMaker(sketchPlane, outerWire, Standard_True);
+            if (!faceMaker.IsDone()) continue;
 
-                m_profiles.push_back(std::make_shared<SketchProfile>(face));
+            // Attach each direct child (odd depth) as a hole.
+            // OCC requires inner wires to be oriented opposite to the outer wire,
+            // so we build them reversed.
+            for (int childIdx : childrenOf[i]) {
+                TopoDS_Wire holeWire = buildWire(childIdx, true);
+                if (holeWire.IsNull()) continue;
+                faceMaker.Add(holeWire);
             }
+
+            if (!faceMaker.IsDone()) continue;
+            TopoDS_Face face = faceMaker.Face();
+
+            GProp_GProps props;
+            BRepGProp::SurfaceProperties(face, props);
+            double area = props.Mass();
+            if (area < Precision::Confusion() || area > 1e10) continue;
+
+            m_profiles.push_back(std::make_shared<SketchProfile>(face));
         }
 
-        // ── 7. Fallback: handle independent closed contours not covered by the
-        //       half-edge traversal (e.g. standalone rectangles).
-        //       The half-edge algorithm above should already cover these; this is
-        //       a safety net.
+        // ── 6. Fallback: handle independent closed contours not covered above ──
+        // (e.g. open polylines that close via shared endpoints but were not
+        // captured as half-edge loops, due to degenerate topology.)
         if (m_profiles.empty()) {
             Handle(TopTools_HSequenceOfShape) allEdges = new TopTools_HSequenceOfShape();
             for (TopTools_ListIteratorOfListOfShape it(connectedEdges); it.More(); it.Next()) {
@@ -760,7 +899,8 @@ namespace cad_sketch {
             }
 
             Handle(TopTools_HSequenceOfShape) wires = new TopTools_HSequenceOfShape();
-            ShapeAnalysis_FreeBounds::ConnectEdgesToWires(allEdges, tolerance, Standard_False, wires);
+            ShapeAnalysis_FreeBounds::ConnectEdgesToWires(allEdges, tolerance,
+                Standard_False, wires);
 
             for (Standard_Integer i = 1; i <= wires->Length(); ++i) {
                 TopoDS_Wire wire = TopoDS::Wire(wires->Value(i));
@@ -780,6 +920,6 @@ namespace cad_sketch {
             }
         }
     }
-
+      
 
 } // namespace cad_sketch
