@@ -37,34 +37,7 @@ namespace cad_feature {
         return GetParameter("distance");
     }
 
-    void ExtrudeFeature::SetDirection(double x, double y, double z) {
-        SetParameter("direction_x", x);
-        SetParameter("direction_y", y);
-        SetParameter("direction_z", z);
-    }
-
-    void ExtrudeFeature::GetDirection(double& x, double& y, double& z) const {
-        x = GetParameter("direction_x");
-        y = GetParameter("direction_y");
-        z = GetParameter("direction_z");
-    }
-
-    void ExtrudeFeature::SetTaperAngle(double angle) {
-        SetParameter("taper_angle", angle);
-    }
-
-    double ExtrudeFeature::GetTaperAngle() const {
-        return GetParameter("taper_angle");
-    }
-
-    void ExtrudeFeature::SetMidplane(bool midplane) {
-        SetParameter("midplane", midplane ? 1.0 : 0.0);
-    }
-
-    bool ExtrudeFeature::GetMidplane() const {
-        return GetParameter("midplane") != 0.0;
-    }
-
+ 
     bool ExtrudeFeature::ValidateParameters() const {
         if (!m_profileShape) return false;
         if (GetDistance() <= 0.0) return false;
@@ -83,31 +56,14 @@ namespace cad_feature {
 
         try {
             TopoDS_Shape topoShape = m_profileShape->GetOCCTShape();
-            TopoDS_Face profileFace;
             gp_Dir extrudeNormal(0, 0, 1);
 
-            // Determine whether the input is a wire or a face
-            if (topoShape.ShapeType() == TopAbs_WIRE || topoShape.ShapeType() == TopAbs_EDGE) {
-                BRepBuilderAPI_MakeWire wireMaker;
-                if (topoShape.ShapeType() == TopAbs_EDGE) {
-                    wireMaker.Add(TopoDS::Edge(topoShape));
-                }
-                else {
-                    wireMaker.Add(TopoDS::Wire(topoShape));
-                }
-                if (!wireMaker.IsDone() || !wireMaker.Wire().Closed()) {
-                    throw std::runtime_error("Profile is not closed!");
-                }
-                BRepBuilderAPI_MakeFace faceMaker(wireMaker.Wire(), true);
-                if (!faceMaker.IsDone()) throw std::runtime_error("Failed to make face.");
-                profileFace = faceMaker.Face();
-            }
-            else if (topoShape.ShapeType() == TopAbs_FACE) {
-                profileFace = TopoDS::Face(topoShape);
-            }
-            else {
+            // The extrude feature operates on planar faces produced by the
+            // closed-profile-detection pipeline 
+            if (topoShape.ShapeType() != TopAbs_FACE) {
                 return nullptr;
             }
+            TopoDS_Face profileFace = TopoDS::Face(topoShape);
 
             // Compute the face normal (automatic surface normal direction)
             Handle(Geom_Surface) surface = BRep_Tool::Surface(profileFace);

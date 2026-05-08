@@ -2817,9 +2817,9 @@ namespace cad_ui {
 
                     auto hideAbsorbedShapes = [&](const std::vector<cad_core::ShapePtr>& shapes) {
                         for (const auto& shape : shapes) {
-                            m_viewer->SetShapeVisibility(shape, false); // Hide it in the 3D view
-
-                            m_documentTree->RemoveShape(shape);         // Remove it from the Shapes list in the document tree
+                            m_ocafManager->RemoveShape(shape);     // 真正从 OCAF 文档移除
+                            m_viewer->RemoveShape(shape);          // 从 3D viewer 移除（不是只 hide）
+                            m_documentTree->RemoveShape(shape);    // 从 tree 移除
 
                         }
                         };

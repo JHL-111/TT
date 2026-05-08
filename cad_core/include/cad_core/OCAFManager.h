@@ -36,6 +36,7 @@ namespace cad_core {
         bool CanUndo() const;
         bool CanRedo() const;
 
+
         // Transaction operations
         void StartTransaction(const std::string& name = "Operation");
         void CommitTransaction();

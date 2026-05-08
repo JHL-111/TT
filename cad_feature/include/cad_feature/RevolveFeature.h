@@ -29,9 +29,6 @@ public:
     void SetAxisOrigin(double x, double y, double z);
     void GetAxisOrigin(double& x, double& y, double& z) const;
     
-    void SetMidplane(bool midplane);
-    bool GetMidplane() const;
-    
     // Feature interface
     cad_core::ShapePtr CreateShape() const override;
     bool ValidateParameters() const override;

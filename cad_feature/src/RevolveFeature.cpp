@@ -20,7 +20,7 @@ namespace cad_feature {
         SetParameter("axis_origin_x", 0.0);
         SetParameter("axis_origin_y", 0.0);
         SetParameter("axis_origin_z", 0.0);
-        SetParameter("midplane", 0.0);
+  
     }
 
     RevolveFeature::RevolveFeature(const std::string& name) : Feature(FeatureType::Revolve, name) {
@@ -31,7 +31,6 @@ namespace cad_feature {
         SetParameter("axis_origin_x", 0.0);
         SetParameter("axis_origin_y", 0.0);
         SetParameter("axis_origin_z", 0.0);
-        SetParameter("midplane", 0.0);
     }
 
     void RevolveFeature::SetSketch(const cad_sketch::SketchPtr& sketch) {
@@ -82,13 +81,6 @@ namespace cad_feature {
         z = GetParameter("axis_origin_z");
     }
 
-    void RevolveFeature::SetMidplane(bool midplane) {
-        SetParameter("midplane", midplane ? 1.0 : 0.0);
-    }
-
-    bool RevolveFeature::GetMidplane() const {
-        return GetParameter("midplane") != 0.0;
-    }
 
     cad_core::ShapePtr RevolveFeature::CreateShape() const {
         if (!ValidateParameters()) {
@@ -133,24 +125,8 @@ namespace cad_feature {
 
             if (m_profileShape && m_profileShape->IsValid()) {
                 TopoDS_Shape topoShape = m_profileShape->GetOCCTShape();
-
                 if (topoShape.ShapeType() == TopAbs_FACE) {
                     profileFace = TopoDS::Face(topoShape);
-                }
-                else if (topoShape.ShapeType() == TopAbs_WIRE) {
-                    BRepBuilderAPI_MakeFace faceMaker(TopoDS::Wire(topoShape), true);
-                    if (faceMaker.IsDone()) {
-                        profileFace = faceMaker.Face();
-                    }
-                }
-                else if (topoShape.ShapeType() == TopAbs_EDGE) {
-                    BRepBuilderAPI_MakeWire wireMaker(TopoDS::Edge(topoShape));
-                    if (wireMaker.IsDone() && wireMaker.Wire().Closed()) {
-                        BRepBuilderAPI_MakeFace faceMaker(wireMaker.Wire(), true);
-                        if (faceMaker.IsDone()) {
-                            profileFace = faceMaker.Face();
-                        }
-                    }
                 }
             }
             else if (IsSketchValid()) {

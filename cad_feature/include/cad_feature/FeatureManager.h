@@ -41,18 +41,10 @@ namespace cad_feature {
         int GetFeatureCount() const;
         bool IsEmpty() const;
 
-        // Events (used to notify the UI)
-        void SetFeatureAddedCallback(std::function<void(const FeaturePtr&)> callback);
-        void SetFeatureRemovedCallback(std::function<void(const FeaturePtr&)> callback);
-        void SetFeatureUpdatedCallback(std::function<void(const FeaturePtr&)> callback);
+     
 
     private:
         std::vector<FeaturePtr> m_features;
-
-        // Callback functions
-        std::function<void(const FeaturePtr&)> m_featureAddedCallback;
-        std::function<void(const FeaturePtr&)> m_featureRemovedCallback;
-        std::function<void(const FeaturePtr&)> m_featureUpdatedCallback;
 
         int FindFeatureIndex(const FeaturePtr& feature) const;
         void NotifyFeatureAdded(const FeaturePtr& feature);

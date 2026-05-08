@@ -19,15 +19,6 @@ namespace cad_feature {
         void SetDistance(double distance);
         double GetDistance() const;
 
-        void SetDirection(double x, double y, double z);
-        void GetDirection(double& x, double& y, double& z) const;
-
-        void SetTaperAngle(double angle);
-        double GetTaperAngle() const;
-
-        void SetMidplane(bool midplane);
-        bool GetMidplane() const;
-
         // Feature interface
         cad_core::ShapePtr CreateShape() const override;
         bool ValidateParameters() const override;

@@ -2,6 +2,7 @@
 #include <sstream>
 #include <algorithm>
 
+
 namespace cad_core {
 
     OCAFManager::OCAFManager() : m_isInitialized(false) {
